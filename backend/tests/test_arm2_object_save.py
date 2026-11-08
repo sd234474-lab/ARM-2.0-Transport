@@ -269,17 +269,27 @@ with Session(engine) as db:
 with Session(engine) as db:
     from app.arm2.history_models import HistoryEvent
     assert db.scalar(select(func.count()).select_from(HistoryEvent)) >= 1
-    try:
-        create_object(
-            db,
-            object_type="VEH",
-            values={},
-            context=SaveContext("SYSTEM", "isolated-process", "integration-test"),
-        )
-    except ObjectRegistryError as error:
-        assert "no save adapter" in str(error)
-    else:
-        raise AssertionError("VEH without an adapter must be rejected")
+    vehicle_adapter = OBJECT_REGISTRY.require("VEH").adapter
+    assert vehicle_adapter is not None
+    initialize_object_adapters()
+    assert OBJECT_REGISTRY.require("VEH").adapter is vehicle_adapter
+    vehicle = create_object(
+        db,
+        object_type="VEH",
+        values={
+            "name": "Изолированная машина",
+            "plate_number": "А123ВС86",
+            "type_id": None,
+            "accounting_state": "Действующая",
+            "model": None,
+            "wialon_unit_id": None,
+        },
+        context=SaveContext("SYSTEM", "isolated-process", "integration-test"),
+    )
+    db.commit()
+    assert vehicle.record.id.startswith("VEH-")
+    assert vehicle.event.object_type == "VEH"
+    assert vehicle.event.object_id == vehicle.record.id
 engine.dispose()
 '''
     environment = os.environ.copy()

@@ -114,7 +114,21 @@ OBJECT_REGISTRY = ObjectRegistry()
 OBJECT_REGISTRY.register(
     ObjectDefinition("TYPE", "TYPE", TYPE_COMMAND_FIELDS, TYPE_HISTORY_FIELDS)
 )
-OBJECT_REGISTRY.register(ObjectDefinition("VEH", "VEH", {}, {}))
+VEH_COMMAND_FIELDS = {
+    "name": FieldSpec((str,)),
+    "plate_number": FieldSpec((str,)),
+    "type_id": FieldSpec((str,), nullable=True),
+    "accounting_state": FieldSpec((str,)),
+    "model": FieldSpec((str,), nullable=True),
+    "wialon_unit_id": FieldSpec((str,), nullable=True),
+}
+VEH_HISTORY_FIELDS = {
+    **VEH_COMMAND_FIELDS,
+    "version": FieldSpec((int,)),
+}
+OBJECT_REGISTRY.register(
+    ObjectDefinition("VEH", "VEH", VEH_COMMAND_FIELDS, VEH_HISTORY_FIELDS)
+)
 
 
 def initialize_object_adapters() -> ObjectRegistry:
@@ -122,4 +136,7 @@ def initialize_object_adapters() -> ObjectRegistry:
     from app.arm2.vehicle_type_store import register_vehicle_type_adapter
 
     register_vehicle_type_adapter(OBJECT_REGISTRY)
+    from app.arm2.vehicle_store import register_vehicle_adapter
+
+    register_vehicle_adapter(OBJECT_REGISTRY)
     return OBJECT_REGISTRY
