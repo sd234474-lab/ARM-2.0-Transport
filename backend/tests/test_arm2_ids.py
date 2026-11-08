@@ -1,6 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
 
-import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
@@ -12,8 +11,8 @@ def test_vehicle_ids_are_persistent_non_reusable_and_concurrent(database_url):
     engine = create_engine(database_url, poolclass=NullPool)
 
     with Session(engine) as db:
-        with pytest.raises(ValueError, match="Unknown ARM 2.0 ID prefix"):
-            next_id(db, "TYPE")
+        type_id = next_id(db, "TYPE")
+        assert type_id == "TYPE-000001"
         first = next_id(db, "VEH")
         second = next_id(db, "VEH")
         db.commit()

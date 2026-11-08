@@ -5,8 +5,12 @@ from sqlalchemy.pool import NullPool
 
 from app.arm2.history_models import HistoryEvent
 from app.arm2.history_store import HistoryValidationError, append_history_event
+from app.arm2.object_save import SaveContext
 from app.arm2.vehicle_type_models import VehicleType
 from app.arm2.vehicle_type_store import create_vehicle_type, update_vehicle_type
+
+SYSTEM_CONTEXT = SaveContext("SYSTEM", "arm2-history-test", "integration-test", "batch-001")
+HUMAN_CONTEXT = SaveContext("HUMAN", "operator-001", "internal-service")
 
 
 def created_changes(name, requires_calibration, requires_wialon, status):
@@ -25,20 +29,9 @@ def test_shared_history_is_detailed_filtered_atomic_and_safe(database_url):
     engine = create_engine(database_url, poolclass=NullPool)
 
     with Session(engine) as db:
-        vehicle_type = create_vehicle_type(db, "Самосвал", True, None, False)
-        created = append_history_event(
-            db,
-            object_type="TYPE",
-            object_id=vehicle_type.id,
-            operation="CREATED",
-            actor_kind="SYSTEM",
-            actor_id="arm2-history-test",
-            source="integration-test",
-            correlation_id="batch-001",
-            version_after=1,
-            changes=created_changes("Самосвал", None, False, "REVIEW"),
+        vehicle_type = create_vehicle_type(
+            db, "Самосвал", True, None, False, context=SYSTEM_CONTEXT
         )
-        assert created.event_id is not None
         db.commit()
         first_id = vehicle_type.id
 
@@ -47,41 +40,21 @@ def test_shared_history_is_detailed_filtered_atomic_and_safe(database_url):
         assert created is not None
         assert created.changes["requires_calibration"] == {"before": None, "after": None}
         assert created.changes["requires_wialon"] == {"before": None, "after": False}
-        assert created.version_after == 1
+        assert (created.version_after, created.actor_id, created.correlation_id) == (
+            1,
+            "arm2-history-test",
+            "batch-001",
+        )
         assert created.occurred_at.tzinfo is not None
-
-        vehicle_type = update_vehicle_type(db, first_id, 1, "Самосвал", True, False, False)
-        append_history_event(
-            db,
-            object_type="TYPE",
-            object_id=first_id,
-            operation="UPDATED",
-            actor_kind="HUMAN",
-            actor_id="operator-001",
-            source="internal-service",
-            version_before=1,
-            version_after=2,
-            changes={
-                "requires_calibration": {"before": None, "after": False},
-                "status": {"before": "REVIEW", "after": "CONFIRMED"},
-                "version": {"before": 1, "after": 2},
-            },
+        vehicle_type = update_vehicle_type(
+            db, first_id, 1, "Самосвал", True, False, False, context=HUMAN_CONTEXT
         )
         assert vehicle_type.version == 2
         db.commit()
 
     with Session(engine) as db:
-        other = create_vehicle_type(db, "Погрузчик", True, False, False)
-        append_history_event(
-            db,
-            object_type="TYPE",
-            object_id=other.id,
-            operation="CREATED",
-            actor_kind="SYSTEM",
-            actor_id="arm2-history-test",
-            source="integration-test",
-            version_after=1,
-            changes=created_changes("Погрузчик", False, False, "CONFIRMED"),
+        other = create_vehicle_type(
+            db, "Погрузчик", True, False, False, context=SYSTEM_CONTEXT
         )
         db.commit()
         other_id = other.id
@@ -96,20 +69,16 @@ def test_shared_history_is_detailed_filtered_atomic_and_safe(database_url):
             ("CREATED", 1),
             ("UPDATED", 2),
         ]
+        assert events[1].changes == {
+            "requires_calibration": {"before": None, "after": False},
+            "status": {"before": "REVIEW", "after": "CONFIRMED"},
+            "version": {"before": 1, "after": 2},
+        }
         assert all(event.object_id != other_id for event in events)
 
     with Session(engine) as db:
-        rolled_back = create_vehicle_type(db, "Будет отменён", True, False, False)
-        append_history_event(
-            db,
-            object_type="TYPE",
-            object_id=rolled_back.id,
-            operation="CREATED",
-            actor_kind="SYSTEM",
-            actor_id="rollback-test",
-            source="integration-test",
-            version_after=1,
-            changes=created_changes("Будет отменён", False, False, "CONFIRMED"),
+        rolled_back = create_vehicle_type(
+            db, "Будет отменён", True, False, False, context=SYSTEM_CONTEXT
         )
         rolled_back_id = rolled_back.id
         db.rollback()

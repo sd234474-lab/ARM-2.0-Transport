@@ -1,7 +1,15 @@
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.arm2.ids import next_id
+from app.arm2.object_registry import OBJECT_REGISTRY
+from app.arm2.object_save import InvalidExpectedVersionError as InvalidExpectedVersionError
+from app.arm2.object_save import (
+    ObjectNotFoundError,
+    ObjectVersionConflictError,
+    SaveContext,
+    create_object,
+    update_object,
+)
 from app.arm2.vehicle_type_models import VehicleType
 from app.arm2.vehicle_type_rules import (
     normalize_type_name,
@@ -9,17 +17,54 @@ from app.arm2.vehicle_type_rules import (
     type_status,
 )
 
-
-class InvalidExpectedVersionError(ValueError):
-    pass
-
-
-class VehicleTypeNotFoundError(LookupError):
-    pass
+VehicleTypeNotFoundError = ObjectNotFoundError
+VehicleTypeVersionConflictError = ObjectVersionConflictError
 
 
-class VehicleTypeVersionConflictError(RuntimeError):
-    pass
+class _VehicleTypeAdapter:
+    def normalize(self, values):
+        name = normalize_type_name(values["name"])
+        sts, calibration, wialon = normalize_type_requirements(
+            values["requires_sts"],
+            values["requires_calibration"],
+            values["requires_wialon"],
+        )
+        return {
+            "name": name,
+            "requires_sts": sts,
+            "requires_calibration": calibration,
+            "requires_wialon": wialon,
+            "status": type_status(name, sts, calibration, wialon),
+        }
+
+    def create_record(self, db, values):
+        vehicle_type = VehicleType(id=next_id(db, "TYPE"), version=1, **values)
+        db.add(vehicle_type)
+        db.flush()
+        return vehicle_type
+
+    def lock_record(self, db, object_id):
+        from sqlalchemy import select
+
+        return db.scalar(
+            select(VehicleType).where(VehicleType.id == object_id).with_for_update()
+        )
+
+    def apply(self, record, values):
+        for field, value in values.items():
+            setattr(record, field, value)
+
+
+OBJECT_REGISTRY.attach_adapter("TYPE", _VehicleTypeAdapter())
+
+
+def _values(name, requires_sts, requires_calibration, requires_wialon):
+    return {
+        "name": name,
+        "requires_sts": requires_sts,
+        "requires_calibration": requires_calibration,
+        "requires_wialon": requires_wialon,
+    }
 
 
 def create_vehicle_type(
@@ -28,25 +73,15 @@ def create_vehicle_type(
     requires_sts: bool | None = True,
     requires_calibration: bool | None = None,
     requires_wialon: bool | None = None,
+    *,
+    context: SaveContext,
 ) -> VehicleType:
-    normalized_name = normalize_type_name(name)
-    sts, calibration, wialon = normalize_type_requirements(
-        requires_sts,
-        requires_calibration,
-        requires_wialon,
-    )
-    vehicle_type = VehicleType(
-        id=next_id(db, "TYPE"),
-        name=normalized_name,
-        requires_sts=sts,
-        requires_calibration=calibration,
-        requires_wialon=wialon,
-        status=type_status(normalized_name, sts, calibration, wialon),
-        version=1,
-    )
-    db.add(vehicle_type)
-    db.flush()
-    return vehicle_type
+    return create_object(
+        db,
+        object_type="TYPE",
+        values=_values(name, requires_sts, requires_calibration, requires_wialon),
+        context=context,
+    ).record
 
 
 def update_vehicle_type(
@@ -57,45 +92,14 @@ def update_vehicle_type(
     requires_sts: bool | None,
     requires_calibration: bool | None,
     requires_wialon: bool | None,
+    *,
+    context: SaveContext,
 ) -> VehicleType:
-    if type(expected_version) is not int or expected_version <= 0:
-        raise InvalidExpectedVersionError("expected_version must be a positive integer")
-
-    vehicle_type = db.scalar(
-        select(VehicleType).where(VehicleType.id == type_id).with_for_update()
-    )
-    if vehicle_type is None:
-        raise VehicleTypeNotFoundError(f"Vehicle type not found: {type_id}")
-    if vehicle_type.version != expected_version:
-        raise VehicleTypeVersionConflictError(
-            f"Vehicle type version conflict: expected {expected_version}, current {vehicle_type.version}"
-        )
-
-    normalized_name = normalize_type_name(name)
-    sts, calibration, wialon = normalize_type_requirements(
-        requires_sts,
-        requires_calibration,
-        requires_wialon,
-    )
-    status = type_status(normalized_name, sts, calibration, wialon)
-    values = (normalized_name, sts, calibration, wialon, status)
-    current = (
-        vehicle_type.name,
-        vehicle_type.requires_sts,
-        vehicle_type.requires_calibration,
-        vehicle_type.requires_wialon,
-        vehicle_type.status,
-    )
-    if values == current:
-        return vehicle_type
-
-    (
-        vehicle_type.name,
-        vehicle_type.requires_sts,
-        vehicle_type.requires_calibration,
-        vehicle_type.requires_wialon,
-        vehicle_type.status,
-    ) = values
-    vehicle_type.version += 1
-    db.flush()
-    return vehicle_type
+    return update_object(
+        db,
+        object_type="TYPE",
+        object_id=type_id,
+        expected_version=expected_version,
+        values=_values(name, requires_sts, requires_calibration, requires_wialon),
+        context=context,
+    ).record
