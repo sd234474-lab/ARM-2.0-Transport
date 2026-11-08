@@ -55,7 +55,11 @@ class _VehicleTypeAdapter:
             setattr(record, field, value)
 
 
-OBJECT_REGISTRY.attach_adapter("TYPE", _VehicleTypeAdapter())
+VEHICLE_TYPE_ADAPTER = _VehicleTypeAdapter()
+
+
+def register_vehicle_type_adapter(registry=OBJECT_REGISTRY):
+    registry.attach_adapter("TYPE", VEHICLE_TYPE_ADAPTER)
 
 
 def _values(name, requires_sts, requires_calibration, requires_wialon):

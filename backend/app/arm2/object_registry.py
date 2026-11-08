@@ -85,6 +85,10 @@ class ObjectRegistry:
 
     def attach_adapter(self, object_type: str, adapter: ObjectAdapter) -> None:
         definition = self.require(object_type)
+        if definition.adapter is adapter:
+            return
+        if definition.adapter is not None:
+            raise ObjectRegistryError(f"Object type already has an adapter: {object_type}")
         self._definitions[object_type] = replace(definition, adapter=adapter)
 
     def require(self, object_type: str) -> ObjectDefinition:
@@ -111,3 +115,11 @@ OBJECT_REGISTRY.register(
     ObjectDefinition("TYPE", "TYPE", TYPE_COMMAND_FIELDS, TYPE_HISTORY_FIELDS)
 )
 OBJECT_REGISTRY.register(ObjectDefinition("VEH", "VEH", {}, {}))
+
+
+def initialize_object_adapters() -> ObjectRegistry:
+    """Idempotently attach every production adapter to the shared registry."""
+    from app.arm2.vehicle_type_store import register_vehicle_type_adapter
+
+    register_vehicle_type_adapter(OBJECT_REGISTRY)
+    return OBJECT_REGISTRY

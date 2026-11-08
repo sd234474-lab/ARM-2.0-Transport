@@ -1,5 +1,9 @@
+import os
+import subprocess
+import sys
 from contextlib import nullcontext
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, func, select
@@ -217,3 +221,74 @@ def test_second_isolated_object_reuses_the_same_save_algorithm():
     )
     assert not no_op.changed
     assert len(events) == 2
+
+
+def test_explicit_adapter_initialization_is_import_order_independent(database_url):
+    script = r'''
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path.cwd() / "backend"))
+
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.orm import Session
+
+from app.arm2.object_save import SaveContext, create_object
+from app.arm2.object_registry import (
+    OBJECT_REGISTRY,
+    ObjectRegistryError,
+    initialize_object_adapters,
+)
+
+assert "app.arm2.vehicle_type_store" not in sys.modules
+assert OBJECT_REGISTRY.require("TYPE").adapter is None
+initialize_object_adapters()
+adapter = OBJECT_REGISTRY.require("TYPE").adapter
+assert adapter is not None
+initialize_object_adapters()
+assert OBJECT_REGISTRY.require("TYPE").adapter is adapter
+
+engine = create_engine(os.environ["TEST_DATABASE_URL"])
+with Session(engine) as db:
+    result = create_object(
+        db,
+        object_type="TYPE",
+        values={
+            "name": "Изолированный TYPE",
+            "requires_sts": True,
+            "requires_calibration": False,
+            "requires_wialon": False,
+        },
+        context=SaveContext("SYSTEM", "isolated-process", "integration-test"),
+    )
+    db.commit()
+    assert result.record.id.startswith("TYPE-")
+    assert result.event.object_id == result.record.id
+
+with Session(engine) as db:
+    from app.arm2.history_models import HistoryEvent
+    assert db.scalar(select(func.count()).select_from(HistoryEvent)) >= 1
+    try:
+        create_object(
+            db,
+            object_type="VEH",
+            values={},
+            context=SaveContext("SYSTEM", "isolated-process", "integration-test"),
+        )
+    except ObjectRegistryError as error:
+        assert "no save adapter" in str(error)
+    else:
+        raise AssertionError("VEH without an adapter must be rejected")
+engine.dispose()
+'''
+    environment = os.environ.copy()
+    environment["TEST_DATABASE_URL"] = database_url
+    result = subprocess.run(
+        [sys.executable, "-X", "utf8", "-c", script],
+        cwd=Path(__file__).parents[2],
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

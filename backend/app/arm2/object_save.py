@@ -4,7 +4,12 @@ from typing import Any, Callable
 from sqlalchemy.orm import Session
 
 from app.arm2.history_store import append_history_event
-from app.arm2.object_registry import OBJECT_REGISTRY, ObjectRegistry, ObjectRegistryError
+from app.arm2.object_registry import (
+    OBJECT_REGISTRY,
+    ObjectRegistry,
+    ObjectRegistryError,
+    initialize_object_adapters,
+)
 
 
 class InvalidExpectedVersionError(ValueError):
@@ -52,6 +57,8 @@ HistoryWriter = Callable[..., Any]
 
 
 def _definition(registry: ObjectRegistry, object_type: str):
+    if registry is OBJECT_REGISTRY:
+        initialize_object_adapters()
     definition = registry.require(object_type)
     if definition.adapter is None:
         raise ObjectRegistryError(f"Object type has no save adapter: {object_type}")
