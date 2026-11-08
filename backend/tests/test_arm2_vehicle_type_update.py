@@ -2,11 +2,13 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
+from app.arm2.history_models import HistoryEvent
+from app.arm2.object_save import SaveContext
 from app.arm2.vehicle_type_models import VehicleType
 from app.arm2.vehicle_type_store import (
     InvalidExpectedVersionError,
@@ -16,12 +18,16 @@ from app.arm2.vehicle_type_store import (
     update_vehicle_type,
 )
 
+CONTEXT = SaveContext("HUMAN", "type-update-test", "integration-test")
+
 
 def test_vehicle_type_update_is_version_safe_and_transactional(database_url):
     engine = create_engine(database_url, poolclass=NullPool)
 
     with Session(engine) as db:
-        vehicle_type = create_vehicle_type(db, "Самосвал", requires_wialon=True)
+        vehicle_type = create_vehicle_type(
+            db, "Самосвал", requires_wialon=True, context=CONTEXT
+        )
         db.commit()
         type_id = vehicle_type.id
     assert type_id == "TYPE-000001"
@@ -32,7 +38,9 @@ def test_vehicle_type_update_is_version_safe_and_transactional(database_url):
         with Session(engine) as db:
             barrier.wait()
             try:
-                updated = update_vehicle_type(db, type_id, 1, name, True, False, False)
+                updated = update_vehicle_type(
+                    db, type_id, 1, name, True, False, False, context=CONTEXT
+                )
                 db.commit()
                 return "updated", updated.name, updated.version
             except VehicleTypeVersionConflictError:
@@ -54,11 +62,15 @@ def test_vehicle_type_update_is_version_safe_and_transactional(database_url):
             2,
         )
         with pytest.raises(VehicleTypeVersionConflictError):
-            update_vehicle_type(db, type_id, 1, "Устаревшая правка", True, True, True)
+            update_vehicle_type(
+                db, type_id, 1, "Устаревшая правка", True, True, True, context=CONTEXT
+            )
         db.rollback()
 
     with Session(engine) as db:
-        temporary = update_vehicle_type(db, type_id, 2, "Временное имя", True, True, True)
+        temporary = update_vehicle_type(
+            db, type_id, 2, "Временное имя", True, True, True, context=CONTEXT
+        )
         assert (temporary.id, temporary.version) == (type_id, 3)
         with Session(engine) as observer:
             visible = observer.get(VehicleType, type_id)
@@ -67,41 +79,53 @@ def test_vehicle_type_update_is_version_safe_and_transactional(database_url):
         db.rollback()
 
     with Session(engine) as db:
-        updated = update_vehicle_type(db, type_id, 2, "Обновлённый самосвал", True, False, False)
+        updated = update_vehicle_type(
+            db, type_id, 2, "Обновлённый самосвал", True, False, False, context=CONTEXT
+        )
         db.commit()
         assert (updated.id, updated.status, updated.version) == (type_id, "CONFIRMED", 3)
 
     with Session(engine) as db:
-        unchanged = update_vehicle_type(db, type_id, 3, "Обновлённый самосвал", True, False, False)
+        unchanged = update_vehicle_type(
+            db, type_id, 3, "Обновлённый самосвал", True, False, False, context=CONTEXT
+        )
         db.commit()
         assert unchanged.version == 3
 
     with Session(engine) as db:
-        review = update_vehicle_type(db, type_id, 3, "Обновлённый самосвал", True, False, None)
+        review = update_vehicle_type(
+            db, type_id, 3, "Обновлённый самосвал", True, False, None, context=CONTEXT
+        )
         db.commit()
         assert (review.status, review.version) == ("REVIEW", 4)
 
     with Session(engine) as db:
-        confirmed = update_vehicle_type(db, type_id, 4, "Обновлённый самосвал", True, False, False)
+        confirmed = update_vehicle_type(
+            db, type_id, 4, "Обновлённый самосвал", True, False, False, context=CONTEXT
+        )
         db.commit()
         assert (confirmed.status, confirmed.version) == ("CONFIRMED", 5)
 
     with Session(engine) as db:
         with pytest.raises(ValueError, match="requires_sts must be True"):
-            update_vehicle_type(db, type_id, 5, "Недопустимый СТС", False, True, True)
+            update_vehicle_type(
+                db, type_id, 5, "Недопустимый СТС", False, True, True, context=CONTEXT
+            )
         db.rollback()
         with pytest.raises(ValueError, match="must not be empty"):
-            update_vehicle_type(db, type_id, 5, "   ", True, True, True)
+            update_vehicle_type(db, type_id, 5, "   ", True, True, True, context=CONTEXT)
         db.rollback()
 
     with Session(engine) as db:
-        other = create_vehicle_type(db, "Погрузчик", True, True, True)
+        other = create_vehicle_type(db, "Погрузчик", True, True, True, context=CONTEXT)
         db.commit()
         assert other.id == "TYPE-000002"
 
     with Session(engine) as db:
         with pytest.raises(IntegrityError):
-            update_vehicle_type(db, type_id, 5, "  Погрузчик  ", True, True, True)
+            update_vehicle_type(
+                db, type_id, 5, "  Погрузчик  ", True, True, True, context=CONTEXT
+            )
         db.rollback()
         preserved = db.get(VehicleType, type_id)
         assert preserved is not None
@@ -113,7 +137,9 @@ def test_vehicle_type_update_is_version_safe_and_transactional(database_url):
 
     with Session(engine) as db:
         with pytest.raises(VehicleTypeNotFoundError):
-            update_vehicle_type(db, "TYPE-999999", 1, "Нет записи", True, True, True)
+            update_vehicle_type(
+                db, "TYPE-999999", 1, "Нет записи", True, True, True, context=CONTEXT
+            )
         for invalid_version in (0, -1, True, 1.0):
             with pytest.raises(InvalidExpectedVersionError):
                 update_vehicle_type(
@@ -124,6 +150,7 @@ def test_vehicle_type_update_is_version_safe_and_transactional(database_url):
                     True,
                     True,
                     True,
+                    context=CONTEXT,
                 )
         db.rollback()
 
@@ -138,4 +165,5 @@ def test_vehicle_type_update_is_version_safe_and_transactional(database_url):
             ("TYPE-000001", 5),
             ("TYPE-000002", 1),
         ]
+        assert db.scalar(select(func.count()).select_from(HistoryEvent)) == 6
     engine.dispose()

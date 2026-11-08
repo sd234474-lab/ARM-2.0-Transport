@@ -1,28 +1,15 @@
-import re
 from collections.abc import Mapping
 
 from sqlalchemy.orm import Session
 
 from app.arm2.history_models import HistoryEvent
+from app.arm2.object_registry import OBJECT_REGISTRY, ObjectRegistryError
 
 
 class HistoryValidationError(ValueError):
     pass
 
 
-_OBJECT_ID_PATTERNS = {
-    "TYPE": re.compile(r"TYPE-[0-9]{6,}"),
-    "VEH": re.compile(r"VEH-[0-9]{6,}"),
-}
-_TYPE_FIELDS = {
-    "name",
-    "requires_sts",
-    "requires_calibration",
-    "requires_wialon",
-    "status",
-    "version",
-}
-_ALLOWED_FIELDS = {"TYPE": _TYPE_FIELDS, "VEH": set()}
 _OPERATIONS = {"CREATED", "UPDATED"}
 
 
@@ -39,21 +26,12 @@ def _positive_version(value: int | None, field: str) -> int | None:
 
 
 def _validate_object(object_type: str, object_id: str) -> tuple[str, str]:
-    if object_type not in _OBJECT_ID_PATTERNS:
-        raise HistoryValidationError(f"Unknown object_type: {object_type}")
-    if not isinstance(object_id, str) or not _OBJECT_ID_PATTERNS[object_type].fullmatch(object_id):
-        raise HistoryValidationError(f"object_id does not match object_type {object_type}")
+    try:
+        definition = OBJECT_REGISTRY.require(object_type)
+        definition.validate_id(object_id)
+    except ObjectRegistryError as error:
+        raise HistoryValidationError(str(error)) from error
     return object_type, object_id
-
-
-def _validate_value(field: str, value):
-    if field in {"requires_sts", "requires_calibration", "requires_wialon"}:
-        if value is not None and type(value) is not bool:
-            raise HistoryValidationError(f"{field} history value must be bool or None")
-    elif field == "version":
-        _positive_version(value, "version history value")
-    elif value is not None and not isinstance(value, str):
-        raise HistoryValidationError(f"{field} history value must be string or None")
 
 
 def _validate_changes(
@@ -65,7 +43,8 @@ def _validate_changes(
 ) -> dict:
     if type(changes) is not dict or not changes:
         raise HistoryValidationError("changes must be a non-empty plain object")
-    allowed = _ALLOWED_FIELDS[object_type]
+    definition = OBJECT_REGISTRY.require(object_type)
+    allowed = set(definition.history_fields)
     unknown = set(changes) - allowed
     if unknown:
         raise HistoryValidationError(f"Unregistered history fields: {', '.join(sorted(unknown))}")
@@ -79,8 +58,12 @@ def _validate_changes(
         if type(change) is not dict or set(change) != {"before", "after"}:
             raise HistoryValidationError(f"{field} change must contain only before and after")
         before, after = change["before"], change["after"]
-        _validate_value(field, before)
-        _validate_value(field, after)
+        try:
+            definition.history_fields[field].validate(after, field)
+            if operation == "UPDATED":
+                definition.history_fields[field].validate(before, field)
+        except ObjectRegistryError as error:
+            raise HistoryValidationError(str(error)) from error
         if operation == "CREATED" and before is not None:
             raise HistoryValidationError("CREATED before values must be None")
         if operation == "UPDATED" and before == after:
