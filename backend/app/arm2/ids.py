@@ -2,6 +2,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 _NEXT_VALUE = {
+    "TYPE": text("SELECT nextval('arm2_vehicle_type_id_seq')"),
     "VEH": text("SELECT nextval('arm2_vehicle_id_seq')"),
 }
 
