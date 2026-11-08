@@ -27,8 +27,10 @@ def test_veh_uses_same_pipeline_as_type_with_history_and_versions(isolated_arm2_
         assert vehicle.accounting_state == "Действующая"
         db.commit()
         vehicle_id = vehicle.id
+        confirmed_id = confirmed.id
+        incomplete_id = incomplete.id
         with pytest.raises(ValueError, match="CONFIRMED"):
-            create_vehicle(db, "Нельзя назначить", "B123BC86", type_id=incomplete.id, context=CONTEXT)
+            create_vehicle(db, "Нельзя назначить", "B123BC86", type_id=incomplete_id, context=CONTEXT)
         db.rollback()
 
     with Session(engine) as db:
@@ -67,7 +69,7 @@ def test_veh_uses_same_pipeline_as_type_with_history_and_versions(isolated_arm2_
         assert events[1].changes["accounting_state"] == {
             "before": "Действующая", "after": "Архивная"
         }
-        assert events[1].changes["type_id"]["before"] == confirmed.id
+        assert events[1].changes["type_id"]["before"] == confirmed_id
         assert events[1].changes["type_id"]["after"] is None
         assert db.scalar(select(func.count()).select_from(Vehicle)) == 1
     engine.dispose()
