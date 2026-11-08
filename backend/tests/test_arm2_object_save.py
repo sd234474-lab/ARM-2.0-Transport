@@ -24,8 +24,8 @@ from app.arm2.vehicle_type_store import create_vehicle_type, update_vehicle_type
 CONTEXT = SaveContext("SYSTEM", "core-test", "integration-test", "operation-001")
 
 
-def test_type_uses_common_save_with_mandatory_atomic_history(database_url):
-    engine = create_engine(database_url, poolclass=NullPool)
+def test_type_uses_common_save_with_mandatory_atomic_history(isolated_arm2_database_url):
+    engine = create_engine(isolated_arm2_database_url, poolclass=NullPool)
 
     with Session(engine) as db:
         vehicle_type = create_vehicle_type(

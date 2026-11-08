@@ -21,8 +21,8 @@ from app.arm2.vehicle_type_store import (
 CONTEXT = SaveContext("HUMAN", "type-update-test", "integration-test")
 
 
-def test_vehicle_type_update_is_version_safe_and_transactional(database_url):
-    engine = create_engine(database_url, poolclass=NullPool)
+def test_vehicle_type_update_is_version_safe_and_transactional(isolated_arm2_database_url):
+    engine = create_engine(isolated_arm2_database_url, poolclass=NullPool)
 
     with Session(engine) as db:
         vehicle_type = create_vehicle_type(

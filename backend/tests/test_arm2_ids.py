@@ -7,8 +7,8 @@ from sqlalchemy.pool import NullPool
 from app.arm2.ids import next_id
 
 
-def test_vehicle_ids_are_persistent_non_reusable_and_concurrent(database_url):
-    engine = create_engine(database_url, poolclass=NullPool)
+def test_vehicle_ids_are_persistent_non_reusable_and_concurrent(isolated_arm2_database_url):
+    engine = create_engine(isolated_arm2_database_url, poolclass=NullPool)
 
     with Session(engine) as db:
         type_id = next_id(db, "TYPE")
