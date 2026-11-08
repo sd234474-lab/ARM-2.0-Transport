@@ -13,8 +13,8 @@ from app.arm2.vehicle_type_store import create_vehicle_type
 CONTEXT = SaveContext("SYSTEM", "type-store-test", "integration-test")
 
 
-def test_vehicle_type_storage_invariants_and_ids(database_url):
-    engine = create_engine(database_url, poolclass=NullPool)
+def test_vehicle_type_storage_invariants_and_ids(isolated_arm2_database_url):
+    engine = create_engine(isolated_arm2_database_url, poolclass=NullPool)
 
     with Session(engine) as db:
         review = create_vehicle_type(db, "  Самосвал  ", requires_wialon=True, context=CONTEXT)
