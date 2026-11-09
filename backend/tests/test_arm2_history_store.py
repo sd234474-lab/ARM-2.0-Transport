@@ -8,9 +8,11 @@ from app.arm2.history_store import HistoryValidationError, append_history_event
 from app.arm2.object_save import SaveContext
 from app.arm2.vehicle_type_models import VehicleType
 from app.arm2.vehicle_type_store import create_vehicle_type, update_vehicle_type
+from app.models import User
 
-SYSTEM_CONTEXT = SaveContext("SYSTEM", "arm2-history-test", "integration-test", "batch-001")
-HUMAN_CONTEXT = SaveContext("HUMAN", "operator-001", "internal-service")
+
+def save_context(user, source="integration-test", correlation_id=None):
+    return SaveContext("HUMAN", str(user.id), source, correlation_id)
 
 
 def created_changes(name, requires_calibration, requires_wialon, status):
@@ -29,32 +31,50 @@ def test_shared_history_is_detailed_filtered_atomic_and_safe(database_url):
     engine = create_engine(database_url, poolclass=NullPool)
 
     with Session(engine) as db:
+        principal = User(
+            login="arm2-history-admin",
+            name="arm2-history-admin",
+            password_hash="unused",
+            role="ADMIN_OPERATOR",
+            active=True,
+            permissions=[],
+        )
+        db.add(principal)
+        db.flush()
         vehicle_type = create_vehicle_type(
-            db, "Самосвал", True, None, False, context=SYSTEM_CONTEXT
+            db, "Самосвал", True, None, False,
+            principal=principal,
+            context=save_context(principal, correlation_id="batch-001"),
         )
         db.commit()
         first_id = vehicle_type.id
+        principal_id = principal.id
 
     with Session(engine) as db:
+        principal = db.get(User, principal_id)
         created = db.scalar(select(HistoryEvent).where(HistoryEvent.object_id == first_id))
         assert created is not None
         assert created.changes["requires_calibration"] == {"before": None, "after": None}
         assert created.changes["requires_wialon"] == {"before": None, "after": False}
         assert (created.version_after, created.actor_id, created.correlation_id) == (
             1,
-            "arm2-history-test",
+            str(principal_id),
             "batch-001",
         )
         assert created.occurred_at.tzinfo is not None
         vehicle_type = update_vehicle_type(
-            db, first_id, 1, "Самосвал", True, False, False, context=HUMAN_CONTEXT
+            db, first_id, 1, "Самосвал", True, False, False,
+            principal=principal,
+            context=save_context(principal, source="internal-service"),
         )
         assert vehicle_type.version == 2
         db.commit()
 
     with Session(engine) as db:
+        principal = db.get(User, principal_id)
         other = create_vehicle_type(
-            db, "Погрузчик", True, False, False, context=SYSTEM_CONTEXT
+            db, "Погрузчик", True, False, False,
+            principal=principal, context=save_context(principal)
         )
         db.commit()
         other_id = other.id
@@ -77,8 +97,10 @@ def test_shared_history_is_detailed_filtered_atomic_and_safe(database_url):
         assert all(event.object_id != other_id for event in events)
 
     with Session(engine) as db:
+        principal = db.get(User, principal_id)
         rolled_back = create_vehicle_type(
-            db, "Будет отменён", True, False, False, context=SYSTEM_CONTEXT
+            db, "Будет отменён", True, False, False,
+            principal=principal, context=save_context(principal)
         )
         rolled_back_id = rolled_back.id
         db.rollback()

@@ -16,6 +16,7 @@ from app.arm2.vehicle_type_rules import (
     normalize_type_requirements,
     type_status,
 )
+from app.models import User
 
 VehicleTypeNotFoundError = ObjectNotFoundError
 VehicleTypeVersionConflictError = ObjectVersionConflictError
@@ -91,12 +92,14 @@ def create_vehicle_type(
     requires_calibration: bool | None = None,
     requires_wialon: bool | None = None,
     *,
+    principal: User,
     context: SaveContext,
 ) -> VehicleType:
     return create_object(
         db,
         object_type="TYPE",
         values=_values(name, requires_sts, requires_calibration, requires_wialon),
+        principal=principal,
         context=context,
     ).record
 
@@ -110,6 +113,7 @@ def update_vehicle_type(
     requires_calibration: bool | None,
     requires_wialon: bool | None,
     *,
+    principal: User,
     context: SaveContext,
 ) -> VehicleType:
     return update_object(
@@ -118,5 +122,6 @@ def update_vehicle_type(
         object_id=type_id,
         expected_version=expected_version,
         values=_values(name, requires_sts, requires_calibration, requires_wialon),
+        principal=principal,
         context=context,
     ).record

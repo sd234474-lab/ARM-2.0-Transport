@@ -17,29 +17,46 @@ from app.arm2.vehicle_type_store import (
     create_vehicle_type,
     update_vehicle_type,
 )
+from app.models import User
 
-CONTEXT = SaveContext("HUMAN", "type-update-test", "integration-test")
+
+def save_context(user):
+    return SaveContext("HUMAN", str(user.id), "integration-test")
 
 
 def test_vehicle_type_update_is_version_safe_and_transactional(isolated_arm2_database_url):
     engine = create_engine(isolated_arm2_database_url, poolclass=NullPool)
 
     with Session(engine) as db:
+        principal = User(
+            login="type-update-admin",
+            name="type-update-admin",
+            password_hash="unused",
+            role="ADMIN_OPERATOR",
+            active=True,
+            permissions=[],
+        )
+        db.add(principal)
+        db.flush()
         vehicle_type = create_vehicle_type(
-            db, "Самосвал", requires_wialon=True, context=CONTEXT
+            db, "Самосвал", requires_wialon=True,
+            principal=principal, context=save_context(principal)
         )
         db.commit()
         type_id = vehicle_type.id
+        principal_id = principal.id
     assert type_id == "TYPE-000001"
 
     barrier = Barrier(2)
 
     def concurrent_update(name):
         with Session(engine) as db:
+            principal = db.get(User, principal_id)
             barrier.wait()
             try:
                 updated = update_vehicle_type(
-                    db, type_id, 1, name, True, False, False, context=CONTEXT
+                    db, type_id, 1, name, True, False, False,
+                    principal=principal, context=save_context(principal)
                 )
                 db.commit()
                 return "updated", updated.name, updated.version
@@ -53,6 +70,7 @@ def test_vehicle_type_update_is_version_safe_and_transactional(isolated_arm2_dat
     winning_name = next(result[1] for result in results if result[0] == "updated")
 
     with Session(engine) as db:
+        principal = db.get(User, principal_id)
         current = db.get(VehicleType, type_id)
         assert current is not None
         assert (current.id, current.name, current.status, current.version) == (
@@ -63,13 +81,16 @@ def test_vehicle_type_update_is_version_safe_and_transactional(isolated_arm2_dat
         )
         with pytest.raises(VehicleTypeVersionConflictError):
             update_vehicle_type(
-                db, type_id, 1, "Устаревшая правка", True, True, True, context=CONTEXT
+                db, type_id, 1, "Устаревшая правка", True, True, True,
+                principal=principal, context=save_context(principal)
             )
         db.rollback()
 
     with Session(engine) as db:
+        principal = db.get(User, principal_id)
         temporary = update_vehicle_type(
-            db, type_id, 2, "Временное имя", True, True, True, context=CONTEXT
+            db, type_id, 2, "Временное имя", True, True, True,
+            principal=principal, context=save_context(principal)
         )
         assert (temporary.id, temporary.version) == (type_id, 3)
         with Session(engine) as observer:
@@ -79,52 +100,71 @@ def test_vehicle_type_update_is_version_safe_and_transactional(isolated_arm2_dat
         db.rollback()
 
     with Session(engine) as db:
+        principal = db.get(User, principal_id)
         updated = update_vehicle_type(
-            db, type_id, 2, "Обновлённый самосвал", True, False, False, context=CONTEXT
+            db, type_id, 2, "Обновлённый самосвал", True, False, False,
+            principal=principal, context=save_context(principal)
         )
         db.commit()
         assert (updated.id, updated.status, updated.version) == (type_id, "CONFIRMED", 3)
 
     with Session(engine) as db:
+        principal = db.get(User, principal_id)
         unchanged = update_vehicle_type(
-            db, type_id, 3, "Обновлённый самосвал", True, False, False, context=CONTEXT
+            db, type_id, 3, "Обновлённый самосвал", True, False, False,
+            principal=principal, context=save_context(principal)
         )
         db.commit()
         assert unchanged.version == 3
 
     with Session(engine) as db:
+        principal = db.get(User, principal_id)
         review = update_vehicle_type(
-            db, type_id, 3, "Обновлённый самосвал", True, False, None, context=CONTEXT
+            db, type_id, 3, "Обновлённый самосвал", True, False, None,
+            principal=principal, context=save_context(principal)
         )
         db.commit()
         assert (review.status, review.version) == ("REVIEW", 4)
 
     with Session(engine) as db:
+        principal = db.get(User, principal_id)
         confirmed = update_vehicle_type(
-            db, type_id, 4, "Обновлённый самосвал", True, False, False, context=CONTEXT
+            db, type_id, 4, "Обновлённый самосвал", True, False, False,
+            principal=principal, context=save_context(principal)
         )
         db.commit()
         assert (confirmed.status, confirmed.version) == ("CONFIRMED", 5)
 
     with Session(engine) as db:
+        principal = db.get(User, principal_id)
         with pytest.raises(ValueError, match="requires_sts must be True"):
             update_vehicle_type(
-                db, type_id, 5, "Недопустимый СТС", False, True, True, context=CONTEXT
+                db, type_id, 5, "Недопустимый СТС", False, True, True,
+                principal=principal, context=save_context(principal)
             )
         db.rollback()
         with pytest.raises(ValueError, match="must not be empty"):
-            update_vehicle_type(db, type_id, 5, "   ", True, True, True, context=CONTEXT)
+            update_vehicle_type(
+                db, type_id, 5, "   ", True, True, True,
+                principal=principal, context=save_context(principal)
+            )
         db.rollback()
 
     with Session(engine) as db:
-        other = create_vehicle_type(db, "Погрузчик", True, True, True, context=CONTEXT)
+        principal = db.get(User, principal_id)
+        other = create_vehicle_type(
+            db, "Погрузчик", True, True, True,
+            principal=principal, context=save_context(principal)
+        )
         db.commit()
         assert other.id == "TYPE-000002"
 
     with Session(engine) as db:
+        principal = db.get(User, principal_id)
         with pytest.raises(IntegrityError):
             update_vehicle_type(
-                db, type_id, 5, "  Погрузчик  ", True, True, True, context=CONTEXT
+                db, type_id, 5, "  Погрузчик  ", True, True, True,
+                principal=principal, context=save_context(principal)
             )
         db.rollback()
         preserved = db.get(VehicleType, type_id)
@@ -136,9 +176,11 @@ def test_vehicle_type_update_is_version_safe_and_transactional(isolated_arm2_dat
         )
 
     with Session(engine) as db:
+        principal = db.get(User, principal_id)
         with pytest.raises(VehicleTypeNotFoundError):
             update_vehicle_type(
-                db, "TYPE-999999", 1, "Нет записи", True, True, True, context=CONTEXT
+                db, "TYPE-999999", 1, "Нет записи", True, True, True,
+                principal=principal, context=save_context(principal)
             )
         for invalid_version in (0, -1, True, 1.0):
             with pytest.raises(InvalidExpectedVersionError):
@@ -150,7 +192,8 @@ def test_vehicle_type_update_is_version_safe_and_transactional(isolated_arm2_dat
                     True,
                     True,
                     True,
-                    context=CONTEXT,
+                    principal=principal,
+                    context=save_context(principal),
                 )
         db.rollback()
 

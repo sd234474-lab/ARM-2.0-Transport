@@ -10,6 +10,8 @@ from app.arm2.object_registry import (
     ObjectRegistryError,
     initialize_object_adapters,
 )
+from app.models import User
+from app.permissions import Permission, has_permission
 
 
 class InvalidExpectedVersionError(ValueError):
@@ -21,6 +23,10 @@ class ObjectNotFoundError(LookupError):
 
 
 class ObjectVersionConflictError(RuntimeError):
+    pass
+
+
+class ObjectAuthorizationError(PermissionError):
     pass
 
 
@@ -56,6 +62,41 @@ class SaveResult:
 HistoryWriter = Callable[..., Any]
 
 
+def _authorized_context(
+    db: Session,
+    definition,
+    principal: User,
+    context: SaveContext,
+) -> SaveContext:
+    if not isinstance(principal, User) or type(principal.id) is not int:
+        raise ObjectAuthorizationError("A persisted User principal is required")
+    permission = definition.edit_permission
+    if not isinstance(permission, Permission):
+        raise ObjectAuthorizationError(
+            f"No edit permission is registered for {definition.object_type}"
+        )
+    with db.no_autoflush:
+        current_user = db.get(User, principal.id, populate_existing=True)
+    if current_user is None:
+        raise ObjectAuthorizationError("User principal does not exist")
+    if not current_user.active or current_user.deleted_at is not None:
+        raise ObjectAuthorizationError("User principal is not active")
+    if not has_permission(current_user, permission):
+        raise ObjectAuthorizationError(
+            f"Permission required: {permission}"
+        )
+    validated = context.validated()
+    actor_id = str(current_user.id)
+    if validated.actor_kind != "HUMAN" or validated.actor_id != actor_id:
+        raise ObjectAuthorizationError("SaveContext author does not match principal")
+    return SaveContext(
+        actor_kind="HUMAN",
+        actor_id=actor_id,
+        source=validated.source,
+        correlation_id=validated.correlation_id,
+    )
+
+
 def _definition(registry: ObjectRegistry, object_type: str):
     if registry is OBJECT_REGISTRY:
         initialize_object_adapters()
@@ -70,15 +111,16 @@ def create_object(
     *,
     object_type: str,
     values: dict[str, Any],
+    principal: User,
     context: SaveContext,
     registry: ObjectRegistry = OBJECT_REGISTRY,
     history_writer: HistoryWriter = append_history_event,
 ) -> SaveResult:
     definition = _definition(registry, object_type)
+    context = _authorized_context(db, definition, principal, context)
     if "CREATED" not in definition.operations:
         raise ObjectRegistryError(f"CREATED is not allowed for {object_type}")
     definition.validate_command(values)
-    context = context.validated()
     with db.begin_nested():
         normalized = definition.adapter.normalize(values)
         normalized = definition.apply_status(normalized)
@@ -110,18 +152,19 @@ def update_object(
     object_id: str,
     expected_version: int,
     values: dict[str, Any],
+    principal: User,
     context: SaveContext,
     registry: ObjectRegistry = OBJECT_REGISTRY,
     history_writer: HistoryWriter = append_history_event,
 ) -> SaveResult:
+    definition = _definition(registry, object_type)
+    context = _authorized_context(db, definition, principal, context)
     if type(expected_version) is not int or expected_version <= 0:
         raise InvalidExpectedVersionError("expected_version must be a positive integer")
-    definition = _definition(registry, object_type)
     if "UPDATED" not in definition.operations:
         raise ObjectRegistryError(f"UPDATED is not allowed for {object_type}")
     definition.validate_id(object_id)
     definition.validate_command(values)
-    context = context.validated()
     with db.begin_nested():
         record = definition.adapter.lock_record(db, object_id)
         if record is None:
