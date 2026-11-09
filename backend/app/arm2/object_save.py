@@ -81,6 +81,8 @@ def create_object(
     context = context.validated()
     with db.begin_nested():
         normalized = definition.adapter.normalize(values)
+        normalized = definition.apply_status(normalized)
+        related_objects = registry.validate_references(definition, db, None, normalized)
         record = definition.adapter.create_record(db, normalized)
         definition.validate_id(record.id)
         snapshot = definition.snapshot(record)
@@ -96,6 +98,7 @@ def create_object(
             correlation_id=context.correlation_id,
             version_after=record.version,
             changes=changes,
+            related_objects=related_objects,
         )
     return SaveResult(record, event, True)
 
@@ -129,6 +132,10 @@ def update_object(
             )
         before = definition.snapshot(record)
         normalized = definition.adapter.normalize(values)
+        normalized = definition.apply_status(normalized)
+        related_objects = registry.validate_references(
+            definition, db, record, normalized
+        )
         definition.adapter.apply(record, normalized)
         candidate = definition.snapshot(record)
         changed_fields = {
@@ -154,5 +161,6 @@ def update_object(
             version_before=before["version"],
             version_after=after["version"],
             changes=changed_fields,
+            related_objects=related_objects,
         )
     return SaveResult(record, event, True)

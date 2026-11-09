@@ -34,7 +34,6 @@ class _VehicleTypeAdapter:
             "requires_sts": sts,
             "requires_calibration": calibration,
             "requires_wialon": wialon,
-            "status": type_status(name, sts, calibration, wialon),
         }
 
     def create_record(self, db, values):
@@ -58,8 +57,22 @@ class _VehicleTypeAdapter:
 VEHICLE_TYPE_ADAPTER = _VehicleTypeAdapter()
 
 
+def _vehicle_type_status(values):
+    return type_status(
+        values["name"],
+        values["requires_sts"],
+        values["requires_calibration"],
+        values["requires_wialon"],
+    )
+
+
 def register_vehicle_type_adapter(registry=OBJECT_REGISTRY):
-    registry.attach_adapter("TYPE", VEHICLE_TYPE_ADAPTER)
+    registry.attach_adapter(
+        "TYPE",
+        VEHICLE_TYPE_ADAPTER,
+        status_field="status",
+        status_rule=_vehicle_type_status,
+    )
 
 
 def _values(name, requires_sts, requires_calibration, requires_wialon):

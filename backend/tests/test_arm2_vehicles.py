@@ -31,6 +31,14 @@ def test_veh_uses_same_pipeline_as_type_with_history_and_versions(isolated_arm2_
         incomplete_id = incomplete.id
         with pytest.raises(ValueError, match="CONFIRMED"):
             create_vehicle(db, "Нельзя назначить", "B123BC86", type_id=incomplete_id, context=CONTEXT)
+        with pytest.raises(ValueError, match="CONFIRMED"):
+            create_vehicle(
+                db,
+                "Несуществующий тип",
+                "B124BC86",
+                type_id="TYPE-999999",
+                context=CONTEXT,
+            )
         db.rollback()
 
     with Session(engine) as db:
@@ -66,6 +74,13 @@ def test_veh_uses_same_pipeline_as_type_with_history_and_versions(isolated_arm2_
         ).all()
         assert len(events) == 2
         assert events[0].operation == "CREATED"
+        assert events[0].related_objects == [
+            {
+                "object_type": "TYPE",
+                "object_id": confirmed_id,
+                "relation": "vehicle_type",
+            }
+        ]
         assert events[1].changes["accounting_state"] == {
             "before": "Действующая", "after": "Архивная"
         }

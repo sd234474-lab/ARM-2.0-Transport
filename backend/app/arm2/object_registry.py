@@ -1,5 +1,5 @@
 from dataclasses import dataclass, replace
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 from sqlalchemy.orm import Session
 
@@ -33,6 +33,21 @@ class ObjectAdapter(Protocol):
     def apply(self, record: Any, values: dict[str, Any]) -> None: ...
 
 
+StatusRule = Callable[[dict[str, Any]], str]
+
+
+@dataclass(frozen=True)
+class ObjectReference:
+    object_type: str
+    object_id: str
+    relation: str
+
+
+ReferenceRule = Callable[
+    [Session, Any | None, dict[str, Any]], tuple[ObjectReference, ...]
+]
+
+
 @dataclass(frozen=True)
 class ObjectDefinition:
     object_type: str
@@ -41,6 +56,9 @@ class ObjectDefinition:
     history_fields: dict[str, FieldSpec]
     operations: frozenset[str] = frozenset({"CREATED", "UPDATED"})
     adapter: ObjectAdapter | None = None
+    status_field: str | None = None
+    status_rule: StatusRule | None = None
+    reference_rules: tuple[ReferenceRule, ...] = ()
 
     def validate_command(self, values: dict[str, Any]) -> None:
         if type(values) is not dict:
@@ -73,6 +91,29 @@ class ObjectDefinition:
         if len(number) < 6 or not number.isdigit():
             raise ObjectRegistryError(f"Invalid {self.object_type} object_id")
 
+    def apply_status(self, values: dict[str, Any]) -> dict[str, Any]:
+        if self.status_field is None and self.status_rule is None:
+            return values
+        if self.status_field is None or self.status_rule is None:
+            raise ObjectRegistryError(
+                f"Incomplete status configuration for {self.object_type}"
+            )
+        if self.status_field in values:
+            raise ObjectRegistryError(
+                f"Adapter must not set platform status field: {self.status_field}"
+            )
+        try:
+            spec = self.history_fields[self.status_field]
+        except KeyError as error:
+            raise ObjectRegistryError(
+                f"Status field is not registered for history: {self.status_field}"
+            ) from error
+        result = dict(values)
+        status = self.status_rule(result)
+        spec.validate(status, self.status_field)
+        result[self.status_field] = status
+        return result
+
 
 class ObjectRegistry:
     def __init__(self) -> None:
@@ -83,19 +124,78 @@ class ObjectRegistry:
             raise ObjectRegistryError(f"Object type already registered: {definition.object_type}")
         self._definitions[definition.object_type] = definition
 
-    def attach_adapter(self, object_type: str, adapter: ObjectAdapter) -> None:
+    def attach_adapter(
+        self,
+        object_type: str,
+        adapter: ObjectAdapter,
+        *,
+        status_field: str | None = None,
+        status_rule: StatusRule | None = None,
+        reference_rules: tuple[ReferenceRule, ...] = (),
+    ) -> None:
         definition = self.require(object_type)
         if definition.adapter is adapter:
-            return
+            if (
+                definition.status_field == status_field
+                and definition.status_rule is status_rule
+                and definition.reference_rules == reference_rules
+            ):
+                return
+            raise ObjectRegistryError(
+                f"Object type already has different platform rules: {object_type}"
+            )
         if definition.adapter is not None:
             raise ObjectRegistryError(f"Object type already has an adapter: {object_type}")
-        self._definitions[object_type] = replace(definition, adapter=adapter)
+        if (status_field is None) != (status_rule is None):
+            raise ObjectRegistryError(
+                f"Status field and rule must be configured together: {object_type}"
+            )
+        self._definitions[object_type] = replace(
+            definition,
+            adapter=adapter,
+            status_field=status_field,
+            status_rule=status_rule,
+            reference_rules=reference_rules,
+        )
 
     def require(self, object_type: str) -> ObjectDefinition:
         try:
             return self._definitions[object_type]
         except KeyError as error:
             raise ObjectRegistryError(f"Unknown object_type: {object_type}") from error
+
+    def validate_references(
+        self,
+        definition: ObjectDefinition,
+        db: Session,
+        current: Any | None,
+        values: dict[str, Any],
+    ) -> list[dict[str, str]]:
+        references: list[dict[str, str]] = []
+        seen: set[tuple[str, str, str]] = set()
+        for rule in definition.reference_rules:
+            for reference in rule(db, current, values):
+                if not isinstance(reference, ObjectReference):
+                    raise ObjectRegistryError(
+                        f"Invalid reference rule result for {definition.object_type}"
+                    )
+                target = self.require(reference.object_type)
+                target.validate_id(reference.object_id)
+                relation = reference.relation.strip()
+                if not relation:
+                    raise ObjectRegistryError("Reference relation must not be empty")
+                key = (reference.object_type, reference.object_id, relation)
+                if key in seen:
+                    raise ObjectRegistryError("Duplicate object reference")
+                seen.add(key)
+                references.append(
+                    {
+                        "object_type": reference.object_type,
+                        "object_id": reference.object_id,
+                        "relation": relation,
+                    }
+                )
+        return references
 
 
 TYPE_COMMAND_FIELDS = {

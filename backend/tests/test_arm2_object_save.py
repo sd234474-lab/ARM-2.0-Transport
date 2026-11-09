@@ -140,7 +140,7 @@ class FakeAdapter:
         if not name:
             raise ValueError("fake name is required")
         enabled = values["enabled"]
-        return {"name": name, "enabled": enabled, "status": "READY" if enabled is not None else "REVIEW"}
+        return {"name": name, "enabled": enabled}
 
     def create_record(self, db, values):
         self.sequence += 1
@@ -154,6 +154,10 @@ class FakeAdapter:
     def apply(self, record, values):
         for field, value in values.items():
             setattr(record, field, value)
+
+
+def fake_status(values):
+    return "READY" if values["enabled"] is not None else "REVIEW"
 
 
 def test_second_isolated_object_reuses_the_same_save_algorithm():
@@ -171,6 +175,8 @@ def test_second_isolated_object_reuses_the_same_save_algorithm():
                 "version": FieldSpec((int,)),
             },
             adapter=adapter,
+            status_field="status",
+            status_rule=fake_status,
         )
     )
     events = []
@@ -221,6 +227,41 @@ def test_second_isolated_object_reuses_the_same_save_algorithm():
     )
     assert not no_op.changed
     assert len(events) == 2
+
+
+def test_adapter_cannot_supply_platform_status():
+    class InvalidAdapter(FakeAdapter):
+        def normalize(self, values):
+            normalized = super().normalize(values)
+            normalized["status"] = "READY"
+            return normalized
+
+    registry = ObjectRegistry()
+    registry.register(
+        ObjectDefinition(
+            "FAKE",
+            "FAKE",
+            {"name": FieldSpec((str,)), "enabled": FieldSpec((bool,), nullable=True)},
+            {
+                "name": FieldSpec((str,)),
+                "enabled": FieldSpec((bool,), nullable=True),
+                "status": FieldSpec((str,)),
+                "version": FieldSpec((int,)),
+            },
+            adapter=InvalidAdapter(),
+            status_field="status",
+            status_rule=fake_status,
+        )
+    )
+    with pytest.raises(ObjectRegistryError, match="must not set platform status"):
+        create_object(
+            FakeSession(),
+            object_type="FAKE",
+            values={"name": "Invalid status source", "enabled": True},
+            context=CONTEXT,
+            registry=registry,
+            history_writer=lambda *args, **kwargs: None,
+        )
 
 
 def test_explicit_adapter_initialization_is_import_order_independent(database_url):
