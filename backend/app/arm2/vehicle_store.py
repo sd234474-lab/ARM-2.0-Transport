@@ -8,6 +8,7 @@ from app.arm2.object_registry import OBJECT_REGISTRY, ObjectReference
 from app.arm2.object_save import SaveContext, create_object, update_object
 from app.arm2.vehicle_models import Vehicle
 from app.arm2.vehicle_type_models import VehicleType
+from app.models import User
 
 _ALLOWED_LETTERS = "АВЕКМНОРСТУХ"
 _LATIN_TO_CYRILLIC = str.maketrans(
@@ -111,12 +112,14 @@ def create_vehicle(
     accounting_state: str = "Действующая",
     model: str | None = None,
     wialon_unit_id: str | None = None,
+    principal: User,
     context: SaveContext,
 ) -> Vehicle:
     return create_object(
         db,
         object_type="VEH",
         values=_values(name, plate_number, type_id, accounting_state, model, wialon_unit_id),
+        principal=principal,
         context=context,
     ).record
 
@@ -132,6 +135,7 @@ def update_vehicle(
     accounting_state: str,
     model: str | None,
     wialon_unit_id: str | None,
+    principal: User,
     context: SaveContext,
 ) -> Vehicle:
     return update_object(
@@ -140,5 +144,6 @@ def update_vehicle(
         object_id=vehicle_id,
         expected_version=expected_version,
         values=_values(name, plate_number, type_id, accounting_state, model, wialon_unit_id),
+        principal=principal,
         context=context,
     ).record

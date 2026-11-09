@@ -3,6 +3,8 @@ from typing import Any, Callable, Protocol
 
 from sqlalchemy.orm import Session
 
+from app.permissions import Permission
+
 
 class ObjectRegistryError(ValueError):
     pass
@@ -59,6 +61,7 @@ class ObjectDefinition:
     status_field: str | None = None
     status_rule: StatusRule | None = None
     reference_rules: tuple[ReferenceRule, ...] = ()
+    edit_permission: Permission | None = None
 
     def validate_command(self, values: dict[str, Any]) -> None:
         if type(values) is not dict:
@@ -212,7 +215,13 @@ TYPE_HISTORY_FIELDS = {
 
 OBJECT_REGISTRY = ObjectRegistry()
 OBJECT_REGISTRY.register(
-    ObjectDefinition("TYPE", "TYPE", TYPE_COMMAND_FIELDS, TYPE_HISTORY_FIELDS)
+    ObjectDefinition(
+        "TYPE",
+        "TYPE",
+        TYPE_COMMAND_FIELDS,
+        TYPE_HISTORY_FIELDS,
+        edit_permission=Permission.ARM2_TYPE_EDIT,
+    )
 )
 VEH_COMMAND_FIELDS = {
     "name": FieldSpec((str,)),
@@ -227,7 +236,13 @@ VEH_HISTORY_FIELDS = {
     "version": FieldSpec((int,)),
 }
 OBJECT_REGISTRY.register(
-    ObjectDefinition("VEH", "VEH", VEH_COMMAND_FIELDS, VEH_HISTORY_FIELDS)
+    ObjectDefinition(
+        "VEH",
+        "VEH",
+        VEH_COMMAND_FIELDS,
+        VEH_HISTORY_FIELDS,
+        edit_permission=Permission.ARM2_VEH_EDIT,
+    )
 )
 
 
