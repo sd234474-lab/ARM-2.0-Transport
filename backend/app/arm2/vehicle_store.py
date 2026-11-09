@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.arm2.ids import next_id
-from app.arm2.object_registry import OBJECT_REGISTRY
+from app.arm2.object_registry import OBJECT_REGISTRY, ObjectReference
 from app.arm2.object_save import SaveContext, create_object, update_object
 from app.arm2.vehicle_models import Vehicle
 from app.arm2.vehicle_type_models import VehicleType
@@ -51,16 +51,7 @@ class _VehicleAdapter:
             "wialon_unit_id": _optional_text(values["wialon_unit_id"]),
         }
 
-    @staticmethod
-    def _validate_new_type(db: Session, type_id: str | None) -> None:
-        if type_id is None:
-            return
-        vehicle_type = db.scalar(select(VehicleType).where(VehicleType.id == type_id))
-        if vehicle_type is None or vehicle_type.status != "CONFIRMED":
-            raise ValueError("Only an existing CONFIRMED TYPE can be assigned to VEH")
-
     def create_record(self, db, values):
-        self._validate_new_type(db, values["type_id"])
         record = Vehicle(id=next_id(db, "VEH"), version=1, **values)
         db.add(record)
         db.flush()
@@ -72,14 +63,6 @@ class _VehicleAdapter:
         )
 
     def apply(self, record, values):
-        # Existing links are preserved when TYPE later becomes REVIEW.
-        if record.type_id != values["type_id"]:
-            from sqlalchemy.orm import object_session
-
-            db = object_session(record)
-            if db is None:
-                raise ValueError("Vehicle must be attached to a session")
-            self._validate_new_type(db, values["type_id"])
         for field, value in values.items():
             setattr(record, field, value)
 
@@ -87,8 +70,25 @@ class _VehicleAdapter:
 VEHICLE_ADAPTER = _VehicleAdapter()
 
 
+def _vehicle_type_reference(db, current, values):
+    type_id = values["type_id"]
+    if type_id is None:
+        return ()
+    # An existing link remains valid if TYPE later becomes incomplete. Only a
+    # newly assigned or changed link must satisfy the current subject rule.
+    if current is None or current.type_id != type_id:
+        vehicle_type = db.scalar(select(VehicleType).where(VehicleType.id == type_id))
+        if vehicle_type is None or vehicle_type.status != "CONFIRMED":
+            raise ValueError("Only an existing CONFIRMED TYPE can be assigned to VEH")
+    return (ObjectReference("TYPE", type_id, "vehicle_type"),)
+
+
 def register_vehicle_adapter(registry=OBJECT_REGISTRY):
-    registry.attach_adapter("VEH", VEHICLE_ADAPTER)
+    registry.attach_adapter(
+        "VEH",
+        VEHICLE_ADAPTER,
+        reference_rules=(_vehicle_type_reference,),
+    )
 
 
 def _values(name, plate_number, type_id, accounting_state, model, wialon_unit_id):
