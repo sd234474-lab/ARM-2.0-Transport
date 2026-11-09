@@ -28,9 +28,21 @@ class Permission(StrEnum):
     ARM2_TYPE_EDIT = "arm2_type_edit"
     ARM2_VEH_VIEW = "arm2_veh_view"
     ARM2_VEH_EDIT = "arm2_veh_edit"
+    ARM2_CP_VIEW = "arm2_cp_view"
+    ARM2_CP_EDIT = "arm2_cp_edit"
+    ARM2_ORG_VIEW = "arm2_org_view"
+    ARM2_ORG_EDIT = "arm2_org_edit"
 
 
 PERMISSIONS = {
+    Permission.ARM2_CP_VIEW: ("Просмотр контрагентов ARM 2.0", "АРМ 2.0", ()),
+    Permission.ARM2_CP_EDIT: (
+        "Редактирование контрагентов ARM 2.0", "АРМ 2.0", (Permission.ARM2_CP_VIEW,),
+    ),
+    Permission.ARM2_ORG_VIEW: ("Просмотр организаций ARM 2.0", "АРМ 2.0", ()),
+    Permission.ARM2_ORG_EDIT: (
+        "Редактирование организаций ARM 2.0", "АРМ 2.0", (Permission.ARM2_ORG_VIEW,),
+    ),
     Permission.ARM2_TYPE_VIEW: (
         "Просмотр справочника типов техники",
         "АРМ 2.0",

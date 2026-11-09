@@ -725,6 +725,8 @@ with Session(engine) as db:
             "accounting_state": "Действующая",
             "model": None,
             "wialon_unit_id": None,
+                "owner_cp_id": None,
+                "owner_org_id": None,
         },
         principal=principal,
         context=SaveContext("HUMAN", str(principal.id), "integration-test"),

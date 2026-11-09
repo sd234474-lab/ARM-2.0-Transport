@@ -223,6 +223,37 @@ OBJECT_REGISTRY.register(
         edit_permission=Permission.ARM2_TYPE_EDIT,
     )
 )
+
+PARTY_COMMAND_FIELDS = {
+    "name": FieldSpec((str,)), "full_name": FieldSpec((str,), nullable=True),
+    "legal_address": FieldSpec((str,), nullable=True), "postal_address": FieldSpec((str,), nullable=True),
+    "legal_form": FieldSpec((str,), nullable=True), "short_name": FieldSpec((str,), nullable=True),
+    "inn": FieldSpec((str,), nullable=True), "kpp": FieldSpec((str,), nullable=True),
+    "ogrn": FieldSpec((str,), nullable=True), "phone": FieldSpec((str,), nullable=True),
+    "email": FieldSpec((str,), nullable=True), "bank_name": FieldSpec((str,), nullable=True),
+    "bik": FieldSpec((str,), nullable=True), "settlement_account": FieldSpec((str,), nullable=True),
+    "correspondent_account": FieldSpec((str,), nullable=True),
+    "primary_signer_id": FieldSpec((str,), nullable=True),
+}
+PARTY_HISTORY_FIELDS = {**PARTY_COMMAND_FIELDS, "status": FieldSpec((str,)), "version": FieldSpec((int,))}
+OBJECT_REGISTRY.register(ObjectDefinition("CP", "CP", PARTY_COMMAND_FIELDS, PARTY_HISTORY_FIELDS,
+                                          edit_permission=Permission.ARM2_CP_EDIT))
+OBJECT_REGISTRY.register(ObjectDefinition("ORG", "ORG", PARTY_COMMAND_FIELDS, PARTY_HISTORY_FIELDS,
+                                          edit_permission=Permission.ARM2_ORG_EDIT))
+
+REP_COMMAND_FIELDS = {
+    "parent_id": FieldSpec((str,)), "name": FieldSpec((str,)),
+    "position": FieldSpec((str,), nullable=True), "authority_basis": FieldSpec((str,), nullable=True),
+    "phone": FieldSpec((str,), nullable=True), "email": FieldSpec((str,), nullable=True),
+    "state": FieldSpec((str,)), "user_id": FieldSpec((int,), nullable=True),
+    "last_name": FieldSpec((str,), nullable=True), "first_name": FieldSpec((str,), nullable=True),
+    "middle_name": FieldSpec((str,), nullable=True),
+}
+REP_HISTORY_FIELDS = {**REP_COMMAND_FIELDS, "version": FieldSpec((int,))}
+OBJECT_REGISTRY.register(ObjectDefinition("CPREP", "CPREP", REP_COMMAND_FIELDS, REP_HISTORY_FIELDS,
+                                          edit_permission=Permission.ARM2_CP_EDIT))
+OBJECT_REGISTRY.register(ObjectDefinition("ORGREP", "ORGREP", REP_COMMAND_FIELDS, REP_HISTORY_FIELDS,
+                                          edit_permission=Permission.ARM2_ORG_EDIT))
 VEH_COMMAND_FIELDS = {
     "name": FieldSpec((str,)),
     "plate_number": FieldSpec((str,)),
@@ -230,6 +261,8 @@ VEH_COMMAND_FIELDS = {
     "accounting_state": FieldSpec((str,)),
     "model": FieldSpec((str,), nullable=True),
     "wialon_unit_id": FieldSpec((str,), nullable=True),
+    "owner_cp_id": FieldSpec((str,), nullable=True),
+    "owner_org_id": FieldSpec((str,), nullable=True),
 }
 VEH_HISTORY_FIELDS = {
     **VEH_COMMAND_FIELDS,
@@ -254,4 +287,11 @@ def initialize_object_adapters() -> ObjectRegistry:
     from app.arm2.vehicle_store import register_vehicle_adapter
 
     register_vehicle_adapter(OBJECT_REGISTRY)
+    from app.arm2.counterparty_store import register_counterparty_adapter
+    from app.arm2.organization_store import register_organization_adapter
+    from app.arm2.representative_store import register_representative_adapters
+
+    register_counterparty_adapter(OBJECT_REGISTRY)
+    register_organization_adapter(OBJECT_REGISTRY)
+    register_representative_adapters(OBJECT_REGISTRY)
     return OBJECT_REGISTRY

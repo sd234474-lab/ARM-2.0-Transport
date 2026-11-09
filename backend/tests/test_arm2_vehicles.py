@@ -162,6 +162,7 @@ def test_veh_input_and_history_failure_are_atomic(isolated_arm2_database_url):
                 values={
                     "name": "Не сохранять", "plate_number": "А123ВС86", "type_id": None,
                     "accounting_state": "Действующая", "model": None, "wialon_unit_id": None,
+                        "owner_cp_id": None, "owner_org_id": None,
                 },
                 principal=principal,
                 context=save_context(principal),

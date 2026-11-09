@@ -154,7 +154,10 @@ def test_shared_history_is_detailed_filtered_atomic_and_safe(database_url):
             db.rollback()
 
     inspector = inspect(engine)
-    assert not any(table.startswith("nsi_") for table in inspector.get_table_names())
+    assert {
+        "nsi_counterparty_representatives",
+        "nsi_organization_representatives",
+    } <= set(inspector.get_table_names())
     index = next(
         item
         for item in inspector.get_indexes("arm2_history_events")

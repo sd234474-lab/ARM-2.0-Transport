@@ -20,6 +20,8 @@ class Vehicle(Base):
     )
     model: Mapped[str | None] = mapped_column(String)
     wialon_unit_id: Mapped[str | None] = mapped_column(String)
+    owner_cp_id: Mapped[str | None] = mapped_column(String, ForeignKey("arm2_counterparties.id", ondelete="RESTRICT"))
+    owner_org_id: Mapped[str | None] = mapped_column(String, ForeignKey("arm2_organizations.id", ondelete="RESTRICT"))
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
 
     __table_args__ = (
@@ -35,4 +37,5 @@ class Vehicle(Base):
             name="ck_arm2_vehicles_accounting_state",
         ),
         UniqueConstraint("plate_number", name="uq_arm2_vehicles_plate_number"),
+        CheckConstraint("NOT (owner_cp_id IS NOT NULL AND owner_org_id IS NOT NULL)", name="ck_arm2_vehicles_one_owner"),
     )
