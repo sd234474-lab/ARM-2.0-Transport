@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.arm2.object_save import (
+    ObjectAuthorizationError,
     ObjectNotFoundError,
     ObjectVersionConflictError,
     SaveContext,
@@ -98,6 +99,9 @@ def _save(db: Db, operation: Callable[[], Any]):
         record = operation()
         db.commit()
         return record
+    except ObjectAuthorizationError as error:
+        db.rollback()
+        raise HTTPException(403, "ARM2 write permission denied") from error
     except ObjectNotFoundError as error:
         db.rollback()
         raise HTTPException(404, "ARM2 object not found") from error

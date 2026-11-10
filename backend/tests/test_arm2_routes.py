@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event, func, select
 
 from app.api import app
+from app.arm2 import routes as arm2_routes
 from app.arm2.counterparty_store import create_counterparty, update_counterparty
 from app.arm2.history_models import HistoryEvent
 from app.arm2.object_save import SaveContext, create_object
@@ -378,3 +379,44 @@ def test_unexpected_history_error_is_atomic_over_http(users, db, monkeypatch):
             HistoryEvent.object_type == "TYPE"
         )
     ) == 0
+
+
+def test_save_authorization_failure_returns_403_and_is_atomic(
+    client, users, db, monkeypatch
+):
+    operator = set_operator(
+        db, [Permission.ARM2_TYPE_VIEW, Permission.ARM2_TYPE_EDIT]
+    )
+    sign_in(client)
+    type_count = db.scalar(select(func.count()).select_from(VehicleType))
+    history_count = db.scalar(select(func.count()).select_from(HistoryEvent))
+    create_vehicle_type = arm2_routes.create_vehicle_type
+
+    def revoke_edit_permission(
+        db_session, *args, principal, context, **kwargs
+    ):
+        principal.permissions = [Permission.ARM2_TYPE_VIEW]
+        db_session.flush()
+        return create_vehicle_type(
+            db_session,
+            *args,
+            principal=principal,
+            context=context,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(
+        arm2_routes, "create_vehicle_type", revoke_edit_permission
+    )
+    response = client.post("/api/arm2/types", json=type_body("Forbidden"))
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "ARM2 write permission denied"}
+    assert "Permission required" not in response.text
+    db.expire_all()
+    assert db.scalar(select(func.count()).select_from(VehicleType)) == type_count
+    assert db.scalar(select(func.count()).select_from(HistoryEvent)) == history_count
+    assert db.get(User, operator.id).permissions == [
+        Permission.ARM2_TYPE_VIEW,
+        Permission.ARM2_TYPE_EDIT,
+    ]
