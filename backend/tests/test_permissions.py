@@ -73,6 +73,10 @@ def test_existing_operator_and_admin_defaults(admin, db):
         "arm2_type_edit",
         "arm2_veh_view",
         "arm2_veh_edit",
+        "arm2_cp_view",
+        "arm2_cp_edit",
+        "arm2_org_view",
+        "arm2_org_edit",
     } <= set(effective_permissions(operator))
 
 
@@ -82,12 +86,20 @@ def test_arm2_permissions_are_not_operator_defaults():
         "arm2_type_edit",
         "arm2_veh_view",
         "arm2_veh_edit",
+        "arm2_cp_view",
+        "arm2_cp_edit",
+        "arm2_org_view",
+        "arm2_org_edit",
     } & set(DEFAULT_OPERATOR_PERMISSIONS)
 
 
-def test_arm2_type_edit_requires_type_view():
+@pytest.mark.parametrize(
+    "edit_permission",
+    [Permission.ARM2_TYPE_EDIT, Permission.ARM2_CP_EDIT, Permission.ARM2_ORG_EDIT],
+)
+def test_arm2_type_edit_requires_type_view(edit_permission):
     with pytest.raises(ValueError):
-        validate_permissions([Permission.ARM2_TYPE_EDIT])
+        validate_permissions([edit_permission])
 
 
 def test_arm2_status_requires_type_view(client, users, db):

@@ -3,9 +3,11 @@ import re
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.arm2.counterparty_models import Counterparty
 from app.arm2.ids import next_id
 from app.arm2.object_registry import OBJECT_REGISTRY, ObjectReference
 from app.arm2.object_save import SaveContext, create_object, update_object
+from app.arm2.organization_models import Organization
 from app.arm2.vehicle_models import Vehicle
 from app.arm2.vehicle_type_models import VehicleType
 from app.models import User
@@ -17,6 +19,13 @@ _LATIN_TO_CYRILLIC = str.maketrans(
 )
 _CAR = re.compile(rf"[{_ALLOWED_LETTERS}][0-9]{{3}}[{_ALLOWED_LETTERS}]{{2}}[0-9]{{2,3}}\Z")
 _SELF_PROPELLED = re.compile(rf"[0-9]{{4}}[{_ALLOWED_LETTERS}]{{2}}[0-9]{{2}}\Z")
+
+
+class _Unset:
+    pass
+
+
+_UNSET = _Unset()
 
 
 def normalize_plate_number(value: str) -> str:
@@ -50,6 +59,8 @@ class _VehicleAdapter:
             "accounting_state": state,
             "model": _optional_text(values["model"]),
             "wialon_unit_id": _optional_text(values["wialon_unit_id"]),
+            "owner_cp_id": values["owner_cp_id"],
+            "owner_org_id": values["owner_org_id"],
         }
 
     def create_record(self, db, values):
@@ -84,16 +95,31 @@ def _vehicle_type_reference(db, current, values):
     return (ObjectReference("TYPE", type_id, "vehicle_type"),)
 
 
+def _vehicle_owner_reference(db, current, values):
+    cp_id, org_id = values["owner_cp_id"], values["owner_org_id"]
+    if cp_id is not None and org_id is not None:
+        raise ValueError("VEH can have only one operational owner")
+    if cp_id is not None:
+        if db.get(Counterparty, cp_id) is None:
+            raise ValueError("Counterparty owner does not exist")
+        return (ObjectReference("CP", cp_id, "operational_owner"),)
+    if org_id is not None:
+        if db.get(Organization, org_id) is None:
+            raise ValueError("Organization owner does not exist")
+        return (ObjectReference("ORG", org_id, "operational_owner"),)
+    return ()
+
+
 def register_vehicle_adapter(registry=OBJECT_REGISTRY):
     registry.attach_adapter(
         "VEH",
         VEHICLE_ADAPTER,
-        reference_rules=(_vehicle_type_reference,),
+        reference_rules=(_vehicle_type_reference, _vehicle_owner_reference),
     )
 
 
-def _values(name, plate_number, type_id, accounting_state, model, wialon_unit_id):
-    return {
+def _values(name, plate_number, type_id, accounting_state, model, wialon_unit_id, owner_cp_id, owner_org_id):
+    values = {
         "name": name,
         "plate_number": plate_number,
         "type_id": type_id,
@@ -101,6 +127,11 @@ def _values(name, plate_number, type_id, accounting_state, model, wialon_unit_id
         "model": model,
         "wialon_unit_id": wialon_unit_id,
     }
+    if owner_cp_id is not _UNSET:
+        values["owner_cp_id"] = owner_cp_id
+    if owner_org_id is not _UNSET:
+        values["owner_org_id"] = owner_org_id
+    return values
 
 
 def create_vehicle(
@@ -112,13 +143,15 @@ def create_vehicle(
     accounting_state: str = "Действующая",
     model: str | None = None,
     wialon_unit_id: str | None = None,
+    owner_cp_id: str | None = None,
+    owner_org_id: str | None = None,
     principal: User,
     context: SaveContext,
 ) -> Vehicle:
     return create_object(
         db,
         object_type="VEH",
-        values=_values(name, plate_number, type_id, accounting_state, model, wialon_unit_id),
+        values=_values(name, plate_number, type_id, accounting_state, model, wialon_unit_id, owner_cp_id, owner_org_id),
         principal=principal,
         context=context,
     ).record
@@ -135,6 +168,8 @@ def update_vehicle(
     accounting_state: str,
     model: str | None,
     wialon_unit_id: str | None,
+    owner_cp_id: str | None | _Unset = _UNSET,
+    owner_org_id: str | None | _Unset = _UNSET,
     principal: User,
     context: SaveContext,
 ) -> Vehicle:
@@ -143,7 +178,8 @@ def update_vehicle(
         object_type="VEH",
         object_id=vehicle_id,
         expected_version=expected_version,
-        values=_values(name, plate_number, type_id, accounting_state, model, wialon_unit_id),
+        values=_values(name, plate_number, type_id, accounting_state, model, wialon_unit_id, owner_cp_id, owner_org_id),
+        partial=True,
         principal=principal,
         context=context,
     ).record
