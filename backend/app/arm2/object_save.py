@@ -154,6 +154,7 @@ def update_object(
     values: dict[str, Any],
     principal: User,
     context: SaveContext,
+    partial: bool = False,
     registry: ObjectRegistry = OBJECT_REGISTRY,
     history_writer: HistoryWriter = append_history_event,
 ) -> SaveResult:
@@ -164,7 +165,16 @@ def update_object(
     if "UPDATED" not in definition.operations:
         raise ObjectRegistryError(f"UPDATED is not allowed for {object_type}")
     definition.validate_id(object_id)
-    definition.validate_command(values)
+    if partial:
+        if type(values) is not dict:
+            raise ObjectRegistryError("Object command must be a plain object")
+        unknown = set(values) - set(definition.command_fields)
+        if unknown:
+            raise ObjectRegistryError(
+                "Invalid command fields (unknown: " + ", ".join(sorted(unknown)) + ")"
+            )
+    else:
+        definition.validate_command(values)
     with db.begin_nested():
         record = definition.adapter.lock_record(db, object_id)
         if record is None:
@@ -173,6 +183,13 @@ def update_object(
             raise ObjectVersionConflictError(
                 f"Object version conflict: expected {expected_version}, current {record.version}"
             )
+        if partial:
+            merged = {
+                field: getattr(record, field) for field in definition.command_fields
+            }
+            merged.update(values)
+            values = merged
+            definition.validate_command(values)
         before = definition.snapshot(record)
         normalized = definition.adapter.normalize(values)
         normalized = definition.apply_status(normalized)

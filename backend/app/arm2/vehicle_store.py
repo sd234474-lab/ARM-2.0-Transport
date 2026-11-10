@@ -21,6 +21,13 @@ _CAR = re.compile(rf"[{_ALLOWED_LETTERS}][0-9]{{3}}[{_ALLOWED_LETTERS}]{{2}}[0-9
 _SELF_PROPELLED = re.compile(rf"[0-9]{{4}}[{_ALLOWED_LETTERS}]{{2}}[0-9]{{2}}\Z")
 
 
+class _Unset:
+    pass
+
+
+_UNSET = _Unset()
+
+
 def normalize_plate_number(value: str) -> str:
     """Only approved forms; questionnaire separator policy is outside this slice."""
     if not isinstance(value, str):
@@ -112,16 +119,19 @@ def register_vehicle_adapter(registry=OBJECT_REGISTRY):
 
 
 def _values(name, plate_number, type_id, accounting_state, model, wialon_unit_id, owner_cp_id, owner_org_id):
-    return {
+    values = {
         "name": name,
         "plate_number": plate_number,
         "type_id": type_id,
         "accounting_state": accounting_state,
         "model": model,
         "wialon_unit_id": wialon_unit_id,
-        "owner_cp_id": owner_cp_id,
-        "owner_org_id": owner_org_id,
     }
+    if owner_cp_id is not _UNSET:
+        values["owner_cp_id"] = owner_cp_id
+    if owner_org_id is not _UNSET:
+        values["owner_org_id"] = owner_org_id
+    return values
 
 
 def create_vehicle(
@@ -158,8 +168,8 @@ def update_vehicle(
     accounting_state: str,
     model: str | None,
     wialon_unit_id: str | None,
-    owner_cp_id: str | None = None,
-    owner_org_id: str | None = None,
+    owner_cp_id: str | None | _Unset = _UNSET,
+    owner_org_id: str | None | _Unset = _UNSET,
     principal: User,
     context: SaveContext,
 ) -> Vehicle:
@@ -169,6 +179,7 @@ def update_vehicle(
         object_id=vehicle_id,
         expected_version=expected_version,
         values=_values(name, plate_number, type_id, accounting_state, model, wialon_unit_id, owner_cp_id, owner_org_id),
+        partial=True,
         principal=principal,
         context=context,
     ).record

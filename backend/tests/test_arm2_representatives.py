@@ -23,9 +23,18 @@ def test_representatives_parent_signer_state_and_user_link(isolated_arm2_databas
         cp1 = create_counterparty(db, "CP1", principal=admin, context=ctx(admin))
         cp2 = create_counterparty(db, "CP2", principal=admin, context=ctx(admin))
         org = create_organization(db, "ORG", principal=admin, context=ctx(admin))
-        cprep = create_representative(db, "CP", cp1.id, "Signer", user_id=account.id, principal=admin, context=ctx(admin))
+        with pytest.raises(ValueError, match="email"):
+            create_representative(
+                db, "CP", cp1.id, "Bad email", email="a@b",
+                principal=admin, context=ctx(admin),
+            )
+        cprep = create_representative(
+            db, "CP", cp1.id, "Signer", email="a@b.ru", user_id=account.id,
+            principal=admin, context=ctx(admin),
+        )
         orgrep = create_representative(db, "ORG", org.id, "Org signer", user_id=account.id, principal=admin, context=ctx(admin))
         assert (cprep.id, orgrep.id) == ("CPREP-000001", "ORGREP-000001")
+        assert cprep.email == "a@b.ru" and orgrep.email is None
         cp1 = update_counterparty(db, cp1.id, 1, cp1.name, primary_signer_id=cprep.id, principal=admin, context=ctx(admin))
         assert cp1.primary_signer_id == cprep.id
         with pytest.raises(ValueError, match="same card"):

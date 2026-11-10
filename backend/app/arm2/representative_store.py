@@ -1,7 +1,7 @@
 from sqlalchemy import select
 
 from app.arm2.counterparty_models import Counterparty
-from app.arm2.counterparty_rules import optional_text, required_name
+from app.arm2.counterparty_rules import optional_email, optional_text, required_name
 from app.arm2.ids import next_id
 from app.arm2.object_registry import OBJECT_REGISTRY, ObjectReference
 from app.arm2.object_save import create_object, update_object
@@ -19,9 +19,7 @@ class RepresentativeAdapter:
         state = values["state"]
         if state not in {"Действующий", "Архивный"}:
             raise ValueError("state must be Действующий or Архивный")
-        email = optional_text(values["email"], "email", 320)
-        if email is not None and ("@" not in email or " " in email):
-            raise ValueError("email has invalid format")
+        email = optional_email(values["email"])
         return {
             "parent_id": values["parent_id"], "name": required_name(values["name"]),
             "position": optional_text(values["position"], "position", 500),

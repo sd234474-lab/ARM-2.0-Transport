@@ -19,6 +19,10 @@ def party_values(name, **values):
     return {field: name if field == "name" else values.get(field) for field in PARTY_FIELDS}
 
 
+def party_update_values(name, **values):
+    return {"name": name, **values}
+
+
 class PartyAdapter:
     def __init__(self, model, prefix, representative_model, representative_type):
         self.model = model
@@ -73,5 +77,6 @@ def create_counterparty(db, name, *, principal: User, context: SaveContext, **va
 def update_counterparty(db, counterparty_id, expected_version, name, *, principal: User, context: SaveContext, **values):
     return update_object(
         db, object_type="CP", object_id=counterparty_id, expected_version=expected_version,
-        values=party_values(name, **values), principal=principal, context=context,
+        values=party_update_values(name, **values), principal=principal, context=context,
+        partial=True,
     ).record
