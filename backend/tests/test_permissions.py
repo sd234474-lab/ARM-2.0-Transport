@@ -13,7 +13,13 @@ from app.api import app
 from app.domain import now
 from app.media import media_path
 from app.models import Audit, Chat, Job, User
-from app.permissions import DEFAULT_OPERATOR_PERMISSIONS, PERMISSIONS, Permission, effective_permissions
+from app.permissions import (
+    DEFAULT_OPERATOR_PERMISSIONS,
+    PERMISSIONS,
+    Permission,
+    effective_permissions,
+    validate_permissions,
+)
 from tests.test_integration import intake_photo, setup_chat, setup_district
 
 
@@ -62,6 +68,62 @@ def test_existing_operator_and_admin_defaults(admin, db):
     operator.role = "ADMIN_OPERATOR"
     operator.permissions = []
     assert set(effective_permissions(operator)) == set(PERMISSIONS)
+    assert {
+        "arm2_type_view",
+        "arm2_type_edit",
+        "arm2_veh_view",
+        "arm2_veh_edit",
+        "arm2_cp_view",
+        "arm2_cp_edit",
+        "arm2_org_view",
+        "arm2_org_edit",
+    } <= set(effective_permissions(operator))
+
+
+def test_arm2_permissions_are_not_operator_defaults():
+    assert not {
+        "arm2_type_view",
+        "arm2_type_edit",
+        "arm2_veh_view",
+        "arm2_veh_edit",
+        "arm2_cp_view",
+        "arm2_cp_edit",
+        "arm2_org_view",
+        "arm2_org_edit",
+    } & set(DEFAULT_OPERATOR_PERMISSIONS)
+
+
+@pytest.mark.parametrize(
+    "edit_permission",
+    [Permission.ARM2_TYPE_EDIT, Permission.ARM2_CP_EDIT, Permission.ARM2_ORG_EDIT],
+)
+def test_arm2_type_edit_requires_type_view(edit_permission):
+    with pytest.raises(ValueError):
+        validate_permissions([edit_permission])
+
+
+def test_arm2_status_requires_type_view(client, users, db):
+    restrict(db, [])
+    sign_in(client)
+    assert client.get("/api/arm2/status").status_code == 403
+
+    restrict(db, [Permission.ARM2_TYPE_VIEW])
+    permissions = sign_in(client)["permissions"]
+    assert permissions == ["arm2_type_view"]
+    assert "arm2_type_edit" not in permissions
+    assert client.get("/api/arm2/status").status_code == 200
+
+
+def test_arm2_vehicle_permissions_do_not_grant_type_access(client, users, db):
+    restrict(db, [Permission.ARM2_VEH_VIEW, Permission.ARM2_VEH_EDIT])
+    permissions = sign_in(client)["permissions"]
+    assert set(permissions) == {"arm2_veh_view", "arm2_veh_edit"}
+    assert "arm2_type_view" not in permissions
+    assert client.get("/api/arm2/status").status_code == 403
+
+
+def test_arm2_status_rejects_unauthenticated_user(client):
+    assert client.get("/api/arm2/status").status_code == 401
 
 
 def test_create_and_edit_custom_operator_rights(admin, db):
