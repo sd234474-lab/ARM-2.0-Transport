@@ -1,0 +1,15 @@
+.arm2 { min-width: 0; }
+.arm2-tabs, .arm2-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+.arm2-tabs a, .arm2-tabs button { padding: 10px 14px; }
+.arm2-tabs button[aria-pressed=true] { outline: 2px solid currentColor; outline-offset: 2px; }
+.arm2-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(240px,1fr)); gap: 16px; margin: 16px 0; }
+.arm2-field { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.arm2-field input, .arm2-field select { width: 100%; min-width: 0; }
+.arm2-table { overflow-x: auto; margin: 16px 0; }
+.arm2-table table { width: 100%; border-collapse: collapse; }
+.arm2-table td, .arm2-table th { padding: 10px; text-align: left; vertical-align: top; overflow-wrap: anywhere; border-bottom: 1px solid var(--border, #8886); }
+.arm2-choice, .arm2-history { padding: 12px; margin: 16px 0; border: 1px solid var(--border, #8886); border-radius: 8px; }
+.arm2-history-control { margin-top: 24px; }
+.arm2 :focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.arm2 dd { overflow-wrap: anywhere; }
+@media(max-width:600px) { .arm2-grid { grid-template-columns: 1fr; } .arm2-tabs a, .arm2-tabs button { padding: 8px; } }

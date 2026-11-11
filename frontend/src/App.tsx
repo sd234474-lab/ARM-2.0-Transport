@@ -74,6 +74,7 @@ export default function App() {
   if(!user)return <Login initialError={error} onLogin={u=>{setUser(u);setError('');}}/>;
   if(!meta)return <div className="full-loading"><ErrorBox error={error}/>{error?<button onClick={()=>refresh().then(()=>setError('')).catch(e=>setError(e.message))}>Повторить</button>:'Загружаем справочники…'}</div>;
   const admin=user.role==='ADMIN_OPERATOR';
+  const arm2Allowed = ['type', 'veh', 'cp', 'org'].some(kind => hasPermission(user, 'arm2_' + kind + '_view'));
   const links = [
     {to:'/', label:'Обзор', Icon:ChartNoAxesCombined, allowed:hasPermission(user,'reports_view')},
     {to:'/news', label:'Новости', Icon:Newspaper, allowed:hasPermission(user,'news_view')},
@@ -89,7 +90,7 @@ export default function App() {
     {to:'/messages', label:'Чаты', Icon:MessageSquare, allowed:true},
     {to:'/chats', label:'Чаты MAX', Icon:MessageSquare, allowed:hasPermission(user,'chats_manage')},
     {to:'/work-types', label:'Виды работ', Icon:Layers, allowed:admin},
-    {to:'/arm2', label:'ARM 2.0', Icon:Layers, allowed:admin},
+    {to:'/arm2', label:'ARM 2.0', Icon:Layers, allowed:arm2Allowed},
     {to:'/users', label:'Сотрудники', Icon:Users, allowed:admin},
     {to:'/audit', label:'Журнал действий', Icon:ShieldCheck, allowed:hasPermission(user,'audit_view')},
     {to:'/jobs', label:'Обработка', Icon:RefreshCw, allowed:hasPermission(user,'jobs_manage')},
@@ -141,7 +142,7 @@ export default function App() {
           <Route path="/messages" element={<OperatorChats includeInspectors={admin && !!meta.organization}/>}/>
           <Route path="/chats" element={protectedPage('chats_manage',<Administration key="chats" page="chats"/>)}/>
           <Route path="/work-types" element={admin?<WorkTypes/>:denied}/>
-          <Route path="/arm2" element={admin?<Suspense fallback={<p className="loading">Открываем ARM 2.0…</p>}><Arm2Home/></Suspense>:denied}/>
+          <Route path="/arm2/*" element={arm2Allowed?<Suspense fallback={<p className="loading">Открываем ARM 2.0…</p>}><Arm2Home/></Suspense>:denied}/>
           <Route path="/users" element={admin?<Administration key="users" page="users"/>:denied}/>
           <Route path="/audit" element={protectedPage('audit_view',<Administration key="audit" page="audit"/>)}/>
           <Route path="/jobs" element={protectedPage('jobs_manage',<Administration key="jobs" page="jobs"/>)}/>
