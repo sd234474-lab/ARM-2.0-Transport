@@ -5,5 +5,5 @@ import './arm2/arm2.css';
 
 export default function Arm2Home() {
   const {user} = useApp();
-  return <Workspace can={permission => hasPermission(user, permission)}/>;
+  return <Workspace can={permission => hasPermission(user, permission)} userLookupAllowed={user.role === 'ADMIN_OPERATOR'}/>;
 }

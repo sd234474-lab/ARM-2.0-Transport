@@ -21,7 +21,7 @@ beforeEach(() => {
   element = document.createElement('div'); document.body.append(element); root = createRoot(element);
 });
 afterEach(async () => {await act(async () => root.unmount()); element.remove(); vi.restoreAllMocks();});
-async function mount(path: string, can: Can = () => true) {await act(async () => {root.render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/arm2/*" element={<Workspace can={can}/>}/></Routes></MemoryRouter>); await tick();});}
+async function mount(path: string, can: Can = () => true, userLookupAllowed = false) {await act(async () => {root.render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/arm2/*" element={<Workspace can={can} userLookupAllowed={userLookupAllowed}/>}/></Routes></MemoryRouter>); await tick();});}
 function button(text: string) {const found = [...element.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === text); if (!found) throw Error('No button: ' + text); return found;}
 async function click(text: string) {await act(async () => {button(text).click(); await tick();});}
 async function follow(text: string) {await act(async () => {const a = [...element.querySelectorAll<HTMLAnchorElement>('a')].find(item => item.textContent === text); if (!a) throw Error('No link: ' + text); a.click(); await tick();});}
@@ -196,4 +196,77 @@ it.each(['TYPE', 'CP', 'ORG', 'VEH', 'CPREP', 'ORGREP'] as const)('%s accepts a 
   expect(vi.mocked(api).mock.calls.some(([path]) => path.includes('/history/'))).toBe(false);
   await submit(); expect(server.version).toBe(10); expect(element.textContent).toContain('Сохранено сервером');
   await click('История'); expect(vi.mocked(api).mock.calls.some(([path]) => path.startsWith(`/arm2/history/${kind}/OBJECT-1?`))).toBe(true);
+});
+
+it.each(['cp', 'org'])('%s representative chooses existing integer user A → B → null and reopens after each save', async kind => {
+  let stored: RecordData = {...emptyRecord('REP'), id: 'REP-1', name: 'Контакт', version: 1};
+  const changes: {before: unknown; after: unknown}[] = [];
+  const accounts = [{id: 11, name: 'Пользователь А'}, {id: 22, name: 'Пользователь Б'}];
+  vi.mocked(api).mockImplementation(async (path, method, body) => {
+    if (path === '/users') return accounts;
+    if (path.includes('/representatives/REP-1')) {
+      if (method === 'PUT') {const next = body as RecordData; expect(next.user_id === null || typeof next.user_id === 'number').toBe(true); changes.push({before: stored.user_id, after: next.user_id}); stored = {...stored, ...next, version: stored.version + 1};}
+      return {...stored};
+    }
+    return party;
+  });
+  const route = `/arm2/${kind}/PARENT-1/representatives/REP-1`;
+  await mount(route, () => true, true);
+  for (const value of [11, 22, null]) {
+    await change('Связанная учётная запись', value == null ? '' : String(value)); await submit();
+    expect(stored.user_id).toBe(value);
+    await follow('← К родительской карточке');
+    await act(async () => {root.render(<MemoryRouter key={String(value)} initialEntries={[route]}><Routes><Route path="/arm2/*" element={<Workspace can={() => true} userLookupAllowed/>}/></Routes></MemoryRouter>); await tick();});
+    expect(control('Связанная учётная запись').value).toBe(value == null ? '' : String(value));
+  }
+  expect(changes).toEqual([{before: null, after: 11}, {before: 11, after: 22}, {before: 22, after: null}]); expect(stored.version).toBe(4);
+  expect(vi.mocked(api).mock.calls.some(([, method]) => method === 'PATCH' || method === 'DELETE')).toBe(false);
+  expect(vi.mocked(api).mock.calls.filter(([path]) => path === '/users').every(([, method]) => method === 'GET')).toBe(true);
+});
+
+it.each(['no-directory-right', 'directory-403', 'view-only'])('user lookup %s preserves current link and prevents assignment', async mode => {
+  const rep = {...emptyRecord('REP'), id: 'REP-1', name: 'Контакт', version: 1, user_id: 11};
+  vi.mocked(api).mockImplementation(async (path, method, body) => {
+    if (path === '/users') throw new ApiError(403, 'denied');
+    return path.includes('/representatives/') ? method === 'PUT' ? {...rep, ...body as RecordData, version: 2} : rep : party;
+  });
+  await mount('/arm2/cp/PARENT-1/representatives/REP-1', permission => mode !== 'view-only' || permission.endsWith('_view'), mode !== 'no-directory-right');
+  expect(control('Связанная учётная запись').closest('fieldset')?.disabled).toBe(true);
+  expect(control('Связанная учётная запись').value).toBe('11');
+  if (mode !== 'directory-403') expect(vi.mocked(api).mock.calls.some(([path]) => path === '/users')).toBe(false);
+  if (mode !== 'view-only') {await change('Должность', 'Директор'); await submit(); expect(vi.mocked(api).mock.calls.find(([, method]) => method === 'PUT')?.[2]).toMatchObject({user_id: 11});}
+});
+
+it('user assignment conflict preserves selection until confirmed reload accepts server link/version', async () => {
+  let stored = {...emptyRecord('REP'), id: 'REP-1', name: 'Контакт', version: 1, user_id: 11};
+  let conflict = true;
+  vi.mocked(api).mockImplementation(async (path, method, body) => {
+    if (path === '/users') return [{id: 11, name: 'А'}, {id: 22, name: 'Б'}];
+    if (!path.includes('/representatives/')) return party;
+    if (method === 'PUT') {
+      if (conflict) {conflict = false; stored = {...stored, version: 8}; throw new ApiError(409, 'conflict');}
+      expect(body).toMatchObject({expected_version: 8, user_id: 22}); stored = {...stored, ...body as RecordData, user_id: 22, version: 9};
+    }
+    return {...stored};
+  });
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+  await mount('/arm2/cp/PARENT-1/representatives/REP-1', () => true, true); await change('Связанная учётная запись', '22'); await submit();
+  await click('Сравнить с сервером'); expect(control('Связанная учётная запись').value).toBe('22');
+  await click('Перезагрузить карточку'); expect(control('Связанная учётная запись').value).toBe('22');
+  confirm.mockReturnValue(true); await click('Перезагрузить карточку'); expect(control('Связанная учётная запись').value).toBe('11');
+  await change('Связанная учётная запись', '22'); await submit(); expect(stored).toMatchObject({user_id: 22, version: 9});
+});
+
+it.each([403, 422])('user link save HTTP %s keeps the selected draft without a false success', async status => {
+  const stored = {...emptyRecord('REP'), id: 'REP-1', name: 'Контакт', version: 1, user_id: 11};
+  vi.mocked(api).mockImplementation(async (path, method, body) => {
+    if (path === '/users') return [{id: 11, name: 'А'}, {id: 22, name: 'Б'}];
+    if (method === 'PUT') {expect(body).toMatchObject({user_id: 22, expected_version: 1}); throw new ApiError(status, 'Representative user_id does not exist');}
+    return path.includes('/representatives/') ? {...stored} : party;
+  });
+  await mount('/arm2/org/PARENT-1/representatives/REP-1', () => true, true);
+  await change('Связанная учётная запись', '22'); await submit();
+  expect(control('Связанная учётная запись').value).toBe('22'); expect(stored.user_id).toBe(11);
+  expect(element.querySelector('[role=alert]')).not.toBeNull(); expect(element.textContent).not.toContain('Сохранено сервером');
+  if (status === 403) expect(control('Связанная учётная запись').disabled).toBe(true);
 });

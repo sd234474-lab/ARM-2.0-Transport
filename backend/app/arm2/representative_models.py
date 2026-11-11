@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, String, text
+from sqlalchemy import CheckConstraint, ForeignKey, Integer, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -21,6 +21,7 @@ class CounterpartyRepresentative(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     __table_args__ = (
         CheckConstraint("id ~ '^CPREP-[0-9]{6,}$'", name="ck_cprep_id"),
+        UniqueConstraint("id", "parent_id", name="uq_cprep_id_parent"),
         CheckConstraint("state IN ('Действующий','Архивный')", name="ck_cprep_state"),
     )
 
@@ -42,5 +43,6 @@ class OrganizationRepresentative(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     __table_args__ = (
         CheckConstraint("id ~ '^ORGREP-[0-9]{6,}$'", name="ck_orgrep_id"),
+        UniqueConstraint("id", "parent_id", name="uq_orgrep_id_parent"),
         CheckConstraint("state IN ('Действующий','Архивный')", name="ck_orgrep_state"),
     )
