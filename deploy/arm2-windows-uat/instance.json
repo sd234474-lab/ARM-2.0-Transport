@@ -1,0 +1,8 @@
+{
+  "package": "ARM2-WIN-UAT-R2-001",
+  "source_sha": "1f8c06d1f9269146ce7c07508b02dd09c89ff763",
+  "migration": "0061",
+  "database": "arm2_uat_r2_001",
+  "url": "http://127.0.0.1:18082/arm2",
+  "production": false
+}
