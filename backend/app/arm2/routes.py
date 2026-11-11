@@ -5,13 +5,31 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from app.arm2.counterparty_models import Counterparty
+from app.arm2.counterparty_store import create_counterparty, update_counterparty
 from app.arm2.object_save import (
     ObjectAuthorizationError,
     ObjectNotFoundError,
     ObjectVersionConflictError,
     SaveContext,
 )
+from app.arm2.organization_models import Organization
+from app.arm2.organization_store import create_organization, update_organization
+from app.arm2.representative_models import (
+    CounterpartyRepresentative,
+    OrganizationRepresentative,
+)
+from app.arm2.representative_store import (
+    create_representative,
+    update_representative,
+)
 from app.arm2.schemas import (
+    PartyCreate,
+    PartyResponse,
+    PartyUpdate,
+    RepresentativeCreate,
+    RepresentativeResponse,
+    RepresentativeUpdate,
     VehicleCreate,
     VehicleResponse,
     VehicleTypeCreate,
@@ -44,10 +62,28 @@ Arm2VehicleEditor = Annotated[
     User,
     Depends(require_permission(Permission.ARM2_VEH_EDIT)),
 ]
+Arm2CounterpartyViewer = Annotated[
+    User,
+    Depends(require_permission(Permission.ARM2_CP_VIEW)),
+]
+Arm2CounterpartyEditor = Annotated[
+    User,
+    Depends(require_permission(Permission.ARM2_CP_EDIT)),
+]
+Arm2OrganizationViewer = Annotated[
+    User,
+    Depends(require_permission(Permission.ARM2_ORG_VIEW)),
+]
+Arm2OrganizationEditor = Annotated[
+    User,
+    Depends(require_permission(Permission.ARM2_ORG_EDIT)),
+]
 Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0)]
 
 _EXPECTED_UNIQUE_CONSTRAINTS = {
+    "uq_arm2_counterparties_inn",
+    "uq_arm2_organizations_inn",
     "uq_arm2_vehicle_types_name",
     "uq_arm2_vehicles_plate_number",
 }
@@ -88,6 +124,70 @@ def _vehicle_response(record: Vehicle) -> dict[str, Any]:
             "version",
         )
     }
+
+
+def _party_response(record: Counterparty | Organization) -> dict[str, Any]:
+    return {
+        field: getattr(record, field)
+        for field in (
+            "id",
+            "name",
+            "full_name",
+            "legal_address",
+            "postal_address",
+            "legal_form",
+            "short_name",
+            "inn",
+            "kpp",
+            "ogrn",
+            "phone",
+            "email",
+            "bank_name",
+            "bik",
+            "settlement_account",
+            "correspondent_account",
+            "primary_signer_id",
+            "status",
+            "version",
+        )
+    }
+
+
+def _representative_response(
+    record: CounterpartyRepresentative | OrganizationRepresentative,
+) -> dict[str, Any]:
+    return {
+        field: getattr(record, field)
+        for field in (
+            "id",
+            "parent_id",
+            "name",
+            "position",
+            "authority_basis",
+            "phone",
+            "email",
+            "state",
+            "user_id",
+            "last_name",
+            "first_name",
+            "middle_name",
+            "version",
+        )
+    }
+
+
+def _get_or_404(db: Db, model, object_id: str, message: str):
+    record = db.get(model, object_id)
+    if record is None:
+        raise HTTPException(404, message)
+    return record
+
+
+def _representative_or_404(db: Db, model, parent_id: str, representative_id: str):
+    record = db.get(model, representative_id)
+    if record is None or record.parent_id != parent_id:
+        raise HTTPException(404, "ARM2 representative not found")
+    return record
 
 
 def _constraint_name(error: IntegrityError) -> str | None:
@@ -236,3 +336,309 @@ def put_vehicle(
         ),
     )
     return _vehicle_response(record)
+
+
+@router.get("/counterparties", response_model=list[PartyResponse])
+def list_counterparties(
+    db: Db,
+    _: Arm2CounterpartyViewer,
+    limit: Limit = 100,
+    offset: Offset = 0,
+):
+    records = db.scalars(
+        select(Counterparty).order_by(Counterparty.id).limit(limit).offset(offset)
+    )
+    return [_party_response(record) for record in records]
+
+
+@router.get("/counterparties/{cp_id}", response_model=PartyResponse)
+def get_counterparty(cp_id: str, db: Db, _: Arm2CounterpartyViewer):
+    return _party_response(
+        _get_or_404(db, Counterparty, cp_id, "ARM2 counterparty not found")
+    )
+
+
+@router.post("/counterparties", status_code=201, response_model=PartyResponse)
+def post_counterparty(body: PartyCreate, db: Db, user: Arm2CounterpartyEditor):
+    values = body.model_dump()
+    record = _save(
+        db,
+        lambda: create_counterparty(
+            db, **values, principal=user, context=_context(user)
+        ),
+    )
+    return _party_response(record)
+
+
+@router.put("/counterparties/{cp_id}", response_model=PartyResponse)
+def put_counterparty(
+    cp_id: str,
+    body: PartyUpdate,
+    db: Db,
+    user: Arm2CounterpartyEditor,
+):
+    values = body.model_dump(
+        exclude={"expected_version", "name"}, exclude_unset=True
+    )
+    record = _save(
+        db,
+        lambda: update_counterparty(
+            db,
+            cp_id,
+            body.expected_version,
+            body.name,
+            **values,
+            principal=user,
+            context=_context(user),
+        ),
+    )
+    return _party_response(record)
+
+
+@router.get("/organizations", response_model=list[PartyResponse])
+def list_organizations(
+    db: Db,
+    _: Arm2OrganizationViewer,
+    limit: Limit = 100,
+    offset: Offset = 0,
+):
+    records = db.scalars(
+        select(Organization).order_by(Organization.id).limit(limit).offset(offset)
+    )
+    return [_party_response(record) for record in records]
+
+
+@router.get("/organizations/{org_id}", response_model=PartyResponse)
+def get_organization(org_id: str, db: Db, _: Arm2OrganizationViewer):
+    return _party_response(
+        _get_or_404(db, Organization, org_id, "ARM2 organization not found")
+    )
+
+
+@router.post("/organizations", status_code=201, response_model=PartyResponse)
+def post_organization(body: PartyCreate, db: Db, user: Arm2OrganizationEditor):
+    values = body.model_dump()
+    record = _save(
+        db,
+        lambda: create_organization(
+            db, **values, principal=user, context=_context(user)
+        ),
+    )
+    return _party_response(record)
+
+
+@router.put("/organizations/{org_id}", response_model=PartyResponse)
+def put_organization(
+    org_id: str,
+    body: PartyUpdate,
+    db: Db,
+    user: Arm2OrganizationEditor,
+):
+    values = body.model_dump(
+        exclude={"expected_version", "name"}, exclude_unset=True
+    )
+    record = _save(
+        db,
+        lambda: update_organization(
+            db,
+            org_id,
+            body.expected_version,
+            body.name,
+            **values,
+            principal=user,
+            context=_context(user),
+        ),
+    )
+    return _party_response(record)
+
+
+@router.get(
+    "/counterparties/{cp_id}/representatives",
+    response_model=list[RepresentativeResponse],
+)
+def list_counterparty_representatives(
+    cp_id: str,
+    db: Db,
+    _: Arm2CounterpartyViewer,
+    limit: Limit = 100,
+    offset: Offset = 0,
+):
+    _get_or_404(db, Counterparty, cp_id, "ARM2 counterparty not found")
+    records = db.scalars(
+        select(CounterpartyRepresentative)
+        .where(CounterpartyRepresentative.parent_id == cp_id)
+        .order_by(CounterpartyRepresentative.id)
+        .limit(limit)
+        .offset(offset)
+    )
+    return [_representative_response(record) for record in records]
+
+
+@router.get(
+    "/counterparties/{cp_id}/representatives/{rep_id}",
+    response_model=RepresentativeResponse,
+)
+def get_counterparty_representative(
+    cp_id: str,
+    rep_id: str,
+    db: Db,
+    _: Arm2CounterpartyViewer,
+):
+    _get_or_404(db, Counterparty, cp_id, "ARM2 counterparty not found")
+    return _representative_response(
+        _representative_or_404(db, CounterpartyRepresentative, cp_id, rep_id)
+    )
+
+
+@router.post(
+    "/counterparties/{cp_id}/representatives",
+    status_code=201,
+    response_model=RepresentativeResponse,
+)
+def post_counterparty_representative(
+    cp_id: str,
+    body: RepresentativeCreate,
+    db: Db,
+    user: Arm2CounterpartyEditor,
+):
+    _get_or_404(db, Counterparty, cp_id, "ARM2 counterparty not found")
+    values = body.model_dump()
+    record = _save(
+        db,
+        lambda: create_representative(
+            db,
+            "CP",
+            cp_id,
+            **values,
+            principal=user,
+            context=_context(user),
+        ),
+    )
+    return _representative_response(record)
+
+
+@router.put(
+    "/counterparties/{cp_id}/representatives/{rep_id}",
+    response_model=RepresentativeResponse,
+)
+def put_counterparty_representative(
+    cp_id: str,
+    rep_id: str,
+    body: RepresentativeUpdate,
+    db: Db,
+    user: Arm2CounterpartyEditor,
+):
+    _get_or_404(db, Counterparty, cp_id, "ARM2 counterparty not found")
+    _representative_or_404(db, CounterpartyRepresentative, cp_id, rep_id)
+    values = body.model_dump(exclude={"expected_version", "name"})
+    record = _save(
+        db,
+        lambda: update_representative(
+            db,
+            "CP",
+            rep_id,
+            body.expected_version,
+            cp_id,
+            body.name,
+            **values,
+            principal=user,
+            context=_context(user),
+        ),
+    )
+    return _representative_response(record)
+
+
+@router.get(
+    "/organizations/{org_id}/representatives",
+    response_model=list[RepresentativeResponse],
+)
+def list_organization_representatives(
+    org_id: str,
+    db: Db,
+    _: Arm2OrganizationViewer,
+    limit: Limit = 100,
+    offset: Offset = 0,
+):
+    _get_or_404(db, Organization, org_id, "ARM2 organization not found")
+    records = db.scalars(
+        select(OrganizationRepresentative)
+        .where(OrganizationRepresentative.parent_id == org_id)
+        .order_by(OrganizationRepresentative.id)
+        .limit(limit)
+        .offset(offset)
+    )
+    return [_representative_response(record) for record in records]
+
+
+@router.get(
+    "/organizations/{org_id}/representatives/{rep_id}",
+    response_model=RepresentativeResponse,
+)
+def get_organization_representative(
+    org_id: str,
+    rep_id: str,
+    db: Db,
+    _: Arm2OrganizationViewer,
+):
+    _get_or_404(db, Organization, org_id, "ARM2 organization not found")
+    return _representative_response(
+        _representative_or_404(db, OrganizationRepresentative, org_id, rep_id)
+    )
+
+
+@router.post(
+    "/organizations/{org_id}/representatives",
+    status_code=201,
+    response_model=RepresentativeResponse,
+)
+def post_organization_representative(
+    org_id: str,
+    body: RepresentativeCreate,
+    db: Db,
+    user: Arm2OrganizationEditor,
+):
+    _get_or_404(db, Organization, org_id, "ARM2 organization not found")
+    values = body.model_dump()
+    record = _save(
+        db,
+        lambda: create_representative(
+            db,
+            "ORG",
+            org_id,
+            **values,
+            principal=user,
+            context=_context(user),
+        ),
+    )
+    return _representative_response(record)
+
+
+@router.put(
+    "/organizations/{org_id}/representatives/{rep_id}",
+    response_model=RepresentativeResponse,
+)
+def put_organization_representative(
+    org_id: str,
+    rep_id: str,
+    body: RepresentativeUpdate,
+    db: Db,
+    user: Arm2OrganizationEditor,
+):
+    _get_or_404(db, Organization, org_id, "ARM2 organization not found")
+    _representative_or_404(db, OrganizationRepresentative, org_id, rep_id)
+    values = body.model_dump(exclude={"expected_version", "name"})
+    record = _save(
+        db,
+        lambda: update_representative(
+            db,
+            "ORG",
+            rep_id,
+            body.expected_version,
+            org_id,
+            body.name,
+            **values,
+            principal=user,
+            context=_context(user),
+        ),
+    )
+    return _representative_response(record)
