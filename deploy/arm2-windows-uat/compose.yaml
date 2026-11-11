@@ -1,0 +1,105 @@
+name: arm2-uat-r2-001
+x-labels: &labels
+  io.arm2.uat.package: ARM2-WIN-UAT-R2-001
+  io.arm2.uat.source: 1f8c06d1f9269146ce7c07508b02dd09c89ff763
+x-env: &env
+  DATABASE_URL: postgresql+psycopg://arm2_uat:${UAT_DB_PASSWORD:?Run uat.ps1 Prepare}@uat-db:5432/arm2_uat_r2_001
+  APP_ENV: test
+  APP_ORIGIN: http://127.0.0.1:18082
+  APP_TIMEZONE: Asia/Yekaterinburg
+  COOKIE_SECURE: "false"
+  ORGANIZATIONS_ENABLED: "false"
+  DATA_DIR: /data
+  MAX_BOT_TOKEN: ""
+  MAX_WEBHOOK_SECRET: ${UAT_INERT_SECRET:?Run uat.ps1 Prepare}
+  MAX_UPDATE_MODE: webhook
+  YANDEX_DISK_TOKEN: ""
+  YANDEX_DISK_ROOT: ARM2_UAT_INERT
+  ML_AUTO_TRAIN: "false"
+  ML_DOWNLOAD_BACKBONE: "false"
+  PYTHONPATH: /uat:/service
+services:
+  uat-db:
+    image: postgis/postgis:16-3.5
+    platform: linux/amd64
+    container_name: arm2-uat-r2-001-db
+    labels: *labels
+    restart: "no"
+    environment:
+      POSTGRES_DB: arm2_uat_r2_001
+      POSTGRES_USER: arm2_uat
+      POSTGRES_PASSWORD: ${UAT_DB_PASSWORD:?Run uat.ps1 Prepare}
+    volumes: ["uat-db:/var/lib/postgresql/data"]
+    networks: [uat-net]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U arm2_uat -d arm2_uat_r2_001"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+  uat-migrate:
+    image: arm2-uat-r2-001-api:1f8c06d
+    platform: linux/amd64
+    container_name: arm2-uat-r2-001-migrate
+    labels: *labels
+    environment: *env
+    command: [python, /uat/uat_control.py, migrate]
+    restart: "no"
+    networks: [uat-net]
+    volumes: ["uat-data:/data"]
+    depends_on:
+      uat-db: {condition: service_healthy}
+  uat-api:
+    image: arm2-uat-r2-001-api:1f8c06d
+    build:
+      context: ../..
+      dockerfile: deploy/arm2-windows-uat/api.Dockerfile
+    platform: linux/amd64
+    container_name: arm2-uat-r2-001-api
+    labels: *labels
+    environment: *env
+    command: [uvicorn, uat_entrypoint:app, --host, 0.0.0.0, --port, "8000"]
+    restart: "no"
+    init: true
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes: ["uat-data:/data"]
+    networks: [uat-net]
+    depends_on:
+      uat-migrate: {condition: service_completed_successfully}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+  uat-web:
+    image: arm2-uat-r2-001-web:1f8c06d
+    build:
+      context: ../..
+      dockerfile: deploy/arm2-windows-uat/web.Dockerfile
+    platform: linux/amd64
+    container_name: arm2-uat-r2-001-web
+    labels: *labels
+    restart: "no"
+    ports: ["127.0.0.1:18082:80"]
+    networks: [uat-net]
+    depends_on:
+      uat-api: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1/api/health]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+volumes:
+  uat-db:
+    name: arm2-uat-r2-001-db
+    labels: *labels
+  uat-data:
+    name: arm2-uat-r2-001-data
+    labels: *labels
+networks:
+  uat-net:
+    name: arm2-uat-r2-001-net
+    internal: true
+    labels: *labels
