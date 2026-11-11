@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, Integer, String, UniqueConstraint, text
+from sqlalchemy import CheckConstraint, ForeignKeyConstraint, Integer, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -26,6 +26,11 @@ class Counterparty(Base):
     status: Mapped[str] = mapped_column(String, nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["primary_signer_id", "id"],
+            ["nsi_counterparty_representatives.id", "nsi_counterparty_representatives.parent_id"],
+            name="fk_arm2_cp_primary_signer_parent", ondelete="RESTRICT", use_alter=True,
+        ),
         CheckConstraint("id ~ '^CP-[0-9]{6,}$'", name="ck_arm2_counterparties_id"),
         CheckConstraint("name=btrim(name) AND name<>''", name="ck_arm2_counterparties_name"),
         CheckConstraint("status IN ('REVIEW','CONFIRMED')", name="ck_arm2_counterparties_status"),

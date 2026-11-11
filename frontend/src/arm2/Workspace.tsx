@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { all, catalogs, detail, list, save } from './api';
 import type { Kind, RecordData, Scalar } from './api';
@@ -7,13 +7,14 @@ import { display, ErrorMessage, Field, History, Pagination, SaveForm, Tabs, Unav
 
 export type Can = (permission: string) => boolean;
 const kinds = Object.keys(catalogs) as Kind[];
+const UserLookupAllowed = createContext(false);
 const link = (kind: Kind, id?: string) => `/arm2/${kind.toLowerCase()}${id ? '/' + encodeURIComponent(id) : ''}`;
-export default function Workspace({can}: {can: Can}) {
+export default function Workspace({can, userLookupAllowed = false}: {can: Can; userLookupAllowed?: boolean}) {
   const visible = kinds.filter(kind => can(catalogs[kind].permission + '_view'));
-  return <section className="panel arm2"><h1>АРМ 2.0</h1><nav className="arm2-tabs" aria-label="Справочники АРМ 2.0">{visible.map(kind => <Link key={kind} to={link(kind)}>{catalogs[kind].label}</Link>)}</nav><Routes>
+  return <UserLookupAllowed.Provider value={userLookupAllowed}><section className="panel arm2"><h1>АРМ 2.0</h1><nav className="arm2-tabs" aria-label="Справочники АРМ 2.0">{visible.map(kind => <Link key={kind} to={link(kind)}>{catalogs[kind].label}</Link>)}</nav><Routes>
     {visible.map(kind => <Route key={kind} path={kind.toLowerCase()}><Route index element={<Catalog key={kind} kind={kind} can={can}/>}/><Route path=":id" element={<CardRoute kind={kind} can={can}/>}/>{isParty(kind) && <Route path=":parentId/representatives/:id" element={<RepRoute kind={kind} can={can}/>}/>}</Route>)}
     <Route path="*" element={visible[0] ? <Navigate to={link(visible[0])} replace/> : <p>Нет прав на просмотр справочников АРМ 2.0</p>}/>
-  </Routes></section>;
+  </Routes></section></UserLookupAllowed.Provider>;
 }
 function Catalog({kind, can}: {kind: Kind; can: Can}) {
   const [params, setParams] = useSearchParams();
@@ -106,5 +107,19 @@ function RepCard({kind, can, initial, path, parentId, reload}: {kind: Kind; can:
     const saved = await save(`${path}${original.id ? '/' + encodeURIComponent(original.id) : ''}`, payload('REP', draft, original), !!original.id);
     if (!alive.current) return;
     setOriginal(saved); setDraft(saved); if (!original.id) navigate(`${link(kind, parentId)}/representatives/${encodeURIComponent(saved.id)}`, {replace: true});
-  }}>{() => <div className="arm2-grid">{repFields.filter(field => field !== 'user_id').map(field => <Field key={field} field={field} label={field === 'phone' ? 'Телефон представителя' : field === 'email' ? 'Email представителя' : undefined} value={draft[field]} required={field === 'name'} change={value => setDraft(current => ({...current, [field]: value}))} options={field === 'state' ? ['Действующий', 'Архивный'].map(value => ({value, label: value})) : undefined}/>)}</div>}</SaveForm>{original.id && <><button type="button" onClick={() => setHistory(x => !x)} aria-expanded={history}>История</button>{history && <History type={kind === 'CP' ? 'CPREP' : 'ORGREP'} id={original.id}/>}</>}</article>;
+  }}>{() => <><div className="arm2-grid">{repFields.filter(field => field !== 'user_id').map(field => <Field key={field} field={field} label={field === 'phone' ? 'Телефон представителя' : field === 'email' ? 'Email представителя' : undefined} value={draft[field]} required={field === 'name'} change={value => setDraft(current => ({...current, [field]: value}))} options={field === 'state' ? ['Действующий', 'Архивный'].map(value => ({value, label: value})) : undefined}/>)}</div><RepresentativeUser selected={draft.user_id} change={value => setDraft(current => ({...current, user_id: value}))} canEdit={can(catalogs[kind].permission + '_edit')}/></>}</SaveForm>{original.id && <><button type="button" onClick={() => setHistory(x => !x)} aria-expanded={history}>История</button>{history && <History type={kind === 'CP' ? 'CPREP' : 'ORGREP'} id={original.id}/>}</>}</article>;
+}
+
+function RepresentativeUser({selected, change, canEdit}: {selected: Scalar | undefined; change: (value: number | null) => void; canEdit: boolean}) {
+  const allowed = useContext(UserLookupAllowed) && canEdit;
+  const [search, setSearch] = useState('');
+  // /users is an existing admin-only, unpaginated endpoint in the current workspace.
+  // Never request it using ARM2 EDIT as a substitute for that role.
+  const users = useLoad(signal => allowed ? detail<{id: number; name: string}[]>('/users', signal) : Promise.resolve([]), [allowed]);
+  const rows = users.data || [];
+  const matches = rows.filter(row => row.id === selected || row.name.toLocaleLowerCase('ru').includes(search.toLocaleLowerCase('ru')));
+  return <section><h3>Связь с учётной записью</h3><p>Назначение, смена или снятие связи не изменяет роль и права пользователя.</p>{!allowed && <p>Выбор пользователей доступен только администратору с правом редактирования этой карточки. Текущая связь сохраняется.</p>}<ErrorMessage error={users.error} retry={allowed ? users.reload : undefined}/><fieldset disabled={!allowed || users.loading || !!users.error}><label className="arm2-field">Поиск по всему разрешённому списку пользователей<input value={search} onChange={e => setSearch(e.target.value)}/></label><Field field="user_id" value={selected} change={value => {
+    if (value == null) change(null);
+    else {const user = rows.find(row => String(row.id) === value); if (user && Number.isSafeInteger(user.id)) change(user.id);}
+  }} options={[{value: '', label: 'Не связан'}, ...(selected != null && !rows.some(row => row.id === selected) ? [{value: String(selected), label: 'Текущая связь (данные пользователя недоступны)', disabled: true}] : []), ...matches.map(row => ({value: String(row.id), label: row.name}))]}/></fieldset></section>;
 }
