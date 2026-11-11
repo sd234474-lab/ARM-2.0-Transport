@@ -27,8 +27,14 @@ function CardRoute({kind, can}: {kind: Kind; can: Can}) {
   const {id = 'new'} = useParams(); return <CardLoader key={`${kind}:${id}`} kind={kind} id={id} can={can}/>;
 }
 function CardLoader({kind, id, can}: {kind: Kind; id: string; can: Can}) {
-  const result = useLoad(signal => id === 'new' ? Promise.resolve(emptyRecord(kind)) : detail<RecordData>(`${catalogs[kind].path}/${encodeURIComponent(id)}`, signal), [kind, id]);
-  return <><Link to={link(kind)}>← К списку</Link><ErrorMessage error={result.error} retry={result.reload}/>{result.loading && <p role="status">Открываем карточку…</p>}{result.data && <Card kind={kind} initial={result.data} can={can} reload={result.reload}/>}</>;
+  const [reloadId, setReloadId] = useState(0);
+  const result = useLoad(async signal => ({
+    record: id === 'new' ? emptyRecord(kind) : await detail<RecordData>(`${catalogs[kind].path}/${encodeURIComponent(id)}`, signal),
+    reloadId,
+  }), [kind, id, reloadId]);
+  // Accept a reset only with the successful GET for that confirmed reload.
+  // Remounting also clears SaveForm errors/comparison/success and selector state.
+  return <><Link to={link(kind)}>← К списку</Link><ErrorMessage error={result.error} retry={result.reload}/>{result.loading && <p role="status">Открываем карточку…</p>}{result.data && <Card key={result.data.reloadId} kind={kind} initial={result.data.record} can={can} reload={() => setReloadId(value => value + 1)}/>}</>;
 }
 function Card({kind, initial, can, reload}: {kind: Kind; initial: RecordData; can: Can; reload: () => void}) {
   const alive = useAlive();
@@ -84,9 +90,13 @@ function RepRoute({kind, can}: {kind: Kind; can: Can}) {
   const {id = 'new', parentId = ''} = useParams(); return <RepLoader key={`${kind}:${parentId}:${id}`} kind={kind} can={can} id={id} parentId={parentId}/>;
 }
 function RepLoader({kind, can, id, parentId}: {kind: Kind; can: Can; id: string; parentId: string}) {
+  const [reloadId, setReloadId] = useState(0);
   const path = `${catalogs[kind].path}/${encodeURIComponent(parentId)}/representatives`;
-  const result = useLoad(async signal => {await detail<RecordData>(`${catalogs[kind].path}/${encodeURIComponent(parentId)}`, signal); return id === 'new' ? emptyRecord('REP') : detail<RecordData>(`${path}/${encodeURIComponent(id)}`, signal);}, [path, id]);
-  return <><Link to={link(kind, parentId)}>← К родительской карточке</Link><ErrorMessage error={result.error} retry={result.reload}/>{result.loading && <p>Открываем представителя…</p>}{result.data && <RepCard kind={kind} can={can} initial={result.data} path={path} parentId={parentId} reload={result.reload}/>}</>;
+  const result = useLoad(async signal => {
+    await detail<RecordData>(`${catalogs[kind].path}/${encodeURIComponent(parentId)}`, signal);
+    return {record: id === 'new' ? emptyRecord('REP') : await detail<RecordData>(`${path}/${encodeURIComponent(id)}`, signal), reloadId};
+  }, [path, id, reloadId]);
+  return <><Link to={link(kind, parentId)}>← К родительской карточке</Link><ErrorMessage error={result.error} retry={result.reload}/>{result.loading && <p>Открываем представителя…</p>}{result.data && <RepCard key={result.data.reloadId} kind={kind} can={can} initial={result.data.record} path={path} parentId={parentId} reload={() => setReloadId(value => value + 1)}/>}</>;
 }
 function RepCard({kind, can, initial, path, parentId, reload}: {kind: Kind; can: Can; initial: RecordData; path: string; parentId: string; reload: () => void}) {
   const alive = useAlive();

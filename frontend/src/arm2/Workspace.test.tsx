@@ -160,3 +160,40 @@ it('late create response does not redirect the operator after leaving the card',
   expect(element.querySelector('h2')?.textContent).toBe('Контрагенты');
   expect(element.querySelector('form')).toBeNull();
 });
+
+it.each(['TYPE', 'CP', 'ORG', 'VEH', 'CPREP', 'ORGREP'] as const)('%s accepts a fresh version only after confirmed reload following 409', async kind => {
+  const rep = kind === 'CPREP' || kind === 'ORGREP';
+  const catalog = kind === 'TYPE' ? 'types' : kind === 'VEH' ? 'vehicles' : kind === 'CP' || kind === 'CPREP' ? 'counterparties' : 'organizations';
+  const route = kind === 'CPREP' ? 'cp' : kind === 'ORGREP' ? 'org' : kind.toLowerCase();
+  const resource = `/arm2/${catalog}/${rep ? 'PARENT-1/representatives/' : ''}OBJECT-1`;
+  const cardRoute = `/arm2/${route}/${rep ? 'PARENT-1/representatives/' : ''}OBJECT-1`;
+  let server: RecordData = {...(rep ? emptyRecord('REP') : kind === 'TYPE' ? type : kind === 'VEH' ? vehicle : party), id: 'OBJECT-1', name: 'Исходное имя', version: 3};
+  let conflict = true;
+  vi.mocked(api).mockImplementation(async (path, method, body) => {
+    if (path.startsWith('/arm2/history/')) return [];
+    if (path !== resource) return path.includes('?') ? [] : party;
+    if (method === 'PUT') {
+      if (conflict) {conflict = false; server = {...server, name: 'Актуальное имя сервера', version: 9}; throw new ApiError(409, 'version conflict');}
+      expect(body).toMatchObject({expected_version: 9, name: 'Актуальное имя сервера'});
+      server = {...server, ...body as RecordData, version: 10}; return server;
+    }
+    return {...server};
+  });
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+  await mount(cardRoute); await change('Рабочее имя', 'Мой несохранённый черновик'); await submit();
+  expect(element.querySelector('[role=alert]')).not.toBeNull(); expect(element.textContent).not.toContain('Сохранено сервером');
+  await click('Сравнить с сервером');
+  expect(control('Рабочее имя').value).toBe('Мой несохранённый черновик');
+  expect(element.querySelector('[aria-label="Версия на сервере"]')?.textContent).toContain('Актуальное имя сервера');
+  const gets = () => vi.mocked(api).mock.calls.filter(([path, method]) => path === resource && method === 'GET').length;
+  const beforeCancel = gets(); await click('Перезагрузить карточку');
+  expect(confirm).toHaveBeenCalledTimes(1); expect(gets()).toBe(beforeCancel);
+  expect(control('Рабочее имя').value).toBe('Мой несохранённый черновик'); expect(element.querySelector('[role=alert]')).not.toBeNull();
+  confirm.mockReturnValue(true); await click('Перезагрузить карточку');
+  expect(gets()).toBe(beforeCancel + 1); expect(control('Рабочее имя').value).toBe('Актуальное имя сервера');
+  expect(element.querySelector('[role=alert]')).toBeNull(); expect(element.querySelector('[aria-label="Версия на сервере"]')).toBeNull();
+  expect(element.textContent).not.toContain('Сохранено сервером');
+  expect(vi.mocked(api).mock.calls.some(([path]) => path.includes('/history/'))).toBe(false);
+  await submit(); expect(server.version).toBe(10); expect(element.textContent).toContain('Сохранено сервером');
+  await click('История'); expect(vi.mocked(api).mock.calls.some(([path]) => path.startsWith(`/arm2/history/${kind}/OBJECT-1?`))).toBe(true);
+});
