@@ -242,22 +242,28 @@ def _validate_history_access(
     except ObjectRegistryError as error:
         raise HTTPException(422, "Invalid ARM2 history object id") from error
     representative_parent = {
-        "CPREP": (CounterpartyRepresentative, "CP"),
-        "ORGREP": (OrganizationRepresentative, "ORG"),
+        "CPREP": (CounterpartyRepresentative, Counterparty, "CP"),
+        "ORGREP": (OrganizationRepresentative, Organization, "ORG"),
     }.get(object_type)
     if representative_parent is None:
         return
-    representative_model, parent_type = representative_parent
+    representative_model, parent_model, parent_type = representative_parent
     parent_id = db.scalar(
         select(representative_model.parent_id).where(
             representative_model.id == object_id
         )
     )
-    if parent_id is not None:
-        try:
-            OBJECT_REGISTRY.require(parent_type).validate_id(parent_id)
-        except ObjectRegistryError as error:
-            raise HTTPException(404, "ARM2 representative parent not found") from error
+    if parent_id is None:
+        raise HTTPException(404, "ARM2 representative history not found")
+    try:
+        OBJECT_REGISTRY.require(parent_type).validate_id(parent_id)
+    except ObjectRegistryError as error:
+        raise HTTPException(404, "ARM2 representative parent not found") from error
+    parent_exists = db.scalar(
+        select(parent_model.id).where(parent_model.id == parent_id)
+    )
+    if parent_exists is None:
+        raise HTTPException(404, "ARM2 representative parent not found")
 
 
 def _constraint_name(error: IntegrityError) -> str | None:
@@ -716,10 +722,17 @@ def put_organization_representative(
 
 @router.get("/history/events/{event_id}", response_model=HistoryEventDetail)
 def get_history_event(event_id: int, db: Db, user: CurrentUser):
+    identity = db.execute(
+        select(HistoryEvent.object_type, HistoryEvent.object_id).where(
+            HistoryEvent.event_id == event_id
+        )
+    ).one_or_none()
+    if identity is None:
+        raise HTTPException(404, "ARM2 history event not found")
+    _validate_history_access(db, user, identity.object_type, identity.object_id)
     event = db.get(HistoryEvent, event_id)
     if event is None:
         raise HTTPException(404, "ARM2 history event not found")
-    _validate_history_access(db, user, event.object_type, event.object_id)
     return _history_detail_response(event)
 
 

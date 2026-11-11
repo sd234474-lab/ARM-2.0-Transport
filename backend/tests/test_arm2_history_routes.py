@@ -1,6 +1,7 @@
 from sqlalchemy import event, func, select
 
 from app.arm2.history_models import HistoryEvent
+from app.arm2.representative_models import CounterpartyRepresentative
 from app.models import User
 from app.permissions import Permission
 
@@ -121,6 +122,29 @@ def test_history_auth_independent_permissions_and_no_global_endpoint(
             )
             expected = 200 if object_type in allowed_types else 403
             assert response.status_code == expected
+
+    statements = []
+    engine = db.get_bind()
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _many):
+        statements.append(statement)
+
+    set_operator(db, [Permission.ARM2_TYPE_VIEW])
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        denied = client.get(f"/api/arm2/history/events/{events['CP']}")
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert denied.status_code == 403
+    history_queries = [
+        statement
+        for statement in statements
+        if "arm2_history_events" in statement
+    ]
+    assert len(history_queries) == 1
+    assert "changes" not in history_queries[0]
+    assert "related_objects" not in history_queries[0]
+    assert "correlation_id" not in history_queries[0]
 
     set_operator(
         db,
@@ -274,3 +298,14 @@ def test_card_get_does_not_query_history_and_rep_history_uses_parent_rights(
     assert client.get(
         f"/api/arm2/history/CPREP/{objects['CPREP']}"
     ).status_code == 403
+
+    set_operator(db, [Permission.ARM2_CP_VIEW])
+    representative = db.get(CounterpartyRepresentative, objects["CPREP"])
+    db.delete(representative)
+    db.commit()
+    assert client.get(
+        f"/api/arm2/history/CPREP/{objects['CPREP']}"
+    ).status_code == 404
+    assert client.get(
+        f"/api/arm2/history/events/{cp_rep_event}"
+    ).status_code == 404
