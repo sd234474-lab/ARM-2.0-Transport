@@ -7,6 +7,8 @@ from sqlalchemy.exc import IntegrityError
 
 from app.arm2.counterparty_models import Counterparty
 from app.arm2.counterparty_store import create_counterparty, update_counterparty
+from app.arm2.history_models import HistoryEvent
+from app.arm2.object_registry import OBJECT_REGISTRY, ObjectRegistryError
 from app.arm2.object_save import (
     ObjectAuthorizationError,
     ObjectNotFoundError,
@@ -24,6 +26,9 @@ from app.arm2.representative_store import (
     update_representative,
 )
 from app.arm2.schemas import (
+    HistoryEventDetail,
+    HistoryEventSummary,
+    HistoryObjectType,
     PartyCreate,
     PartyResponse,
     PartyUpdate,
@@ -41,7 +46,7 @@ from app.arm2.vehicle_models import Vehicle
 from app.arm2.vehicle_store import create_vehicle, update_vehicle
 from app.arm2.vehicle_type_models import VehicleType
 from app.arm2.vehicle_type_store import create_vehicle_type, update_vehicle_type
-from app.auth import Db, require_permission
+from app.auth import CurrentUser, Db, check_permission, require_permission
 from app.models import User
 from app.permissions import Permission
 
@@ -86,6 +91,14 @@ _EXPECTED_UNIQUE_CONSTRAINTS = {
     "uq_arm2_organizations_inn",
     "uq_arm2_vehicle_types_name",
     "uq_arm2_vehicles_plate_number",
+}
+_HISTORY_VIEW_PERMISSIONS = {
+    "TYPE": Permission.ARM2_TYPE_VIEW,
+    "VEH": Permission.ARM2_VEH_VIEW,
+    "CP": Permission.ARM2_CP_VIEW,
+    "CPREP": Permission.ARM2_CP_VIEW,
+    "ORG": Permission.ARM2_ORG_VIEW,
+    "ORGREP": Permission.ARM2_ORG_VIEW,
 }
 
 
@@ -188,6 +201,63 @@ def _representative_or_404(db: Db, model, parent_id: str, representative_id: str
     if record is None or record.parent_id != parent_id:
         raise HTTPException(404, "ARM2 representative not found")
     return record
+
+
+def _history_summary_response(event: HistoryEvent) -> dict[str, Any]:
+    return {
+        field: getattr(event, field)
+        for field in (
+            "event_id",
+            "object_type",
+            "object_id",
+            "operation",
+            "occurred_at",
+            "actor_kind",
+            "actor_id",
+            "source",
+            "version_before",
+            "version_after",
+        )
+    }
+
+
+def _history_detail_response(event: HistoryEvent) -> dict[str, Any]:
+    return {
+        **_history_summary_response(event),
+        "correlation_id": event.correlation_id,
+        "changes": event.changes,
+        "related_objects": event.related_objects,
+    }
+
+
+def _validate_history_access(
+    db: Db,
+    user: User,
+    object_type: HistoryObjectType,
+    object_id: str,
+) -> None:
+    check_permission(user, _HISTORY_VIEW_PERMISSIONS[object_type])
+    try:
+        OBJECT_REGISTRY.require(object_type).validate_id(object_id)
+    except ObjectRegistryError as error:
+        raise HTTPException(422, "Invalid ARM2 history object id") from error
+    representative_parent = {
+        "CPREP": (CounterpartyRepresentative, "CP"),
+        "ORGREP": (OrganizationRepresentative, "ORG"),
+    }.get(object_type)
+    if representative_parent is None:
+        return
+    representative_model, parent_type = representative_parent
+    parent_id = db.scalar(
+        select(representative_model.parent_id).where(
+            representative_model.id == object_id
+        )
+    )
+    if parent_id is not None:
+        try:
+            OBJECT_REGISTRY.require(parent_type).validate_id(parent_id)
+        except ObjectRegistryError as error:
+            raise HTTPException(404, "ARM2 representative parent not found") from error
 
 
 def _constraint_name(error: IntegrityError) -> str | None:
@@ -642,3 +712,38 @@ def put_organization_representative(
         ),
     )
     return _representative_response(record)
+
+
+@router.get("/history/events/{event_id}", response_model=HistoryEventDetail)
+def get_history_event(event_id: int, db: Db, user: CurrentUser):
+    event = db.get(HistoryEvent, event_id)
+    if event is None:
+        raise HTTPException(404, "ARM2 history event not found")
+    _validate_history_access(db, user, event.object_type, event.object_id)
+    return _history_detail_response(event)
+
+
+@router.get(
+    "/history/{object_type}/{object_id}",
+    response_model=list[HistoryEventSummary],
+)
+def list_object_history(
+    object_type: HistoryObjectType,
+    object_id: str,
+    db: Db,
+    user: CurrentUser,
+    limit: Limit = 100,
+    offset: Offset = 0,
+):
+    _validate_history_access(db, user, object_type, object_id)
+    events = db.scalars(
+        select(HistoryEvent)
+        .where(
+            HistoryEvent.object_type == object_type,
+            HistoryEvent.object_id == object_id,
+        )
+        .order_by(HistoryEvent.occurred_at.desc(), HistoryEvent.event_id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return [_history_summary_response(event) for event in events]

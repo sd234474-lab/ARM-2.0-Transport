@@ -1,10 +1,12 @@
-from typing import Annotated, Literal
+from datetime import datetime
+from typing import Annotated, Any, Literal
 
 from pydantic import ConfigDict, Field
 
 from app.schemas import StrictModel
 
 PositiveVersion = Annotated[int, Field(strict=True, gt=0)]
+HistoryObjectType = Literal["TYPE", "VEH", "CP", "ORG", "CPREP", "ORGREP"]
 
 
 class VehicleTypeCreate(StrictModel):
@@ -177,3 +179,24 @@ class RepresentativeResponse(StrictModel):
     first_name: str | None
     middle_name: str | None
     version: int
+
+
+class HistoryEventSummary(StrictModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: int
+    object_type: HistoryObjectType
+    object_id: str
+    operation: str
+    occurred_at: datetime
+    actor_kind: str
+    actor_id: str
+    source: str
+    version_before: int | None
+    version_after: int | None
+
+
+class HistoryEventDetail(HistoryEventSummary):
+    correlation_id: str | None
+    changes: dict[str, Any]
+    related_objects: list[dict[str, Any]]
