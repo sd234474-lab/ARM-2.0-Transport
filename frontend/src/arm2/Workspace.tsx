@@ -58,7 +58,7 @@ function Card({kind, initial, can, reload}: {kind: Kind; initial: RecordData; ca
       setOriginal(saved); setDraft(saved);
       if (!original.id) navigate(link(kind, saved.id), {replace: true});
     }}>{editable => <>
-      {tab === 'Основное' && kind === 'VEH' && <div className="arm2-grid arm2-vehicle-main">{['name', 'plate_number', 'model', 'wialon_unit_id'].map(field => <Field key={field} field={field} value={draft[field]} required={field === 'name' || field === 'plate_number'} change={value => change(field, value)}/>)}<Field field="accounting_state" value={draft.accounting_state} change={value => change('accounting_state', value)} options={['Действующая', 'Архивная'].map(value => ({value, label: value}))}/><VehicleSelectors draft={draft} change={change} can={can} editable={editable}/></div>}
+      {tab === 'Основное' && kind === 'VEH' && <div className="arm2-grid arm2-vehicle-main">{['name', 'plate_number', 'model', 'wialon_unit_id'].map(field => <Field key={field} field={field} value={draft[field]} required={field === 'name' || field === 'plate_number'} change={value => change(field, value)}/>)}<Field field="accounting_state" value={draft.accounting_state} change={value => change('accounting_state', value)} options={['Действующая', 'Архивная'].map(value => ({value, label: value}))}/><VehicleSelectors draft={draft} change={change} can={can} editable={editable} currentType={original.type_id}/></div>}
       {tab === 'Основное' && kind === 'TYPE' && <div className="arm2-grid arm2-type-main"><Field field="name" value={draft.name} required change={value => change('name', value)}/>{requirements.map(field => <Field key={field} field={field} value={draft[field] == null ? '' : String(draft[field])} change={value => change(field, value === 'true' ? true : value === 'false' ? false : null)} options={[{value: '', label: 'Не заполнено'}, {value: 'true', label: 'Требуется'}, ...(field === 'requires_sts' ? [] : [{value: 'false', label: 'Не требуется'}])]}/>)}</div>}
       {tab === 'Основное' && isParty(kind) && <><section><h3>Наименования и реквизиты</h3>{fields(['name', 'full_name', 'short_name', 'legal_form', 'inn', 'kpp', 'ogrn'])}</section><section><h3>Адреса и официальные контакты</h3>{fields(['legal_address', 'postal_address', 'phone', 'email'])}</section></>}
       {tab === 'Банковские счета' && <><p>Один актуальный комплект реквизитов</p>{fields(['bank_name', 'bik', 'settlement_account', 'correspondent_account'])}</>}
@@ -69,8 +69,7 @@ function Card({kind, initial, can, reload}: {kind: Kind; initial: RecordData; ca
     {original.id && <div className="arm2-history-control"><button type="button" aria-expanded={history} onClick={() => setHistory(x => !x)}>{history ? 'Закрыть историю' : 'История'}</button>{history && <History type={kind} id={original.id}/>}</div>}
   </article>;
 }
-function VehicleSelectors({draft, change, can, editable}: {draft: RecordData; change: (field: string, value: Scalar) => void; can: Can; editable: boolean}) {
-  const [currentType] = useState(draft.type_id);
+function VehicleSelectors({draft, change, can, editable, currentType}: {draft: RecordData; change: (field: string, value: Scalar) => void; can: Can; editable: boolean; currentType: Scalar | undefined}) {
   return <><TypePicker selected={draft.type_id} change={value => change('type_id', value)} currentType={currentType} can={can} editable={editable}/><OwnerPicker cp={draft.owner_cp_id} org={draft.owner_org_id} change={(cp, org) => {change('owner_cp_id', cp); change('owner_org_id', org);}} can={can} editable={editable}/></>;
 }
 function OwnedVehicles({kind, id, can}: {kind: Kind; id: string; can: Can}) {

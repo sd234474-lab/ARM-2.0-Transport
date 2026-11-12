@@ -115,6 +115,25 @@ it('Enter in the read-only owned-vehicle search cannot save an unsaved parent dr
   expect(vi.mocked(api).mock.calls.some(([, method]) => method === 'PUT' || method === 'POST')).toBe(false);
   await click('Основное'); expect(control('Рабочее имя').value).toBe('Несохранённый черновик');
 });
+
+it('after saving a different TYPE only the new persisted REVIEW link can be retained', async () => {
+  let saved = {...vehicle};
+  const other = {...type, id: 'TYPE-2', name: 'Другой тип', status: 'CONFIRMED'};
+  mockAPI(async (path, method, body) => {
+    if (method === 'PUT') {saved = {...saved, ...body as RecordData, version: saved.version + 1}; other.status = 'REVIEW'; return saved;}
+    if (path.startsWith('/arm2/types?')) return [type, other];
+    if (path === '/arm2/types/TYPE-2') return other;
+    if (path === '/arm2/types/TYPE-1') return type;
+    return path.includes('/vehicles/') ? saved : defaults(path);
+  });
+  await mount('/arm2/veh/VEH-1');
+  await choose('Тип техники', 'Другой тип'); await submit();
+  await act(async () => {control('Тип техники').focus(); control('Тип техники').click(); await tick();});
+  const options = [...element.querySelectorAll<HTMLButtonElement>('[role=option]')];
+  expect(options.find(option => option.textContent?.startsWith('Самосвал'))?.disabled).toBe(true);
+  expect(options.find(option => option.textContent?.startsWith('Другой тип'))?.disabled).toBe(false);
+  expect(saved.type_id).toBe('TYPE-2');
+});
 async function choose(label: string, text: string) {
   await act(async () => {control(label).focus(); control(label).click(); await tick();});
   await act(async () => {const option = [...element.querySelectorAll<HTMLButtonElement>('[role=option]')].find(item => item.textContent?.startsWith(text)); if (!option) throw Error('No option: ' + text); option.click(); await tick();});
