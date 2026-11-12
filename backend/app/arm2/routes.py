@@ -17,6 +17,7 @@ from app.arm2.object_save import (
 )
 from app.arm2.organization_models import Organization
 from app.arm2.organization_store import create_organization, update_organization
+from app.arm2.read_routes import router as read_router
 from app.arm2.representative_models import (
     CounterpartyRepresentative,
     OrganizationRepresentative,
@@ -51,6 +52,7 @@ from app.models import User
 from app.permissions import Permission
 
 router = APIRouter(prefix="/api/arm2", tags=["arm2"])
+router.include_router(read_router)  # Static /search paths precede legacy /{id} routes.
 Arm2TypeViewer = Annotated[
     User,
     Depends(require_permission(Permission.ARM2_TYPE_VIEW)),

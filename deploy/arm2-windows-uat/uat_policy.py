@@ -34,6 +34,8 @@ def validate_environment():
 
 
 def allowed(method, path):
+    if re.fullmatch(r"/api/arm2/(types|vehicles|counterparties|organizations)/search", path):
+        return method == "GET"
     if path == "/api/health":
         return method == "GET"
     if path in {"/api/auth/me", "/api/meta", "/api/platform/status"}:

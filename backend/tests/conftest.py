@@ -27,6 +27,8 @@ def database_url():
     url = os.getenv("TEST_DATABASE_URL")
     if not url:
         pytest.skip("TEST_DATABASE_URL required for PostgreSQL/PostGIS integration tests")
+    if make_url(url).database == "contractor_max_test":
+        raise RuntimeError("Protected ARM1 prototype; use an isolated disposable database")
     if not make_url(url).database.endswith("_test"):
         raise RuntimeError("Use a disposable database whose name ends with _test")
     from alembic.config import Config
@@ -65,6 +67,8 @@ def isolated_arm2_database_url():
     if not source:
         pytest.skip("TEST_DATABASE_URL required for PostgreSQL/PostGIS integration tests")
     source_url = make_url(source)
+    if source_url.database == "contractor_max_test":
+        raise RuntimeError("Protected ARM1 prototype; use an isolated disposable database")
     if not source_url.database or not source_url.database.endswith("_test"):
         raise RuntimeError("Use a disposable database whose name ends with _test")
 

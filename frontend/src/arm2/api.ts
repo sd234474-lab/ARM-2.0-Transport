@@ -17,6 +17,8 @@ export const catalogs = {
   ORG: { path: '/arm2/organizations', label: 'Собственные организации', singular: 'Собственная организация', permission: 'arm2_org' },
 } as const;
 export const pageSize = 100;
+export interface SearchPage {items: RecordData[]; total: number; matched: number; limit: number; offset: number}
+export const searchPage = (path: string, params: URLSearchParams, signal?: AbortSignal) => api<SearchPage>(`${path}/search?${params}`, 'GET', undefined, signal);
 export const list = <T,>(path: string, offset = 0, signal?: AbortSignal) => api<T[]>(`${path}?limit=${pageSize}&offset=${offset}`, 'GET', undefined, signal);
 export const detail = <T,>(path: string, signal?: AbortSignal) => api<T>(path, 'GET', undefined, signal);
 export const save = (path: string, body: Record<string, Scalar>, editing: boolean) => api<RecordData>(path, editing ? 'PUT' : 'POST', body);

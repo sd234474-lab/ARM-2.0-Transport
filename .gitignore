@@ -20,3 +20,5 @@ backend/data/
 !.env.example
 *.log
 .playwright/
+# Local sandboxes contain generated credentials, databases, caches and test logs.
+.local/
