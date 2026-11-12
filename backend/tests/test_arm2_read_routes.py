@@ -1,11 +1,12 @@
 import pytest
+from sqlalchemy import func, select
+
 from app.arm2.counterparty_models import Counterparty
 from app.arm2.history_models import HistoryEvent
 from app.arm2.organization_models import Organization
 from app.arm2.vehicle_models import Vehicle
 from app.arm2.vehicle_type_models import VehicleType
 from app.models import User
-from sqlalchemy import func, select
 
 
 @pytest.fixture
@@ -30,7 +31,7 @@ def test_full_search_pagination_and_legacy_contract(admin, catalog, db):
     second = admin.get('/api/arm2/vehicles/search?offset=100').json()
     assert len(second['items']) == 5
     assert second['items'][0]['id'] == 'VEH-000101'
-    for query in ['Машина 105', 'a 105 bc 86', 'А105ВС86']:
+    for query in ['Машина 105', 'машина 105', 'a 105 bc 86', 'А105ВС86']:
         response = admin.get('/api/arm2/vehicles/search', params={'q': query})
         assert response.status_code == 200
         assert [row['id'] for row in response.json()['items']] == ['VEH-000105']
@@ -54,18 +55,18 @@ def test_filters_owner_type_state_and_sort(admin, catalog):
 
 @pytest.mark.parametrize('query', ['owner_id=CP-000001', 'owner_kind=CP&owner_id=ORG-000001',
                                   'owner_kind=NONE&owner_id=CP-000001', 'type_id=wrong', 'state=READY',
-                                  'sort=secret', 'limit=101', 'offset=-1', 'direction=wrong'])
+                                  'sort=secret', 'limit=101', 'offset=-1', 'direction=wrong', 'q=%00'])
 def test_invalid_query_is_rejected(admin, catalog, query):
     assert admin.get('/api/arm2/vehicles/search?' + query).status_code == 422
 
 
 def test_party_read_models_and_type_search(admin, catalog):
     for path, full_name, form in [('counterparties', 'Полное имя', 'ООО'), ('organizations', 'Полное ORG', 'ИП')]:
-        result = admin.get('/api/arm2/' + path + '/search', params={'q': full_name, 'legal_form': form, 'status': 'REVIEW'}).json()
+        result = admin.get('/api/arm2/' + path + '/search', params={'q': full_name.lower(), 'legal_form': form, 'status': 'REVIEW'}).json()
         assert result['total'] == result['matched'] == 1
         assert result['items'][0]['full_name'] == full_name and result['items'][0]['legal_form'] == form
         assert admin.get('/api/arm2/' + path + '/search?status=READY').status_code == 422
-    assert admin.get('/api/arm2/types/search?q=Самосвал').json()['matched'] == 1
+    assert admin.get('/api/arm2/types/search?q=самосвал').json()['matched'] == 1
 
 
 def test_read_permissions_do_not_leak_related_names(client, users, db, catalog):

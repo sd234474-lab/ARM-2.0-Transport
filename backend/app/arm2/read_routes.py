@@ -16,7 +16,7 @@ from app.auth import CurrentUser, Db, check_permission
 from app.permissions import Permission, has_permission
 
 router = APIRouter()
-TextQuery = Annotated[str, Query(max_length=200)]
+TextQuery = Annotated[str, Query(max_length=200, pattern=r'^[^\x00]*$')]
 Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0)]
 Direction = Literal['asc', 'desc']
@@ -54,6 +54,14 @@ class TypePage(BaseModel):
 
 def _like(value):
     return '%' + value.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+
+
+def _text_match(column, value):
+    # Native Windows C locale does not case-fold Cyrillic for ILIKE. Fold the
+    # Russian alphabet explicitly; ASCII keeps standard ILIKE semantics. No
+    # collation/extension/schema changes or rewritten stored names are needed.
+    uppercase = 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ'
+    return func.translate(column, uppercase, uppercase.lower()).ilike(_like(value.lower()), escape='\\')
 
 
 def _page(db, stmt, model, sort_column, direction, limit, offset):
@@ -103,7 +111,7 @@ def search_vehicles(
     if q.strip():
         # Display grouping spaces may be ignored in SEARCH only, never in writes/import.
         plate = re.sub(r'\s+', '', q.strip().upper().translate(_LATIN_TO_CYRILLIC))
-        stmt = stmt.where(or_(Vehicle.name.ilike(_like(q.strip()), escape='\\'),
+        stmt = stmt.where(or_(_text_match(Vehicle.name, q.strip()),
                               Vehicle.plate_number.ilike(_like(plate), escape='\\')))
     if type_id:
         stmt = stmt.where(Vehicle.type_id == type_id)
@@ -123,7 +131,7 @@ def _search_party(db, user, model, permission, q, status, legal_form, sort, dire
     check_permission(user, permission)
     stmt = select(*[getattr(model, field).label(field) for field in PartyResponse.model_fields])
     if q.strip():
-        stmt = stmt.where(or_(*[getattr(model, field).ilike(_like(q.strip()), escape='\\')
+        stmt = stmt.where(or_(*[_text_match(getattr(model, field), q.strip())
                                 for field in ['name', 'full_name', 'inn']]))
     if status:
         stmt = stmt.where(model.status == status)
@@ -137,14 +145,14 @@ PartySort = Literal['name', 'full_name', 'legal_form', 'inn', 'status']
 
 @router.get('/counterparties/search', response_model=PartyPage)
 def search_counterparties(db: Db, user: CurrentUser, q: TextQuery = '', status: Literal['REVIEW', 'CONFIRMED'] | None = None,
-                         legal_form: Annotated[str | None, Query(max_length=500)] = None, sort: PartySort = 'name',
+                         legal_form: Annotated[str | None, Query(max_length=500, pattern=r'^[^\x00]*$')] = None, sort: PartySort = 'name',
                          direction: Direction = 'asc', limit: Limit = 100, offset: Offset = 0):
     return _search_party(db, user, Counterparty, Permission.ARM2_CP_VIEW, q, status, legal_form, sort, direction, limit, offset)
 
 
 @router.get('/organizations/search', response_model=PartyPage)
 def search_organizations(db: Db, user: CurrentUser, q: TextQuery = '', status: Literal['REVIEW', 'CONFIRMED'] | None = None,
-                        legal_form: Annotated[str | None, Query(max_length=500)] = None, sort: PartySort = 'name',
+                        legal_form: Annotated[str | None, Query(max_length=500, pattern=r'^[^\x00]*$')] = None, sort: PartySort = 'name',
                         direction: Direction = 'asc', limit: Limit = 100, offset: Offset = 0):
     return _search_party(db, user, Organization, Permission.ARM2_ORG_VIEW, q, status, legal_form, sort, direction, limit, offset)
 
@@ -154,5 +162,5 @@ def search_types(db: Db, user: CurrentUser, q: TextQuery = '', limit: Limit = 10
     check_permission(user, Permission.ARM2_TYPE_VIEW)
     stmt = select(*[getattr(VehicleType, field).label(field) for field in VehicleTypeResponse.model_fields])
     if q.strip():
-        stmt = stmt.where(VehicleType.name.ilike(_like(q.strip()), escape='\\'))
+        stmt = stmt.where(_text_match(VehicleType.name, q.strip()))
     return _page(db, stmt, VehicleType, VehicleType.name, 'asc', limit, offset)

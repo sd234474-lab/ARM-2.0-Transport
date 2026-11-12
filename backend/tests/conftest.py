@@ -1,12 +1,13 @@
 import os
 
 import pytest
-from app.config import settings
-from app.db import engine
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
+
+from app.config import settings
+from app.db import engine
 
 
 @pytest.fixture(autouse=True)
@@ -30,8 +31,9 @@ def database_url():
         raise RuntimeError("Protected ARM1 prototype; use an isolated disposable database")
     if not make_url(url).database.endswith("_test"):
         raise RuntimeError("Use a disposable database whose name ends with _test")
-    from alembic import command
     from alembic.config import Config
+
+    from alembic import command
 
     previous = os.environ.get("DATABASE_URL")
     os.environ["DATABASE_URL"] = url
@@ -57,8 +59,9 @@ def isolated_arm2_database_url():
     from re import fullmatch
     from uuid import uuid4
 
-    from alembic import command
     from alembic.config import Config
+
+    from alembic import command
 
     source = os.getenv("TEST_DATABASE_URL")
     if not source:
