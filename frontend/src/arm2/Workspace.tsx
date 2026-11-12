@@ -1,17 +1,17 @@
 import { createContext, useContext, useState } from 'react';
-import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { all, catalogs, detail, list, save } from './api';
 import type { Kind, RecordData, Scalar } from './api';
 import { emptyRecord, isParty, labels, missingRequirements, payload, repFields, requirementLabel, requirements } from './model';
 import { display, ErrorMessage, Field, History, Pagination, SaveForm, Tabs, Unavailable, useAlive, useLoad } from './shared';
 
 export type Can = (permission: string) => boolean;
-const kinds = Object.keys(catalogs) as Kind[];
+const kinds: Kind[] = ['VEH', 'TYPE', 'ORG', 'CP'];
 const UserLookupAllowed = createContext(false);
 const link = (kind: Kind, id?: string) => `/arm2/${kind.toLowerCase()}${id ? '/' + encodeURIComponent(id) : ''}`;
 export default function Workspace({can, userLookupAllowed = false}: {can: Can; userLookupAllowed?: boolean}) {
   const visible = kinds.filter(kind => can(catalogs[kind].permission + '_view'));
-  return <UserLookupAllowed.Provider value={userLookupAllowed}><section className="panel arm2"><h1>АРМ 2.0</h1><nav className="arm2-tabs" aria-label="Справочники АРМ 2.0">{visible.map(kind => <Link key={kind} to={link(kind)}>{catalogs[kind].label}</Link>)}</nav><Routes>
+  return <UserLookupAllowed.Provider value={userLookupAllowed}><section className="panel arm2"><h1>АРМ 2.0</h1><nav className="arm2-sections" aria-label="Справочники АРМ 2.0"><div className="arm2-section"><strong>Техника</strong><div>{visible.filter(kind => kind === 'VEH' || kind === 'TYPE').map(kind => <NavLink key={kind} to={link(kind)}>{catalogs[kind].label}</NavLink>)}<span aria-disabled="true">Согласование с заказчиком <small>Пока не реализовано</small></span></div></div>{visible.filter(kind => kind === 'ORG' || kind === 'CP').map(kind => <NavLink className="arm2-section" key={kind} to={link(kind)}>{catalogs[kind].label}</NavLink>)}{['Договоры', 'Территории', 'Нормативы'].map(name => <span className="arm2-section" aria-disabled="true" key={name}>{name}<small>Пока не реализовано</small></span>)}</nav><Routes>
     {visible.map(kind => <Route key={kind} path={kind.toLowerCase()}><Route index element={<Catalog key={kind} kind={kind} can={can}/>}/><Route path=":id" element={<CardRoute kind={kind} can={can}/>}/>{isParty(kind) && <Route path=":parentId/representatives/:id" element={<RepRoute kind={kind} can={can}/>}/>}</Route>)}
     <Route path="*" element={visible[0] ? <Navigate to={link(visible[0])} replace/> : <p>Нет прав на просмотр справочников АРМ 2.0</p>}/>
   </Routes></section></UserLookupAllowed.Provider>;

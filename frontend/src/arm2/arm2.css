@@ -1,4 +1,10 @@
 .arm2 { min-width: 0; }
+.arm2-sections { display:flex; flex-wrap:wrap; gap:10px; margin:18px 0; }
+.arm2-section { display:flex; flex-direction:column; gap:6px; padding:12px 16px; border:1px solid var(--border,#8886); border-radius:8px; }
+.arm2-section div { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+.arm2-section small { display:block; font-size:.75rem; font-weight:normal; }
+.arm2-sections [aria-current=page] { font-weight:700; text-decoration:underline; text-underline-offset:5px; }
+.arm2-sections [aria-disabled=true] { color:var(--muted,#66736e); }
 .arm2-tabs, .arm2-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
 .arm2-tabs a, .arm2-tabs button { padding: 10px 14px; }
 .arm2-tabs button[aria-pressed=true] { outline: 2px solid currentColor; outline-offset: 2px; }
