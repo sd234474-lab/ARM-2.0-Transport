@@ -34,8 +34,84 @@ function defaults(path: string) {
   if (path.includes('?')) return path.startsWith('/arm2/types?') ? [type] : path.startsWith('/arm2/counterparties?') ? [party] : path.startsWith('/arm2/organizations?') ? [{...party, id: 'ORG-1', name: 'Своя организация'}] : [];
   return path.includes('/vehicles/') ? vehicle : path.includes('/types/') ? type : party;
 }
+// Adapt the established legacy-list fixtures to the new read-page contract.
+// Calls recorded by api still retain their real /search URL.
+function mockAPI(implementation: (...args: Parameters<typeof api>) => Promise<unknown>) {
+  vi.mocked(api).mockImplementation(async (...args) => {
+    const searching = args[0].includes('/search?');
+    const result = await implementation(searching ? args[0].replace('/search?', '?') : args[0], ...args.slice(1) as [string?, unknown?, AbortSignal?]);
+    if (!searching) return result;
+    const items = Array.isArray(result) ? result : result ? [result] : [];
+    return {items, total: items.length, matched: items.length, limit: 100, offset: 0};
+  });
+}
+
+it.each([
+  [() => true, 'Техника'],
+  [(permission: string) => permission === 'arm2_type_view', 'Типы техники'],
+  [(permission: string) => permission === 'arm2_cp_view', 'Контрагенты'],
+])('default route selects the first permitted catalog', async (can, heading) => {
+  mockAPI(async path => defaults(path));
+  await mount('/arm2', can);
+  expect(element.querySelector('h2')?.textContent).toBe(heading);
+  expect([...element.querySelectorAll('[aria-disabled=true]')].every(item => item.tagName !== 'A')).toBe(true);
+});
+
+it('no catalog permission makes no API requests and exposes no editable deep link', async () => {
+  await mount('/arm2/veh/VEH-000001', () => false);
+  expect(element.textContent).toContain('Нет прав на просмотр');
+  expect(api).not.toHaveBeenCalled();
+  expect(element.querySelector('form')).toBeNull();
+});
+
+it('server search resets pagination, shows exact counters, filtering and empty results', async () => {
+  const records = Array.from({length: 130}, (_, index) => ({...vehicle, id: `VEH-${index + 1}`, name: `Машина ${String(index + 1).padStart(3, '0')}`, accounting_state: index % 2 ? 'Архивная' : 'Действующая'}));
+  vi.mocked(api).mockImplementation(async path => {
+    const params = new URLSearchParams(path.split('?')[1]);
+    const matches = records.filter(row => row.name.includes(params.get('q') || '') && (!params.get('state') || row.accounting_state === params.get('state')));
+    return {items: matches.slice(Number(params.get('offset')), Number(params.get('offset')) + 100), matched: matches.length, total: records.length, limit: 100, offset: Number(params.get('offset'))};
+  });
+  await mount('/arm2/veh', permission => permission === 'arm2_veh_view');
+  expect(element.textContent).toContain('Найдено: 130');
+  await click('Следующая страница'); expect(element.textContent).toContain('Машина 130');
+  await change('Поиск по рабочему имени', '130');
+  expect(element.textContent).toContain('Найдено: 1'); expect(element.textContent).toContain('Страница 1');
+  expect(new URLSearchParams(vi.mocked(api).mock.calls.at(-1)![0].split('?')[1]).get('offset')).toBe('0');
+  await change('Поиск по рабочему имени', ''); await change('Учётное состояние', 'Архивная');
+  expect(element.textContent).toContain('Найдено: 65');
+  await change('Поиск по рабочему имени', 'missing');
+  expect(element.textContent).toContain('По заданным условиям записей нет');
+  expect(button('Следующая страница').disabled).toBe(true);
+  expect([...element.querySelectorAll('a')].some(a => a.textContent === '+ Новая запись')).toBe(false);
+});
+
+it.each(['cp', 'org'])('%s embedded vehicles use server owner filtering without B2 writes', async kind => {
+  vi.mocked(api).mockImplementation(async path => path.includes('/vehicles/search?') ? {items: [vehicle], total: 130, matched: 1, limit: 100, offset: 0} : {...party, id: 'PARENT-1'});
+  await mount(`/arm2/${kind}/PARENT-1`); await click('Техника');
+  const request = vi.mocked(api).mock.calls.find(([path]) => path.startsWith('/arm2/vehicles/search?'))![0];
+  const params = new URLSearchParams(request.split('?')[1]);
+  expect(params.get('owner_kind')).toBe(kind.toUpperCase()); expect(params.get('owner_id')).toBe('PARENT-1');
+  expect(element.querySelector('table')?.textContent).toContain('Машина');
+  expect(element.textContent).toContain('этапом B2');
+  expect(vi.mocked(api).mock.calls.some(([, method]) => method === 'PUT' || method === 'POST')).toBe(false);
+  expect([...element.querySelectorAll('button,a')].some(item => item.textContent === 'Добавить технику')).toBe(false);
+});
+
+it('TYPE main has four fields together and documents expose no fake attach action', async () => {
+  mockAPI(async path => defaults(path));
+  await mount('/arm2/type/TYPE-1');
+  expect(element.querySelector('.arm2-type-main')?.querySelectorAll('label')).toHaveLength(4);
+  expect(element.querySelector('[aria-label="Разделы карточки"]')?.textContent).not.toContain('Требования к технике');
+  await follow('Техника'); await follow('+ Новая запись'); await click('Документы');
+  expect(element.textContent).toContain('этап B3'); expect(element.querySelector('input[type=file]')).toBeNull();
+  expect([...element.querySelectorAll('button')].some(item => item.textContent === 'Сохранить')).toBe(false);
+});
+async function choose(label: string, text: string) {
+  await act(async () => {control(label).focus(); control(label).click(); await tick();});
+  await act(async () => {const option = [...element.querySelectorAll<HTMLButtonElement>('[role=option]')].find(item => item.textContent?.startsWith(text)); if (!option) throw Error('No option: ' + text); option.click(); await tick();});
+}
 it('requests history only by button, renders event differences without related objects', async () => {
-  vi.mocked(api).mockImplementation(async path => path.startsWith('/arm2/history/events') ? {changes: {requires_calibration: {before: null, after: false}}} : path.startsWith('/arm2/history/') ? [{event_id: 1, occurred_at: '2026-11-11T04:00:00Z', actor_kind: 'HUMAN', actor_id: '1', source: 'arm2-api', version_before: 3, version_after: 4, operation: 'UPDATE'}] : type);
+  mockAPI(async path => path.startsWith('/arm2/history/events') ? {changes: {requires_calibration: {before: null, after: false}}} : path.startsWith('/arm2/history/') ? [{event_id: 1, occurred_at: '2026-11-11T04:00:00Z', actor_kind: 'HUMAN', actor_id: '1', source: 'arm2-api', version_before: 3, version_after: 4, operation: 'UPDATE'}] : type);
   await mount('/arm2/type/TYPE-1');
   expect(vi.mocked(api).mock.calls.some(([path]) => path.includes('/history/'))).toBe(false);
   await click('История'); expect(api).toHaveBeenCalledWith('/arm2/history/TYPE/TYPE-1?limit=100&offset=0', 'GET', undefined, expect.any(AbortSignal));
@@ -43,13 +119,13 @@ it('requests history only by button, renders event differences without related o
 });
 it('creates REVIEW TYPE then completes requirements using false, reopens server version', async () => {
   let saved: RecordData = {...type};
-  vi.mocked(api).mockImplementation(async (path, method, body) => {
+  mockAPI(async (path, method, body) => {
     if (method === 'POST' || method === 'PUT') {saved = {...saved, ...body as RecordData, version: saved.version + 1}; saved.status = saved.requires_calibration != null && saved.requires_wialon != null ? 'CONFIRMED' : 'REVIEW'; return saved;}
     return path.includes('?') ? [saved] : saved;
   });
   await mount('/arm2/type/new'); await change('Рабочее имя', 'Самосвал'); await submit();
   expect(element.textContent).toContain('REVIEW');
-  await click('Требования к технике этого типа');
+  await click('Основное');
   expect([...control('СТС').querySelectorAll('option')].map(option => option.textContent)).not.toContain('Не требуется');
   await change('Тарировка', 'false'); await change('Wialon', 'true'); await submit();
   expect(saved.requires_calibration).toBe(false); expect(saved.status).toBe('CONFIRMED');
@@ -58,39 +134,42 @@ it('creates REVIEW TYPE then completes requirements using false, reopens server 
 });
 it('VEH keeps existing REVIEW TYPE, disables new REVIEW and switches CP to ORG then clears owner', async () => {
   let saved: RecordData = {...vehicle};
-  vi.mocked(api).mockImplementation(async (path, method, body) => {
+  mockAPI(async (path, method, body) => {
     if (method === 'PUT') {saved = {...saved, ...body as RecordData, version: saved.version + 1}; return saved;}
     if (path.startsWith('/arm2/types?')) return [type, {...type, id: 'TYPE-2', name: 'Незавершённый', requires_sts: null}];
     return path.includes('/vehicles/') ? saved : defaults(path);
   });
   await mount('/arm2/veh/VEH-1');
-  const options = [...control('Тип техники').querySelectorAll('option')];
-  expect(options.find(option => option.value === 'TYPE-1')?.disabled).toBe(false); expect(options.find(option => option.value === 'TYPE-2')?.disabled).toBe(true);
-  await change('Вид владельца', 'ORG'); await change('Владелец — собственная организация', 'ORG-1'); await submit();
+  await act(async () => {control('Тип техники').focus(); await tick();});
+  const options = [...element.querySelectorAll<HTMLButtonElement>('[role=option]')];
+  expect(options.find(option => option.textContent?.startsWith('Самосвал'))?.disabled).toBe(false); expect(options.find(option => option.textContent?.startsWith('Незавершённый'))?.disabled).toBe(true);
+  await choose('Операционный владелец', 'Организация · Своя организация'); await submit();
   expect(saved).toMatchObject({owner_cp_id: null, owner_org_id: 'ORG-1', model: 'Модель', type_id: 'TYPE-1'});
   await change('Рабочее имя', 'Новое имя'); await submit(); expect(saved.owner_org_id).toBe('ORG-1');
-  await change('Вид владельца', ''); await submit(); expect(saved).toMatchObject({owner_cp_id: null, owner_org_id: null, version: 6});
+  await choose('Операционный владелец', 'Без владельца'); await submit(); expect(saved).toMatchObject({owner_cp_id: null, owner_org_id: null, version: 6});
   expect(element.textContent).not.toContain('Состояние по последнему ответу сервера');
 });
 it.each(['cp', 'org'])('%s preserves untouched requisites and string bank accounts, then reopens', async kind => {
   let saved: RecordData = {...party, id: kind === 'cp' ? 'CP-1' : 'ORG-1'};
-  vi.mocked(api).mockImplementation(async (path, method, body) => {if (method === 'PUT') {saved = {...saved, ...body as RecordData, version: saved.version + 1}; return saved;} return path.includes('?') ? [saved] : saved;});
+  mockAPI(async (path, method, body) => {if (method === 'PUT') {saved = {...saved, ...body as RecordData, version: saved.version + 1}; return saved;} return path.includes('?') ? [saved] : saved;});
   await mount(`/arm2/${kind}/${saved.id}`); await click('Банковские счета');
   await change('БИК', '000000001'); await change('Расчётный счёт', '00000000000000000001'); await change('Корреспондентский счёт', '00000000000000000002'); await submit();
   const body = vi.mocked(api).mock.calls.find(([, method]) => method === 'PUT')?.[2];
   expect(body).toEqual({name: 'Партнёр', expected_version: 2, bik: '000000001', settlement_account: '00000000000000000001', correspondent_account: '00000000000000000002'});
-  await follow('← К списку'); await follow('Партнёр'); await click('Реквизиты'); expect(control('Полное наименование').value).toBe('Полное имя');
+  await follow('← К списку'); await follow('Партнёр'); await click('Основное'); expect(control('Полное наименование').value).toBe('Полное имя');
   await click('Банковские счета'); expect(control('БИК').value).toBe('000000001');
-  await click('Документы'); expect(element.textContent).toContain('Функция пока не реализована'); expect(element.textContent).not.toContain('Загрузить документ');
+  await click('Документы'); expect(element.textContent).toContain('этап B3'); expect(element.textContent).not.toContain('Загрузить документ');
 });
 it.each(['cp', 'org'])('%s representative edit sends the complete record and retains user link', async kind => {
-  const rep = {...emptyRecord('REP'), id: 'REP-1', name: 'Представитель', version: 9, phone: '123', user_id: 8, first_name: 'Иван'};
-  vi.mocked(api).mockImplementation(async (path, method, body) => method === 'PUT' ? {...rep, ...body as RecordData, version: 10} : path.includes('/representatives/') ? rep : party);
+  const rep = {...emptyRecord('REP'), id: 'REP-1', name: 'Представитель', version: 9, phone: '123', user_id: 8, last_name: 'Старое', first_name: 'Иван', middle_name: 'Сохранено', state: 'Архивный', authority_basis: 'Доверенность'};
+  mockAPI(async (path, method, body) => method === 'PUT' ? {...rep, ...body as RecordData, version: 10} : path.includes('/representatives/') ? rep : party);
   await mount(`/arm2/${kind}/PARENT-1/representatives/REP-1`); await change('Должность', 'Директор'); await submit();
-  expect(vi.mocked(api).mock.calls.find(([, method]) => method === 'PUT')?.[2]).toMatchObject({expected_version: 9, user_id: 8, phone: '123', first_name: 'Иван', position: 'Директор', middle_name: null});
+  expect(element.querySelectorAll('label').length).toBeGreaterThan(0);
+  expect([...element.querySelectorAll('label')].some(label => label.textContent?.startsWith('Фамилия'))).toBe(false);
+  expect(vi.mocked(api).mock.calls.find(([, method]) => method === 'PUT')?.[2]).toMatchObject({expected_version: 9, user_id: 8, phone: '123', last_name: 'Старое', first_name: 'Иван', position: 'Директор', middle_name: 'Сохранено', state: 'Архивный', authority_basis: 'Доверенность'});
 });
 it('VIEW-only can navigate tabs and representatives but cannot save or read VEH without permission', async () => {
-  vi.mocked(api).mockImplementation(async path => path.includes('/representatives?') ? [{...emptyRecord('REP'), id: 'REP-1', name: 'Контакт'}] : party);
+  mockAPI(async path => path.includes('/representatives?') ? [{...emptyRecord('REP'), id: 'REP-1', name: 'Контакт'}] : party);
   await mount('/arm2/cp/CP-1', permission => permission === 'arm2_cp_view');
   expect(control('Рабочее имя').disabled).toBe(true); expect([...element.querySelectorAll('button')].some(item => item.textContent === 'Сохранить')).toBe(false);
   await click('Контакты'); expect(element.textContent).toContain('Контакт'); expect(control('Основной подписант').disabled).toBe(true);
@@ -98,18 +177,18 @@ it('VIEW-only can navigate tabs and representatives but cannot save or read VEH 
   expect(vi.mocked(api).mock.calls.some(([path]) => path.includes('/vehicles'))).toBe(false);
 });
 it.each([409, 422, 500])('HTTP %s retains draft without reporting success or automatically overwriting', async status => {
-  vi.mocked(api).mockImplementation(async (path, method) => {if (method === 'PUT') throw new ApiError(status, 'requires_sts must be True when it is specified'); return type;});
+  mockAPI(async (path, method) => {if (method === 'PUT') throw new ApiError(status, 'requires_sts must be True when it is specified'); return type;});
   await mount('/arm2/type/TYPE-1'); await change('Рабочее имя', 'Мой черновик'); await submit();
   expect(control('Рабочее имя').value).toBe('Мой черновик'); expect(element.querySelector('[role=alert]')).not.toBeNull(); expect(element.textContent).not.toContain('Сохранено сервером');
   expect(vi.mocked(api).mock.calls.filter(([, method]) => method === 'PUT')).toHaveLength(1);
   if (status === 409) {await click('Сравнить с сервером'); expect(control('Рабочее имя').value).toBe('Мой черновик'); expect(element.textContent).toContain('Версия на сервере');}
 });
 it('server 403 disables writes after a failed save', async () => {
-  vi.mocked(api).mockImplementation(async (path, method) => {if (method === 'PUT') throw new ApiError(403, 'denied'); return type;});
+  mockAPI(async (path, method) => {if (method === 'PUT') throw new ApiError(403, 'denied'); return type;});
   await mount('/arm2/type/TYPE-1'); await submit(); expect(control('Рабочее имя').disabled).toBe(true); expect(element.textContent).toContain('Только просмотр');
 });
 it('list pagination fetches next API page and search scope stays explicit', async () => {
-  vi.mocked(api).mockImplementation(async path => path.includes('offset=100') ? [{...type, id: 'TYPE-101', name: 'На второй странице'}] : Array.from({length: 100}, (_, i) => ({...type, id: String(i)})));
+  mockAPI(async path => path.includes('offset=100') ? [{...type, id: 'TYPE-101', name: 'На второй странице'}] : Array.from({length: 100}, (_, i) => ({...type, id: String(i)})));
   await mount('/arm2/type'); await click('Следующая страница'); expect(element.textContent).toContain('На второй странице'); expect(element.textContent).toContain('только к текущей странице');
   expect(api).toHaveBeenCalledWith('/arm2/types?limit=100&offset=100', 'GET', undefined, expect.any(AbortSignal));
 });
@@ -119,7 +198,7 @@ it.each(['cp', 'org'])('%s create → CONFIRMED → create representative → se
   const path = kind === 'cp' ? '/arm2/counterparties' : '/arm2/organizations';
   let saved: RecordData = {...emptyRecord(kind === 'cp' ? 'CP' : 'ORG'), id: parentId, version: 1, status: 'REVIEW'};
   const reps: RecordData[] = [];
-  vi.mocked(api).mockImplementation(async (url, method, body) => {
+  mockAPI(async (url, method, body) => {
     if (url.includes('/representatives')) {
       if (method === 'POST') {const rep = {...emptyRecord('REP'), ...body as RecordData, id: 'REP-NEW', parent_id: parentId, version: 1}; reps.push(rep); return rep;}
       return url.includes('?') ? reps : reps[0];
@@ -128,8 +207,8 @@ it.each(['cp', 'org'])('%s create → CONFIRMED → create representative → se
     return url.includes('?') ? [saved] : saved;
   });
   await mount(`/arm2/${kind}/new`); await change('Рабочее имя', 'Новый партнёр'); await submit(); expect(element.textContent).toContain('REVIEW');
-  await change('Юридический адрес', 'Адрес'); await click('Реквизиты'); await change('Полное наименование', 'Полное имя'); await submit(); expect(saved.status).toBe('CONFIRMED');
-  await click('Контакты'); await follow('Добавить представителя'); await change('Рабочее имя', 'Иван Петров'); await change('Телефон представителя', '123'); await submit();
+  await change('Юридический адрес', 'Адрес'); await click('Основное'); await change('Полное наименование', 'Полное имя'); await submit(); expect(saved.status).toBe('CONFIRMED');
+  await click('Контакты'); await follow('Добавить представителя'); await change('ФИО / Имя', 'Иван Петров'); await change('Телефон представителя', '123'); await submit();
   expect(reps[0]).toMatchObject({name: 'Иван Петров', phone: '123', state: 'Действующий', user_id: null});
   await follow('← К родительской карточке'); await click('Контакты');
   expect([...control('Основной подписант').querySelectorAll('option')].map(option => option.value)).toEqual(['', 'REP-NEW']);
@@ -145,7 +224,7 @@ it.each([401, 404])('HTTP %s on card GET shows failure and no editable form', as
 
 it('history has real pagination and requests event detail only when selected', async () => {
   const event = {event_id: 1, occurred_at: '2026-11-11T04:00:00Z', actor_kind: 'HUMAN', actor_id: '1', source: 'arm2-api', version_before: 3, version_after: 4, operation: 'UPDATE'};
-  vi.mocked(api).mockImplementation(async path => path.includes('/history/') ? path.includes('offset=100') ? [] : Array.from({length: 100}, (_, i) => ({...event, event_id: i + 1})) : type);
+  mockAPI(async path => path.includes('/history/') ? path.includes('offset=100') ? [] : Array.from({length: 100}, (_, i) => ({...event, event_id: i + 1})) : type);
   await mount('/arm2/type/TYPE-1'); await click('История'); await click('Следующая страница');
   expect(api).toHaveBeenCalledWith('/arm2/history/TYPE/TYPE-1?limit=100&offset=100', 'GET', undefined, expect.any(AbortSignal));
   expect(vi.mocked(api).mock.calls.some(([path]) => path.includes('/history/events/'))).toBe(false);
@@ -154,7 +233,7 @@ it('history has real pagination and requests event detail only when selected', a
 it('late create response does not redirect the operator after leaving the card', async () => {
   let finish!: (record: RecordData) => void;
   const pending = new Promise<RecordData>(resolve => {finish = resolve;});
-  vi.mocked(api).mockImplementation(async (path, method) => method === 'POST' ? pending : path.includes('?') ? [] : type);
+  mockAPI(async (path, method) => method === 'POST' ? pending : path.includes('?') ? [] : type);
   await mount('/arm2/type/new'); await change('Рабочее имя', 'Самосвал'); await submit();
   await follow('Контрагенты'); await act(async () => {finish(type); await tick();});
   expect(element.querySelector('h2')?.textContent).toBe('Контрагенты');
@@ -169,7 +248,7 @@ it.each(['TYPE', 'CP', 'ORG', 'VEH', 'CPREP', 'ORGREP'] as const)('%s accepts a 
   const cardRoute = `/arm2/${route}/${rep ? 'PARENT-1/representatives/' : ''}OBJECT-1`;
   let server: RecordData = {...(rep ? emptyRecord('REP') : kind === 'TYPE' ? type : kind === 'VEH' ? vehicle : party), id: 'OBJECT-1', name: 'Исходное имя', version: 3};
   let conflict = true;
-  vi.mocked(api).mockImplementation(async (path, method, body) => {
+  mockAPI(async (path, method, body) => {
     if (path.startsWith('/arm2/history/')) return [];
     if (path !== resource) return path.includes('?') ? [] : party;
     if (method === 'PUT') {
@@ -179,18 +258,19 @@ it.each(['TYPE', 'CP', 'ORG', 'VEH', 'CPREP', 'ORGREP'] as const)('%s accepts a 
     }
     return {...server};
   });
+  const nameLabel = rep ? 'ФИО / Имя' : 'Рабочее имя';
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-  await mount(cardRoute); await change('Рабочее имя', 'Мой несохранённый черновик'); await submit();
+  await mount(cardRoute); await change(nameLabel, 'Мой несохранённый черновик'); await submit();
   expect(element.querySelector('[role=alert]')).not.toBeNull(); expect(element.textContent).not.toContain('Сохранено сервером');
   await click('Сравнить с сервером');
-  expect(control('Рабочее имя').value).toBe('Мой несохранённый черновик');
+  expect(control(nameLabel).value).toBe('Мой несохранённый черновик');
   expect(element.querySelector('[aria-label="Версия на сервере"]')?.textContent).toContain('Актуальное имя сервера');
   const gets = () => vi.mocked(api).mock.calls.filter(([path, method]) => path === resource && method === 'GET').length;
   const beforeCancel = gets(); await click('Перезагрузить карточку');
   expect(confirm).toHaveBeenCalledTimes(1); expect(gets()).toBe(beforeCancel);
-  expect(control('Рабочее имя').value).toBe('Мой несохранённый черновик'); expect(element.querySelector('[role=alert]')).not.toBeNull();
+  expect(control(nameLabel).value).toBe('Мой несохранённый черновик'); expect(element.querySelector('[role=alert]')).not.toBeNull();
   confirm.mockReturnValue(true); await click('Перезагрузить карточку');
-  expect(gets()).toBe(beforeCancel + 1); expect(control('Рабочее имя').value).toBe('Актуальное имя сервера');
+  expect(gets()).toBe(beforeCancel + 1); expect(control(nameLabel).value).toBe('Актуальное имя сервера');
   expect(element.querySelector('[role=alert]')).toBeNull(); expect(element.querySelector('[aria-label="Версия на сервере"]')).toBeNull();
   expect(element.textContent).not.toContain('Сохранено сервером');
   expect(vi.mocked(api).mock.calls.some(([path]) => path.includes('/history/'))).toBe(false);
@@ -202,7 +282,7 @@ it.each(['cp', 'org'])('%s representative chooses existing integer user A → B 
   let stored: RecordData = {...emptyRecord('REP'), id: 'REP-1', name: 'Контакт', version: 1};
   const changes: {before: unknown; after: unknown}[] = [];
   const accounts = [{id: 11, name: 'Пользователь А'}, {id: 22, name: 'Пользователь Б'}];
-  vi.mocked(api).mockImplementation(async (path, method, body) => {
+  mockAPI(async (path, method, body) => {
     if (path === '/users') return accounts;
     if (path.includes('/representatives/REP-1')) {
       if (method === 'PUT') {const next = body as RecordData; expect(next.user_id === null || typeof next.user_id === 'number').toBe(true); changes.push({before: stored.user_id, after: next.user_id}); stored = {...stored, ...next, version: stored.version + 1};}
@@ -226,7 +306,7 @@ it.each(['cp', 'org'])('%s representative chooses existing integer user A → B 
 
 it.each(['no-directory-right', 'directory-403', 'view-only'])('user lookup %s preserves current link and prevents assignment', async mode => {
   const rep = {...emptyRecord('REP'), id: 'REP-1', name: 'Контакт', version: 1, user_id: 11};
-  vi.mocked(api).mockImplementation(async (path, method, body) => {
+  mockAPI(async (path, method, body) => {
     if (path === '/users') throw new ApiError(403, 'denied');
     return path.includes('/representatives/') ? method === 'PUT' ? {...rep, ...body as RecordData, version: 2} : rep : party;
   });
@@ -240,7 +320,7 @@ it.each(['no-directory-right', 'directory-403', 'view-only'])('user lookup %s pr
 it('user assignment conflict preserves selection until confirmed reload accepts server link/version', async () => {
   let stored = {...emptyRecord('REP'), id: 'REP-1', name: 'Контакт', version: 1, user_id: 11};
   let conflict = true;
-  vi.mocked(api).mockImplementation(async (path, method, body) => {
+  mockAPI(async (path, method, body) => {
     if (path === '/users') return [{id: 11, name: 'А'}, {id: 22, name: 'Б'}];
     if (!path.includes('/representatives/')) return party;
     if (method === 'PUT') {
@@ -259,7 +339,7 @@ it('user assignment conflict preserves selection until confirmed reload accepts 
 
 it.each([403, 422])('user link save HTTP %s keeps the selected draft without a false success', async status => {
   const stored = {...emptyRecord('REP'), id: 'REP-1', name: 'Контакт', version: 1, user_id: 11};
-  vi.mocked(api).mockImplementation(async (path, method, body) => {
+  mockAPI(async (path, method, body) => {
     if (path === '/users') return [{id: 11, name: 'А'}, {id: 22, name: 'Б'}];
     if (method === 'PUT') {expect(body).toMatchObject({user_id: 22, expected_version: 1}); throw new ApiError(status, 'Representative user_id does not exist');}
     return path.includes('/representatives/') ? {...stored} : party;

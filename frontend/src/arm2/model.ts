@@ -9,6 +9,12 @@ export const labels: Record<string, string> = {
 export const requirements = ['requires_sts', 'requires_calibration', 'requires_wialon'];
 export const partyFields = ['name', 'full_name', 'legal_address', 'postal_address', 'legal_form', 'short_name', 'inn', 'kpp', 'ogrn', 'phone', 'email', 'bank_name', 'bik', 'settlement_account', 'correspondent_account'];
 export const repFields = ['name', 'position', 'authority_basis', 'phone', 'email', 'state', 'user_id', 'last_name', 'first_name', 'middle_name'];
+// Display only: never parse back into stored names or use this as an identity.
+export function shortRepresentativeName(name: string): string {
+  const words = name.trim().split(/\s+/);
+  if (words.length < 2 || words.length > 3 || words.some(word => !/^[А-Яа-яЁёA-Za-z]+$/.test(word)) || /^(доктор|господин|госпожа|mr|mrs|dr)$/i.test(words[0])) return name;
+  return `${words[0]} ${words.slice(1).map(word => word[0] + '.').join('')}`;
+}
 export const vehicleFields = ['name', 'plate_number', 'type_id', 'accounting_state', 'model', 'wialon_unit_id', 'owner_cp_id', 'owner_org_id'];
 export const isParty = (kind: Kind) => kind === 'CP' || kind === 'ORG';
 export const requirementLabel = (value: Scalar | undefined) => value === true ? 'Требуется' : value === false ? 'Не требуется' : 'Не заполнено';

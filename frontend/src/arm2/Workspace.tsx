@@ -1,8 +1,9 @@
 import { createContext, useContext, useState } from 'react';
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { all, catalogs, detail, list, save } from './api';
+import { catalogs, detail, list, save } from './api';
 import type { Kind, RecordData, Scalar } from './api';
 import SearchCatalog from './SearchCatalog';
+import Representatives from './Representatives';
 import { OwnerPicker, TypePicker } from './Selectors';
 import { emptyRecord, isParty, labels, missingRequirements, payload, repFields, requirementLabel, requirements } from './model';
 import { display, ErrorMessage, Field, History, Pagination, SaveForm, Tabs, Unavailable, useAlive, useLoad } from './shared';
@@ -72,10 +73,6 @@ function VehicleSelectors({draft, change, can, editable}: {draft: RecordData; ch
   const [currentType] = useState(draft.type_id);
   return <><TypePicker selected={draft.type_id} change={value => change('type_id', value)} currentType={currentType} can={can} editable={editable}/><OwnerPicker cp={draft.owner_cp_id} org={draft.owner_org_id} change={(cp, org) => {change('owner_cp_id', cp); change('owner_org_id', org);}} can={can} editable={editable}/></>;
 }
-function Representatives({kind, parent, signer, changeSigner, editable}: {kind: Kind; parent: RecordData; signer: Scalar | undefined; changeSigner: (value: Scalar) => void; editable: boolean}) {
-  const result = useLoad(signal => all<RecordData>(`${catalogs[kind].path}/${encodeURIComponent(parent.id)}/representatives`, signal), [kind, parent.id]);
-  return <section><h3>Представители</h3><p>Контакты представителей отличаются от официальных телефона и email карточки. Связь с учётной записью не предоставляет прав доступа.</p><ErrorMessage error={result.error} retry={result.reload}/>{result.loading && <p>Загружаем представителей…</p>}{result.data && <><ul>{result.data.map(row => <li key={row.id}><Link to={`${link(kind, parent.id)}/representatives/${encodeURIComponent(row.id)}`}>{row.name}</Link> — {display(row.position)}, {display(row.state)}</li>)}</ul>{result.data.length === 0 && <p>Представителей пока нет</p>}<Field field="primary_signer_id" value={signer} change={changeSigner} options={[{value: '', label: 'Не назначен'}, ...(signer && !result.data.some(row => row.id === signer) ? [{value: String(signer), label: 'Текущий подписант недоступен', disabled: true}] : []), ...result.data.map(row => ({value: row.id, label: row.name}))]}/></>}{editable && <Link to={`${link(kind, parent.id)}/representatives/new`}>Добавить представителя</Link>}</section>;
-}
 function OwnedVehicles({kind, id, can}: {kind: Kind; id: string; can: Can}) {
   return <SearchCatalog kind="VEH" owner={{kind: kind === 'CP' ? 'CP' : 'ORG', id}} can={can}/>;
 }
@@ -99,7 +96,7 @@ function RepCard({kind, can, initial, path, parentId, reload}: {kind: Kind; can:
     const saved = await save(`${path}${original.id ? '/' + encodeURIComponent(original.id) : ''}`, payload('REP', draft, original), !!original.id);
     if (!alive.current) return;
     setOriginal(saved); setDraft(saved); if (!original.id) navigate(`${link(kind, parentId)}/representatives/${encodeURIComponent(saved.id)}`, {replace: true});
-  }}>{() => <><div className="arm2-grid">{repFields.filter(field => field !== 'user_id').map(field => <Field key={field} field={field} label={field === 'phone' ? 'Телефон представителя' : field === 'email' ? 'Email представителя' : undefined} value={draft[field]} required={field === 'name'} change={value => setDraft(current => ({...current, [field]: value}))} options={field === 'state' ? ['Действующий', 'Архивный'].map(value => ({value, label: value})) : undefined}/>)}</div><RepresentativeUser selected={draft.user_id} change={value => setDraft(current => ({...current, user_id: value}))} canEdit={can(catalogs[kind].permission + '_edit')}/></>}</SaveForm>{original.id && <><button type="button" onClick={() => setHistory(x => !x)} aria-expanded={history}>История</button>{history && <History type={kind === 'CP' ? 'CPREP' : 'ORGREP'} id={original.id}/>}</>}</article>;
+  }}>{() => <><div className="arm2-grid">{repFields.filter(field => !['user_id', 'last_name', 'first_name', 'middle_name'].includes(field)).map(field => <Field key={field} field={field} label={field === 'name' ? 'ФИО / Имя' : field === 'phone' ? 'Телефон представителя' : field === 'email' ? 'Email представителя' : undefined} value={draft[field]} required={field === 'name'} change={value => setDraft(current => ({...current, [field]: value}))} options={field === 'state' ? ['Действующий', 'Архивный'].map(value => ({value, label: value})) : undefined}/>)}</div><RepresentativeUser selected={draft.user_id} change={value => setDraft(current => ({...current, user_id: value}))} canEdit={can(catalogs[kind].permission + '_edit')}/></>}</SaveForm>{original.id && <><button type="button" onClick={() => setHistory(x => !x)} aria-expanded={history}>История</button>{history && <History type={kind === 'CP' ? 'CPREP' : 'ORGREP'} id={original.id}/>}</>}</article>;
 }
 
 function RepresentativeUser({selected, change, canEdit}: {selected: Scalar | undefined; change: (value: number | null) => void; canEdit: boolean}) {
