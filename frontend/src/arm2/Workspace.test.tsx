@@ -106,6 +106,15 @@ it('TYPE main has four fields together and documents expose no fake attach actio
   expect(element.textContent).toContain('этап B3'); expect(element.querySelector('input[type=file]')).toBeNull();
   expect([...element.querySelectorAll('button')].some(item => item.textContent === 'Сохранить')).toBe(false);
 });
+
+it('Enter in the read-only owned-vehicle search cannot save an unsaved parent draft', async () => {
+  vi.mocked(api).mockImplementation(async path => path.includes('/vehicles/search?') ? {items: [], total: 0, matched: 0, limit: 100, offset: 0} : {...party});
+  await mount('/arm2/cp/CP-1');
+  await change('Рабочее имя', 'Несохранённый черновик');
+  await click('Техника'); await submit();
+  expect(vi.mocked(api).mock.calls.some(([, method]) => method === 'PUT' || method === 'POST')).toBe(false);
+  await click('Основное'); expect(control('Рабочее имя').value).toBe('Несохранённый черновик');
+});
 async function choose(label: string, text: string) {
   await act(async () => {control(label).focus(); control(label).click(); await tick();});
   await act(async () => {const option = [...element.querySelectorAll<HTMLButtonElement>('[role=option]')].find(item => item.textContent?.startsWith(text)); if (!option) throw Error('No option: ' + text); option.click(); await tick();});
