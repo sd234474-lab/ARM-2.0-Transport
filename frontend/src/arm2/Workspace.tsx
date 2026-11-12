@@ -2,6 +2,8 @@ import { createContext, useContext, useState } from 'react';
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { all, catalogs, detail, list, save } from './api';
 import type { Kind, RecordData, Scalar } from './api';
+import SearchCatalog from './SearchCatalog';
+import { OwnerPicker, TypePicker } from './Selectors';
 import { emptyRecord, isParty, labels, missingRequirements, payload, repFields, requirementLabel, requirements } from './model';
 import { display, ErrorMessage, Field, History, Pagination, SaveForm, Tabs, Unavailable, useAlive, useLoad } from './shared';
 
@@ -17,6 +19,9 @@ export default function Workspace({can, userLookupAllowed = false}: {can: Can; u
   </Routes></section></UserLookupAllowed.Provider>;
 }
 function Catalog({kind, can}: {kind: Kind; can: Can}) {
+  return kind === 'TYPE' ? <TypeCatalog kind={kind} can={can}/> : <SearchCatalog kind={kind} can={can}/>;
+}
+function TypeCatalog({kind, can}: {kind: Kind; can: Can}) {
   const [params, setParams] = useSearchParams();
   const raw = Number(params.get('offset') || 0), offset = Number.isSafeInteger(raw) && raw >= 0 && raw % 100 === 0 ? raw : 0;
   const [search, setSearch] = useState(''), [status, setStatus] = useState('');
@@ -43,49 +48,36 @@ function Card({kind, initial, can, reload}: {kind: Kind; initial: RecordData; ca
   const navigate = useNavigate();
   const change = (field: string, value: Scalar) => setDraft(current => ({...current, [field]: value}));
   const fields = (keys: string[]) => <div className="arm2-grid">{keys.map(field => <Field key={field} field={field} value={draft[field]} change={value => change(field, value)} required={field === 'name' || field === 'plate_number'}/>)}</div>;
-  const tabs = isParty(kind) ? ['Основное', 'Реквизиты', 'Контакты', 'Банковские счета', 'Документы', 'Техника'] : kind === 'TYPE' ? ['Основное', 'Требования к технике этого типа', 'Виды работ'] : ['Основное'];
-  return <article><h2>{catalogs[kind].singular}: {original.id ? original.name : 'создание'}</h2>{kind !== 'VEH' && <div role="status"><p>Состояние по последнему ответу сервера: {original.id ? (original.status === 'CONFIRMED' ? 'Описание заполнено (CONFIRMED)' : 'Описание не завершено (REVIEW)') : 'будет рассчитано при сохранении'}</p>{isParty(kind) && <p>Для CONFIRMED нужны рабочее имя, полное наименование и юридический адрес; указанные реквизиты должны быть валидны. Банк, ИНН, представители и документы сами по себе не обязательны. Не заполнено: {['name', 'full_name', 'legal_address'].filter(key => !draft[key]).map(key => labels[key]).join(', ') || 'основные поля заполнены'}.</p>}{kind === 'TYPE' && <p>Не заполнено: {missingRequirements(draft) || 'все требования заполнены'}. Тип REVIEW нельзя вновь назначить машине.</p>}</div>}
+  const tabs = isParty(kind) ? ['Основное', 'Контакты', 'Банковские счета', 'Документы', 'Техника'] : kind === 'TYPE' ? ['Основное', 'Виды работ'] : ['Основное', 'Документы'];
+  return <article><h2>{catalogs[kind].singular}: {original.id ? original.name : 'создание'}</h2>{kind !== 'VEH' && <div className="arm2-card-status"><p role="status">Состояние описания: {original.id ? original.status === 'CONFIRMED' ? 'Описание заполнено (CONFIRMED)' : 'Описание не завершено (REVIEW)' : 'будет рассчитано при сохранении'}</p><details><summary>Условия полного описания</summary>{isParty(kind) ? <p>Нужны рабочее имя, полное наименование и юридический адрес. Заполненные реквизиты проверяются сервером. Не заполнено: {['name', 'full_name', 'legal_address'].filter(key => !draft[key]).map(key => labels[key]).join(', ') || 'основные поля заполнены'}.</p> : <p>Не заполнено: {missingRequirements(draft) || 'все требования заполнены'}. Тип REVIEW нельзя вновь назначить машине.</p>}</details></div>}
     <Tabs tabs={tabs} active={tab} setActive={setTab}/>
-    <SaveForm resource={`${catalogs[kind].path}/${encodeURIComponent(original.id)}`} original={original} allowed={can(catalogs[kind].permission + '_edit')} reload={reload} submit={async () => {
+    <SaveForm resource={`${catalogs[kind].path}/${encodeURIComponent(original.id)}`} original={original} allowed={can(catalogs[kind].permission + '_edit')} showSubmit={!['Документы', 'Виды работ', 'Техника'].includes(tab)} reload={reload} submit={async () => {
       const saved = await save(`${catalogs[kind].path}${original.id ? '/' + encodeURIComponent(original.id) : ''}`, payload(kind, draft, original), !!original.id);
       if (!alive.current) return;
       setOriginal(saved); setDraft(saved);
       if (!original.id) navigate(link(kind, saved.id), {replace: true});
     }}>{editable => <>
-      {tab === 'Основное' && fields(kind === 'TYPE' ? ['name'] : kind === 'VEH' ? ['name', 'plate_number', 'model', 'wialon_unit_id'] : ['name', 'inn', 'legal_form', 'legal_address', 'postal_address', 'phone', 'email'])}
-      {kind === 'VEH' && <><Field field="accounting_state" value={draft.accounting_state} change={value => change('accounting_state', value)} options={['Действующая', 'Архивная'].map(value => ({value, label: value}))}/><VehicleSelectors draft={draft} change={change} can={can} editable={editable}/></>}
-      {tab === 'Требования к технике этого типа' && <div className="arm2-grid">{requirements.map(field => <Field key={field} field={field} value={draft[field] == null ? '' : String(draft[field])} change={value => change(field, value === 'true' ? true : value === 'false' ? false : null)} options={[{value: '', label: 'Не заполнено'}, {value: 'true', label: 'Требуется'}, ...(field === 'requires_sts' ? [] : [{value: 'false', label: 'Не требуется'}])]}/>)}</div>}
-      {tab === 'Реквизиты' && fields(['full_name', 'short_name', 'kpp', 'ogrn'])}
+      {tab === 'Основное' && kind === 'VEH' && <div className="arm2-grid arm2-vehicle-main">{['name', 'plate_number', 'model', 'wialon_unit_id'].map(field => <Field key={field} field={field} value={draft[field]} required={field === 'name' || field === 'plate_number'} change={value => change(field, value)}/>)}<Field field="accounting_state" value={draft.accounting_state} change={value => change('accounting_state', value)} options={['Действующая', 'Архивная'].map(value => ({value, label: value}))}/><VehicleSelectors draft={draft} change={change} can={can} editable={editable}/></div>}
+      {tab === 'Основное' && kind === 'TYPE' && <div className="arm2-grid arm2-type-main"><Field field="name" value={draft.name} required change={value => change('name', value)}/>{requirements.map(field => <Field key={field} field={field} value={draft[field] == null ? '' : String(draft[field])} change={value => change(field, value === 'true' ? true : value === 'false' ? false : null)} options={[{value: '', label: 'Не заполнено'}, {value: 'true', label: 'Требуется'}, ...(field === 'requires_sts' ? [] : [{value: 'false', label: 'Не требуется'}])]}/>)}</div>}
+      {tab === 'Основное' && isParty(kind) && <><section><h3>Наименования и реквизиты</h3>{fields(['name', 'full_name', 'short_name', 'legal_form', 'inn', 'kpp', 'ogrn'])}</section><section><h3>Адреса и официальные контакты</h3>{fields(['legal_address', 'postal_address', 'phone', 'email'])}</section></>}
       {tab === 'Банковские счета' && <><p>Один актуальный комплект реквизитов</p>{fields(['bank_name', 'bik', 'settlement_account', 'correspondent_account'])}</>}
-      {(tab === 'Документы' || tab === 'Виды работ') && <Unavailable/>}
+      {tab === 'Документы' && <p className="arm2-note">Механизм документов пока не реализован — этап B3. Прикрепление файлов, СТС и тарировки здесь ещё недоступны.</p>}{tab === 'Виды работ' && <Unavailable/>}
       {tab === 'Контакты' && (original.id ? <Representatives kind={kind} parent={original} signer={draft.primary_signer_id} changeSigner={value => change('primary_signer_id', value)} editable={editable}/> : <p>Сначала сохраните карточку, затем добавьте представителей и подписанта.</p>)}
       {tab === 'Техника' && (original.id ? <OwnedVehicles kind={kind} id={original.id} can={can}/> : <p>Сначала сохраните карточку.</p>)}
     </>}</SaveForm>
     {original.id && <div className="arm2-history-control"><button type="button" aria-expanded={history} onClick={() => setHistory(x => !x)}>{history ? 'Закрыть историю' : 'История'}</button>{history && <History type={kind} id={original.id}/>}</div>}
   </article>;
 }
-function Choice({path, field, selected, change, canView, currentType, editable}: {path: string; field: string; selected: Scalar | undefined; change: (value: Scalar) => void; canView: boolean; currentType?: Scalar; editable: boolean}) {
-  const [search, setSearch] = useState('');
-  const result = useLoad(signal => canView ? all<RecordData>(path, signal) : Promise.resolve([]), [path, canView]);
-  const rows = result.data || [], current = rows.find(row => row.id === selected);
-  const matches = rows.filter(row => row.id === selected || row.name.toLocaleLowerCase('ru').includes(search.toLocaleLowerCase('ru')));
-  return <section className="arm2-choice"><label className="arm2-field">Поиск: {labels[field]} (весь доступный справочник)<input disabled={!canView || !editable} value={search} onChange={e => setSearch(e.target.value)}/></label><ErrorMessage error={result.error} retry={result.reload}/>{result.loading && <p>Загружаем весь справочник…</p>}{!canView && <p>Нет прав на просмотр справочника. Текущая ссылка сохраняется.</p>}<Field field={field} value={selected} change={change} options={[
-    {value: '', label: 'Не назначено'}, ...(selected && !current ? [{value: String(selected), label: 'Текущее назначение (недоступно в справочнике)'}] : []),
-    ...matches.map(row => ({value: row.id, label: row.name + (field === 'type_id' && row.status !== 'CONFIRMED' ? ` — REVIEW: не заполнено ${missingRequirements(row) || 'описание'}${row.id === currentType ? ' (текущее назначение сохраняется)' : ''}` : ''), disabled: field === 'type_id' && row.status !== 'CONFIRMED' && row.id !== currentType})),
-  ]}/>{(result.loading || !!result.error || !canView) && <p>Для нового назначения дождитесь доступного полного списка. Можно сохранить текущую ссылку.</p>}</section>;
-}
 function VehicleSelectors({draft, change, can, editable}: {draft: RecordData; change: (field: string, value: Scalar) => void; can: Can; editable: boolean}) {
-  const [currentType] = useState(draft.type_id), [ownerKind, setOwnerKind] = useState(draft.owner_cp_id ? 'CP' : draft.owner_org_id ? 'ORG' : '');
-  return <><Choice path={catalogs.TYPE.path} field="type_id" selected={draft.type_id} change={value => change('type_id', value)} currentType={currentType} canView={can('arm2_type_view')} editable={editable}/><h3>Операционный владелец</h3><Field field="owner" label="Вид владельца" value={ownerKind} change={value => {setOwnerKind(String(value || '')); change('owner_cp_id', null); change('owner_org_id', null);}} options={[{value: '', label: 'Без владельца'}, {value: 'CP', label: 'Контрагент'}, {value: 'ORG', label: 'Собственная организация'}]}/>{ownerKind && <Choice key={ownerKind} path={ownerKind === 'CP' ? catalogs.CP.path : catalogs.ORG.path} field={ownerKind === 'CP' ? 'owner_cp_id' : 'owner_org_id'} selected={ownerKind === 'CP' ? draft.owner_cp_id : draft.owner_org_id} change={value => change(ownerKind === 'CP' ? 'owner_cp_id' : 'owner_org_id', value)} canView={can(ownerKind === 'CP' ? 'arm2_cp_view' : 'arm2_org_view')} editable={editable}/>}</>;
+  const [currentType] = useState(draft.type_id);
+  return <><TypePicker selected={draft.type_id} change={value => change('type_id', value)} currentType={currentType} can={can} editable={editable}/><OwnerPicker cp={draft.owner_cp_id} org={draft.owner_org_id} change={(cp, org) => {change('owner_cp_id', cp); change('owner_org_id', org);}} can={can} editable={editable}/></>;
 }
 function Representatives({kind, parent, signer, changeSigner, editable}: {kind: Kind; parent: RecordData; signer: Scalar | undefined; changeSigner: (value: Scalar) => void; editable: boolean}) {
   const result = useLoad(signal => all<RecordData>(`${catalogs[kind].path}/${encodeURIComponent(parent.id)}/representatives`, signal), [kind, parent.id]);
   return <section><h3>Представители</h3><p>Контакты представителей отличаются от официальных телефона и email карточки. Связь с учётной записью не предоставляет прав доступа.</p><ErrorMessage error={result.error} retry={result.reload}/>{result.loading && <p>Загружаем представителей…</p>}{result.data && <><ul>{result.data.map(row => <li key={row.id}><Link to={`${link(kind, parent.id)}/representatives/${encodeURIComponent(row.id)}`}>{row.name}</Link> — {display(row.position)}, {display(row.state)}</li>)}</ul>{result.data.length === 0 && <p>Представителей пока нет</p>}<Field field="primary_signer_id" value={signer} change={changeSigner} options={[{value: '', label: 'Не назначен'}, ...(signer && !result.data.some(row => row.id === signer) ? [{value: String(signer), label: 'Текущий подписант недоступен', disabled: true}] : []), ...result.data.map(row => ({value: row.id, label: row.name}))]}/></>}{editable && <Link to={`${link(kind, parent.id)}/representatives/new`}>Добавить представителя</Link>}</section>;
 }
 function OwnedVehicles({kind, id, can}: {kind: Kind; id: string; can: Can}) {
-  const permitted = can('arm2_veh_view');
-  const result = useLoad(signal => permitted ? all<RecordData>(catalogs.VEH.path, signal) : Promise.resolve([]), [permitted, kind, id]);
-  return <section><h3>Техника</h3>{!permitted ? <p>Нет права просмотра техники</p> : <><ErrorMessage error={result.error} retry={result.reload}/>{result.loading && <p>Загружаем все страницы техники…</p>}{result.data && <><p>Техника по текущему операционному владельцу; загружены все доступные страницы.</p><ul>{result.data.filter(row => row[kind === 'CP' ? 'owner_cp_id' : 'owner_org_id'] === id).map(row => <li key={row.id}><Link to={link('VEH', row.id)}>{row.name} — {display(row.plate_number)}</Link></li>)}</ul><p>Назначение и смена владельца — в карточке машины.</p><Link to={link('VEH')}>Открыть справочник техники</Link></>}</>}</section>;
+  return <SearchCatalog kind="VEH" owner={{kind: kind === 'CP' ? 'CP' : 'ORG', id}} can={can}/>;
 }
 function RepRoute({kind, can}: {kind: Kind; can: Can}) {
   const {id = 'new', parentId = ''} = useParams(); return <RepLoader key={`${kind}:${parentId}:${id}`} kind={kind} can={can} id={id} parentId={parentId}/>;
