@@ -1,8 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../api';
 import { all } from './api';
-import { emptyRecord, errorText, payload, requirementLabel } from './model';
+import { emptyRecord, errorText, payload, requirementLabel, shortRepresentativeName } from './model';
 vi.mock('../api', async importOriginal => ({...await importOriginal<typeof import('../api')>(), api: vi.fn()}));
+
+it.each([
+  ['Эдуард', 'Эдуард'], ['Иванов Иван Иванович', 'Иванов И.И.'], ['Сидорова Анна', 'Сидорова А.'],
+  ['Анна-Мария де Соуза', 'Анна-Мария де Соуза'], ['Иванов-Петров Иван', 'Иванов-Петров Иван'],
+  ['Доктор Иванов', 'Доктор Иванов'], ['Иванов И.И.', 'Иванов И.И.'],
+  ['четыре слова без разбора', 'четыре слова без разбора'], [' Иванов Иван ', 'Иванов И.'],
+])('representative display %s → %s leaves the source untouched', (source, expected) => {
+  const record = {...emptyRecord('REP'), name: source};
+  expect(shortRepresentativeName(record.name)).toBe(expected);
+  expect(record.name).toBe(source);
+  expect(payload('REP', record, record).name).toBe(source);
+});
 
 describe('ARM2 write contracts', () => {
   it('preserves false versus null in TYPE and never sends server-only fields', () => {
