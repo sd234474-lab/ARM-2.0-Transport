@@ -177,12 +177,15 @@ def private_env():
 
 def execute(args, *, cwd=None):
     # Capture diagnostics locally; exceptions never include a password/connection URL.
-    result = subprocess.run(list(map(str, args)), env=private_env(), cwd=cwd,
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            creationflags=subprocess.CREATE_NO_WINDOW)
+    # File handles, not PIPE: Windows PG children can inherit a pipe and prevent
+    # communicate() from ever reaching EOF after pg_ctl itself has exited.
+    with (ROOT / 'private/b1-upgrade-commands.log').open('ab', buffering=0) as output:
+        result = subprocess.run(list(map(str, args)), env=private_env(), cwd=cwd,
+                                stdout=output, stderr=subprocess.STDOUT, timeout=120,
+                                creationflags=subprocess.CREATE_NO_WINDOW)
     if result.returncode:
         raise RuntimeError('UAT command failed: ' + Path(args[0]).name + ' (inspect private upgrade log)')
-    return result.stdout
+    return b''
 
 
 def controller(action):
