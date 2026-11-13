@@ -11,7 +11,7 @@ from policy import API_PORT, APP_SOURCE, PACKAGE, ROOT, WEB_PORT, config, deny_e
 from uat_policy import allowed
 
 DIST = ROOT / "source/frontend/dist"
-BANNER = '<aside style="position:fixed;bottom:0;right:0;z-index:99999;background:#542;color:white;padding:6px">ARM2-WIN-RUN-001 В· NATIVE TEST В· source 1f8c06d</aside>'
+BANNER = f'<aside style="position:fixed;bottom:0;right:0;z-index:99999;background:#542;color:white;padding:6px">ARM2 UAT B1 | TEST | source {APP_SOURCE[:7]}</aside>'
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -26,7 +26,8 @@ class Handler(BaseHTTPRequestHandler):
             if key.lower() in {"set-cookie", "location"}:
                 self.send_header(key, value)
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def dispatch(self):
         path = unquote(urlsplit(self.path).path)
@@ -64,7 +65,7 @@ class Handler(BaseHTTPRequestHandler):
             data = data.replace(b"</body>", (BANNER + "</body>").encode())
         return self.respond(200, data, mimetypes.guess_type(target.name)[0] or "application/octet-stream")
 
-    do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = dispatch
+    do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = do_HEAD = do_OPTIONS = do_TRACE = do_CONNECT = dispatch
 
 
 def main():

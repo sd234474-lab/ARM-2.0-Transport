@@ -1,0 +1,28 @@
+{
+  "result": "FAILED+ROLLBACK",
+  "restored_health": {
+    "ok": true,
+    "package": "ARM2-WIN-RUN-001",
+    "instance_id": "c796842a201fb47d3916f4ce8a673fb9",
+    "source_sha": "1f8c06d1f9269146ce7c07508b02dd09c89ff763",
+    "approved_head": "6118252e8a43e8bf534012ba91284c20427ea5e0",
+    "migration": "0061",
+    "database": "arm2_win_run_001",
+    "postgis": "3.6.2",
+    "url": "http://127.0.0.1:18082/arm2"
+  },
+  "arm1_files_checked": 575,
+  "arm1_files_unchanged": true,
+  "arm1_listeners_pid_creation_unchanged": true,
+  "uat_tables_checked": 81,
+  "uat_all_tables_unchanged": true,
+  "uat_secrets_unchanged": true,
+  "backup_restore_drill": "RESTORE_DRILL_PASS",
+  "backup_sha256": "b209abc13aba16b38b66d6625e4c4eff97614f1974e2f7615704c38bb92d621d",
+  "backup_still_matches": true,
+  "backup_folder": "C:\\ARM2-UAT\\ARM2-WIN-RUN-001\\private\\b1-upgrade-e72d7e43cb67",
+  "attempted_package_head": "e72d7e43cb6762929c2534d4fa826c0cb99778d0",
+  "stopped_after_boundary_failure": true,
+  "server_metka": "NOT CONTACTED; no server integrity claim",
+  "installed_b1_final": false
+}
