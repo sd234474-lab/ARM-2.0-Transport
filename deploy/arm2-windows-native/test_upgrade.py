@@ -1,8 +1,11 @@
 """Boundary tests without a connection to any installed database."""
 import json
+import socket
 import sys
 import tempfile
+import threading
 import unittest
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -10,10 +13,35 @@ import policy
 import upgrade
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'arm2-windows-uat'))
+import web
 from uat_policy import allowed
 
 
 class UpgradeTests(unittest.TestCase):
+    def test_head_search_is_404_with_no_body_on_wire(self):
+        # Real HTTP bytes: APIRequestContext correctly rejects a body after HEAD.
+        class QuietHandler(web.Handler):
+            def log_message(self, *_args):
+                pass
+
+        server = ThreadingHTTPServer(('127.0.0.1', 0), QuietHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            for resource in ['types', 'vehicles', 'counterparties', 'organizations']:
+                with socket.create_connection(server.server_address, timeout=2) as sock:
+                    sock.sendall(f'HEAD /api/arm2/{resource}/search HTTP/1.0\r\nHost: localhost\r\n\r\n'.encode())
+                    chunks = []
+                    while data := sock.recv(4096):
+                        chunks.append(data)
+                headers, body = b''.join(chunks).split(b'\r\n\r\n', 1)
+                self.assertIn(b'404 Not Found', headers)
+                self.assertEqual(body, b'')
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
     def test_exact_get_search_only(self):
         for resource in ['types', 'vehicles', 'counterparties', 'organizations']:
             path = '/api/arm2/' + resource + '/search'

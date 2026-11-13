@@ -26,7 +26,8 @@ class Handler(BaseHTTPRequestHandler):
             if key.lower() in {"set-cookie", "location"}:
                 self.send_header(key, value)
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def dispatch(self):
         path = unquote(urlsplit(self.path).path)

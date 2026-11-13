@@ -65,7 +65,91 @@ HEAD документации. Код откатывается без откат
 согласовать восстановление проверенного дампа исключительно UAT. Автоматического
 DROP/очистки/перезаписи БД нет. ARM1 и общий PostgreSQL в rollback не участвуют.
 
-## Фактические результаты
+## Фактические результаты 13.11.2026: FAILED+ROLLBACK
 
-Будут дополнены результатами гейтов, Windows smoke и ограничениями. B1 не считается
-операторски принятым без решения владельца; DOC-036 не изменяется.
+**B1 сейчас НЕ установлен.** Исходный UAT снова работает на
+`http://127.0.0.1:18082/arm2`; API `127.0.0.1:18083`, PostgreSQL
+`127.0.0.1:55442`, база `arm2_win_run_001`, PGDATA
+`C:\ARM2-UAT\ARM2-WIN-RUN-001\db-data`, схема `0061`.
+
+| Гейт / проверка | Факт |
+| --- | --- |
+| PR #49 и #42, точные SHA/статусы | PASS, без изменений; Draft/open/unmerged |
+| Read-only Windows preflight | PASS, ~192 ГБ свободно, собственные loopback PID/PGDATA |
+| ARM1 baseline | PASS: 575 файлов; порты 5174/8014/55432, PID и creation time |
+| Source/config copies | PASS, сохранены внутри private UAT; без потери Git identity |
+| DB backup + реальное восстановление | PASS: все 81 public tables совпали по количествам и хешам строк |
+| Установка подготовленного пакета | PASS до smoke: все 81 таблицы полностью совпали, secrets сохранены |
+| Windows Edge boundary smoke | FAIL: HTTP-тело в ответе HEAD 404 вызвало ошибку HTTP parser |
+| B1 authenticated GET/search, >100, TYPE/owner/plate, CP/ORG в установленном UAT | NOT RUN: smoke остановлен до login |
+| Create/save, представители/подписант/legacy ФИО/user_id, 409/history в установленном UAT | NOT RUN: до создания данных проверка не дошла |
+| B1 restart/reopen | NOT RUN, B1 откачен |
+| Scoped rollback + старый restart/health | PASS, прежний source и instance ID восстановлены |
+| Полная сверка UAT после rollback | PASS: те же 81 таблицы, те же secrets |
+| ARM1 после rollback | PASS: все 575 файлов, PID/creation time/порты совпали |
+| Серверная «Метка» | Не контактировали; серверную целостность удалённо не измеряли |
+
+Подробные обезличенные результаты: [result.json](evidence/arm2-win-b1-uat/result.json).
+Скриншоты фактически восстановленного UAT:
+[форма входа](evidence/arm2-win-b1-uat/restored-login.png),
+[health](evidence/arm2-win-b1-uat/restored-health.png).
+Это evidence прежней восстановленной версии, не успешной приёмки B1.
+
+Устанавливался package HEAD `e72d7e43cb6762929c2534d4fa826c0cb99778d0`,
+business/frontend source B1 `aaba19e5c363a8fee22eb6c49060d3452117bcd9`.
+После rollback фактический checkout снова
+`6118252e8a43e8bf534012ba91284c20427ea5e0`, business source
+`1f8c06d1f9269146ce7c07508b02dd09c89ff763`.
+Instance ID до/после: `c796842a201fb47d3916f4ce8a673fb9`.
+
+Проверенная backup-папка:
+`C:\ARM2-UAT\ARM2-WIN-RUN-001\private\b1-upgrade-e72d7e43cb67`.
+SHA256 `uat.dump`:
+`b209abc13aba16b38b66d6625e4c4eff97614f1974e2f7615704c38bb92d621d`.
+В ней сохранены `source-original`, исходные metadata, `backup-verified.json`,
+`rollback.json`, остановленный scratch `drill-data` и исходный дамп. При возврате
+восстановлен original source; DB restore не понадобился и не выполнялся над UAT.
+Неудачная первоначальная подготовка с inherited PIPE сохранена отдельно в
+`private\b1-upgrade-2a8f3b9b1fc5`; это НЕ проверенная копия для восстановления.
+Её scratch-кластер также остановлен после проверки точного назначения.
+
+### Исправления после остановки — только в ветке
+
+HEAD 404 теперь не отправляет тело. Добавлен тест реальных HTTP-байтов для всех
+четырёх search; он подтверждает пустое тело HEAD и статус 404. Неуспешный smoke
+не выдаётся за ошибку только тестового скрипта: исправлен именно web wrapper.
+Установка повторно не запускалась в соответствии с предписанием STOP Issue #50.
+
+Локальная проверка итогового исправления: **15 native boundary/safety tests PASS**,
+включая HEAD wire test, manifest tampering/path escape, чужой PGDATA, PID reuse,
+старые CRUD/history и отказ установки при изменившихся данных. Регрессия новой
+ветки: **67 ARM2 backend PASS**, 1097 других backend deselected, **386 frontend
+PASS / 61 file**, main/citizens build PASS, Ruff и diff-check PASS. Backend
+выполнялся только в disposable `arm2_b1_test` на 55447 с DSN/PGDATA/socket guard;
+не в установленных базах. Реальные 401/permission 403 проверены backend tests;
+полный Windows login/save/reopen smoke остаётся обязательным непрошедшим гейтом.
+Есть существующее Starlette/httpx deprecation warning. GitHub CI не опрашивался.
+
+### Что изменено в PR
+
+- `uat_policy.py`: четыре точных GET search; прежние разрешения сохранены.
+- `policy.py`: B1 source/origin/package identity, обязательный manifest и хеши,
+  дополнительный запрет карты Yandex; прежние DSN/PGDATA/loopback проверки.
+- `run.py`: чистое наследование окружения, проверка SHA/PGDATA health, запрет
+  INIT/migrate из CLI обновлённого controller.
+- `web.py`: B1 test banner, fail-closed обработка недопустимых методов, корректный HEAD.
+- `upgrade.py`: read-only preflight, backup/restore drill, staged install, scoped rollback;
+  вывод subprocess в закрытый файл и таймаут вместо наследуемых PIPE.
+- `test_upgrade.py`: адресные тесты безопасности и HEAD-протокола.
+- `ops/arm2_win_b1_smoke.cjs`: сценарий Windows Edge для следующей разрешённой проверки;
+  только новые помеченные синтетические записи, без редактирования прежних карточек.
+- Этот отчёт и обезличенные evidence. Business API/frontend B1 не переписывались.
+
+### Ограничение / следующий гейт
+
+Нужна отдельная оценка координатором исправленного wrapper и решение о повторной
+попытке Windows upgrade. Текущий результат — **FAILED+ROLLBACK**, не завершённая
+установка и не операторская приёмка. DOC-036, ARM1, каталог установок и сервер
+не изменялись; merge/deploy не выполнялись. ARM1 GUI/содержимое работающей ARM1 БД
+не открывались: вывод о сохранности ограничен перечисленными файлами/процессами
+и отсутствием обращений нашего upgrade к ARM1 PostgreSQL.
