@@ -33,8 +33,10 @@ def write_json(path, value, *, new=False):
 
 def env():
     private = read_json(ROOT / "private/secrets.json")
-    result = {key: value for key, value in os.environ.items()
-              if not key.upper().startswith("PG") and key.upper() not in {"DATABASE_URL", "PYTHONPATH", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"}}
+    result = {key: value for key, value in os.environ.items() if key.upper() in {
+        "SYSTEMROOT", "WINDIR", "USERPROFILE", "TEMP", "TMP", "COMSPEC", "PATHEXT",
+        "APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)",
+    }}
     result.update(DATABASE_URL=f"postgresql+psycopg://arm2_uat:{private['db_password']}@127.0.0.1:{DB_PORT}/{DB_NAME}",
                   APP_ENV="test", APP_ORIGIN=f"http://127.0.0.1:{WEB_PORT}", COOKIE_SECURE="false", ORGANIZATIONS_ENABLED="false",
                   DATA_DIR=str(ROOT / "data"), MAX_BOT_TOKEN="", MAX_WEBHOOK_SECRET=private["inert_secret"],
@@ -73,7 +75,10 @@ def wait_http(port, seconds=30):
             with opener.open(f"http://127.0.0.1:{port}/api/health", timeout=2) as response:
                 result = json.load(response)
             identity = read_json(ROOT / "private/instance.json")
-            if result.get("instance_id") != identity["instance_id"] or result.get("package") != PACKAGE or result.get("migration") != "0061":
+            if (result.get("instance_id") != identity["instance_id"] or result.get("package") != PACKAGE
+                    or result.get("migration") != "0061" or result.get("source_sha") != APPROVED_HEAD
+                    or result.get("approved_head") != APPROVED_HEAD
+                    or result.get("data_directory") != str(ROOT / "db-data")):
                 raise RuntimeError("Health is from another instance/schema")
             return result
         except (urllib.error.URLError, TimeoutError):
@@ -261,7 +266,8 @@ def stop():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["init", "migrate", "start", "stop", "health", "verify", "api", "web"])
+    # This B1 package upgrades an existing 0061 instance; it cannot initialize/migrate one.
+    parser.add_argument("action", choices=["start", "stop", "health", "verify", "api", "web"])
     action = parser.parse_args().action
     require_root()
     if action == "health":

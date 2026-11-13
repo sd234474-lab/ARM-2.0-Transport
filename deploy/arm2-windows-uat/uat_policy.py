@@ -34,6 +34,11 @@ def validate_environment():
 
 
 def allowed(method, path):
+    if path in {
+        "/api/arm2/types/search", "/api/arm2/vehicles/search",
+        "/api/arm2/counterparties/search", "/api/arm2/organizations/search",
+    }:
+        return method == "GET"
     if path == "/api/health":
         return method == "GET"
     if path in {"/api/auth/me", "/api/meta", "/api/platform/status"}:
