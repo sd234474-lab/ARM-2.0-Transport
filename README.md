@@ -474,21 +474,21 @@ MAX_PHOTOS_ARM_EXCHANGE/…
 
 ### Подтверждённый baseline (14.11.2026)
 
-- Windows 10 Enterprise LTSC → VirtualBox 7.2.22 → VM \`ARM2-UBUNTU-UAT-001\`; Ubuntu Server 22.04.5 LTS, 2 vCPU, 6 GiB RAM, динамический диск 80 GiB.
-- Учётная запись гостевой ОС: \`arm2admin\`; SSH-транспорт Windows \`127.0.0.1:2222\` → Ubuntu \`10.0.2.15:22\` через NAT VirtualBox. IP гостя нужно перепроверять после изменения сетевых настроек.
-- Каталог источников Ubuntu: \`/home/arm2admin/arm2-uat/app\`. Исходный Git-репозиторий: \`https://github.com/sd234474-lab/ARM-2.0-Transport.git\`; ветка выбранной сборки: \`codex/arm2-uat-ui-b1\`; **точный испытанный commit**: \`aaba19e5c363a8fee22eb6c49060d3452117bcd9\` (Draft PR #49). Новый коммит в GitHub сам по себе не обновляет VM.
-- Docker Engine 29.9.3, Compose v5.7.1. Составная конфигурация: исходный \`compose.yaml\` плюс локальный, не закоммиченный \`compose.ubuntu-uat.yaml\`; project name \`arm2-ubuntu-uat\` отделяет объекты и volumes от других проектов.
-- PostgreSQL/PostGIS в \`db\`; миграции завершились с кодом 0; в схеме public проверено 81 таблица. Создан локальный пользователь приложения \`arm2uatadmin\`, роль \`ADMIN_OPERATOR\`, active=true; пароль не хранится в документации.
-- \`api\` и \`db\` здоровы; веб-страница отдаёт HTTP 200; Windows Chrome открыл интерфейс, вход в ARM 2.0 успешен. **Функциональные сценарии и откат не приняты и не проверены.**
-- Снимки VirtualBox, созданные **до развёртывания исходников**: \`UBUNTU-22.04-CLEAN-SSH\`, \`UBUNTU-22.04-DOCKER-READY\`. Они **не являются резервной копией** установленной БД.
-- Изолированный запуск: только \`db\`, одноразовый \`migrate\`, \`api\`, \`web\`. Службы \`worker\`, \`publisher\`, \`trainer\`, \`receiver\` не запускались; токены MAX/Yandex не задавались.
+- Windows 10 Enterprise LTSC → VirtualBox 7.2.22 → VM `ARM2-UBUNTU-UAT-001`; Ubuntu Server 22.04.5 LTS, 2 vCPU, 6 GiB RAM, динамический диск 80 GiB.
+- Учётная запись гостевой ОС: `arm2admin`; SSH-транспорт Windows `127.0.0.1:2222` → Ubuntu `10.0.2.15:22` через NAT VirtualBox. IP гостя нужно перепроверять после изменения сетевых настроек.
+- Каталог источников Ubuntu: `/home/arm2admin/arm2-uat/app`. Исходный Git-репозиторий: `https://github.com/sd234474-lab/ARM-2.0-Transport.git`; ветка выбранной сборки: `codex/arm2-uat-ui-b1`; **точный испытанный commit**: `aaba19e5c363a8fee22eb6c49060d3452117bcd9` (Draft PR #49). Новый коммит в GitHub сам по себе не обновляет VM.
+- Docker Engine 29.9.3, Compose v5.7.1. Составная конфигурация: исходный `compose.yaml` плюс локальный, не закоммиченный `compose.ubuntu-uat.yaml`; project name `arm2-ubuntu-uat` отделяет объекты и volumes от других проектов.
+- PostgreSQL/PostGIS в `db`; миграции завершились с кодом 0; в схеме public проверено 81 таблица. Создан локальный пользователь приложения `arm2uatadmin`, роль `ADMIN_OPERATOR`, active=true; пароль не хранится в документации.
+- `api` и `db` здоровы; веб-страница отдаёт HTTP 200; Windows Chrome открыл интерфейс, вход в ARM 2.0 успешен. **Функциональные сценарии и откат не приняты и не проверены.**
+- Снимки VirtualBox, созданные **до развёртывания исходников**: `UBUNTU-22.04-CLEAN-SSH`, `UBUNTU-22.04-DOCKER-READY`. Они **не являются резервной копией** установленной БД.
+- Изолированный запуск: только `db`, одноразовый `migrate`, `api`, `web`. Службы `worker`, `publisher`, `trainer`, `receiver` не запускались; токены MAX/Yandex не задавались.
 
 ### Локальные файлы среды (не добавлять в Git)
 
-В \`/home/arm2admin/arm2-uat/app/.env\` (права 0600) заданы \`APP_ENV=development\`, \`APP_ORIGIN=http://127.0.0.1:18092\`, \`HTTP_PORT=8080\`, \`COOKIE_SECURE=false\`, собственный \`POSTGRES_PASSWORD\`, пустые \`MAX_BOT_TOKEN\`, \`MAX_WEBHOOK_SECRET\`, \`YANDEX_DISK_TOKEN\`. Секрет БД отдельно расположен в \`/home/arm2admin/arm2-uat/secrets/postgres-password\`. **Не публиковать значения секретов.** Значение \`APP_ORIGIN\` принципиально: первоначальное \`http://127.0.0.1:8080\` приводило к сообщению «Недопустимый источник запроса» в Windows Chrome через SSH-туннель; после смены на \`:18092\` и пересоздания API ошибка исчезла.
+В `/home/arm2admin/arm2-uat/app/.env` (права 0600) заданы `APP_ENV=development`, `APP_ORIGIN=http://127.0.0.1:18092`, `HTTP_PORT=8080`, `COOKIE_SECURE=false`, собственный `POSTGRES_PASSWORD`, пустые `MAX_BOT_TOKEN`, `MAX_WEBHOOK_SECRET`, `YANDEX_DISK_TOKEN`. Секрет БД отдельно расположен в `/home/arm2admin/arm2-uat/secrets/postgres-password`. **Не публиковать значения секретов.** Значение `APP_ORIGIN` принципиально: первоначальное `http://127.0.0.1:8080` приводило к сообщению «Недопустимый источник запроса» в Windows Chrome через SSH-туннель; после смены на `:18092` и пересоздания API ошибка исчезла.
 
-Локальный \`compose.ubuntu-uat.yaml\`:
-\`\`\`yaml
+Локальный `compose.ubuntu-uat.yaml`:
+```yaml
 name: arm2-ubuntu-uat
 services:
   web:
@@ -496,14 +496,14 @@ services:
       target: operators
     ports: !override
       - "127.0.0.1:8080:80"
-\`\`\`
-**Важно:** override задаёт имя проекта, frontend target и публикацию только на loopback гостя; он не удаляет остальные сервисы из исходного Compose. Всегда явно выбирать запускаемые сервисы, использовать \`--no-deps\` и НЕ выполнять неограниченный \`up -d\`.
+```
+**Важно:** override задаёт имя проекта, frontend target и публикацию только на loopback гостя; он не удаляет остальные сервисы из исходного Compose. Всегда явно выбирать запускаемые сервисы, использовать `--no-deps` и НЕ выполнять неограниченный `up -d`.
 
 ### Проверенные операции на Ubuntu (первичная установка B1)
 
 После входа в гостевую Ubuntu по SSH:
 
-\`\`\`bash
+```bash
 cd /home/arm2admin/arm2-uat/app
 git rev-parse HEAD
 sudo docker compose -f compose.yaml -f compose.ubuntu-uat.yaml config --quiet
@@ -514,31 +514,31 @@ sudo docker compose -f compose.yaml -f compose.ubuntu-uat.yaml up -d --no-deps a
 sudo docker compose -f compose.yaml -f compose.ubuntu-uat.yaml up -d --no-deps web
 sudo docker compose -f compose.yaml -f compose.ubuntu-uat.yaml ps
 curl -sS -o /dev/null -w 'HTTP_STATUS=%{http_code}\n' http://127.0.0.1:8080/
-\`\`\`
+```
 
 Выше приведены **фактически выполненные операции первоначального развёртывания**, а не единый скрипт автоматического обновления: миграция уже существующей БД может быть необратима. Для проверки числа таблиц применялся read-only запрос:
 
-\`\`\`bash
+```bash
 sudo docker compose -f compose.yaml -f compose.ubuntu-uat.yaml exec -T db psql -U maxphotos -d maxphotos -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE';"
-\`\`\`
+```
 
-Для первого администратора используется штатный \`python -m app.cli create-admin --login arm2uatadmin --name "Администратор UAT"\` в одноразовом интерактивном контейнере (\`docker compose ... run --rm --no-deps -it api ...\`). Не создавать пользователя повторно на существующей БД, не вводить пароль в команду и не использовать пароль Ubuntu.
+Для первого администратора используется штатный `python -m app.cli create-admin --login arm2uatadmin --name "Администратор UAT"` в одноразовом интерактивном контейнере (`docker compose ... run --rm --no-deps -it api ...`). Не создавать пользователя повторно на существующей БД, не вводить пароль в команду и не использовать пароль Ubuntu.
 
 ### Доступ с Windows
 
-1. SSH гостя (одно окно PowerShell): \`ssh -p 2222 arm2admin@127.0.0.1\`.
-2. Отдельное **постоянно открытое** окно PowerShell для туннеля: \`ssh -N -L 127.0.0.1:18092:127.0.0.1:8080 -p 2222 arm2admin@127.0.0.1\`.
-3. Только после запуска туннеля открыть \`http://127.0.0.1:18092/\` в Windows Chrome. Этот адрес не является публичным адресом VM.
+1. SSH гостя (одно окно PowerShell): `ssh -p 2222 arm2admin@127.0.0.1`.
+2. Отдельное **постоянно открытое** окно PowerShell для туннеля: `ssh -N -L 127.0.0.1:18092:127.0.0.1:8080 -p 2222 arm2admin@127.0.0.1`.
+3. Только после запуска туннеля открыть `http://127.0.0.1:18092/` в Windows Chrome. Этот адрес не является публичным адресом VM.
 
 ### Следующий релиз, БД и восстановление — ещё НЕ прошли UAT-проверку
 
-**Источник кода — Git; источник данных — отдельный Docker volume PostgreSQL.** \`git fetch\`/checkout не переносит данные из БД, не обеспечивает резервную копию и не запускает миграции. Следующий релиз допускается только после выбора владельцем/контуром конкретных ветки, SHA, границы тестирования и проверки совместимости миграций. Перед обновлением необходимы: проверка текущего \`git status\` и \`git rev-parse HEAD\`; отдельно защищённая копия БД и подтверждённая процедура восстановления; сохранение локальных \`.env\`, override и volumes; затем scoped сборка/миграция/запуск и чтение логов/health. Не использовать \`docker compose down -v\`, \`docker volume prune\`, \`git reset --hard\` или автозапуск всех сервисов.
+**Источник кода — Git; источник данных — отдельный Docker volume PostgreSQL.** `git fetch`/checkout не переносит данные из БД, не обеспечивает резервную копию и не запускает миграции. Следующий релиз допускается только после выбора владельцем/контуром конкретных ветки, SHA, границы тестирования и проверки совместимости миграций. Перед обновлением необходимы: проверка текущего `git status` и `git rev-parse HEAD`; отдельно защищённая копия БД и подтверждённая процедура восстановления; сохранение локальных `.env`, override и volumes; затем scoped сборка/миграция/запуск и чтение логов/health. Не использовать `docker compose down -v`, `docker volume prune`, `git reset --hard` или автозапуск всех сервисов.
 
 **Процедура резервного копирования и восстановления данных, обновления следующего SHA и отката миграций пока не испытана.** До такой проверки не утверждать её работоспособность и не заменять снимками VM резервное копирование данных. Для несовместимой миграции откат к прежнему образу без восстановления согласованной копии БД может быть небезопасен.
 
 ### Границы приёмки и ссылки
 
 - Код B1: [Draft PR #49](https://github.com/sd234474-lab/ARM-2.0-Transport/pull/49); [отчёт разработчика B1](docs/ARM2_UAT_UI_B1.md) — отдельные доказательства разработки, не Ubuntu UAT.
-- **Ubuntu UAT:** создание VM, миграции, \`db/api\` health, HTTP 200, проверка Origin и успешная авторизация подтверждены пользователем 14.11.2026.
-- **Не подтверждено:** функциональная приёмка B1, полные E2E, тест обновления следующего релиза, безопасное восстановление PostgreSQL, merge в \`main\`, production deployment.
+- **Ubuntu UAT:** создание VM, миграции, `db/api` health, HTTP 200, проверка Origin и успешная авторизация подтверждены пользователем 14.11.2026.
+- **Не подтверждено:** функциональная приёмка B1, полные E2E, тест обновления следующего релиза, безопасное восстановление PostgreSQL, merge в `main`, production deployment.
 - [DOC-035 — текущий handoff](https://docs.google.com/document/d/1KvIIBHI2miQe2mWqonZAF5-t5KtKfHx4dwHVo2NilfE/edit); [DOC-036 — конфигурация и план](https://docs.google.com/spreadsheets/d/1jxj_ATB7pfgdbukaQ5mH2CdsPPisDAxU5ggitO2pPjI/edit); [DOC-001 — навигатор](https://docs.google.com/document/d/1P5DcsN2U2jHNj73UBRab7IDN4IHXlNpoK9291O6fQnA/edit).
