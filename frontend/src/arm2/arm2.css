@@ -18,6 +18,8 @@
 .arm2-history-control { margin-top: 24px; }
 .arm2-document-kind { max-width:1000px; min-width:0; }
 .arm2-document-kind fieldset { min-width:0; border:0; padding:0; margin:12px 0; }
+.arm2-document fieldset { min-width:0; border:0; padding:0; margin:12px 0; }
+.arm2-document textarea { width:100%; box-sizing:border-box; resize:vertical; font:inherit; }
 .arm2-document-kind .arm2-document-parents { border:1px solid var(--border,#8886); border-radius:8px; padding:12px; }
 .arm2-document-parents label { display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px; margin:10px 0; }
 .arm2-document-parents input { width:auto; flex:none; }

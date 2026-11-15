@@ -6,7 +6,35 @@ from pydantic import ConfigDict, Field, StrictInt
 from app.schemas import StrictModel
 
 PositiveVersion = Annotated[int, Field(strict=True, gt=0)]
-HistoryObjectType = Literal["TYPE", "VEH", "CP", "ORG", "CPREP", "ORGREP", "DOC-KIND"]
+HistoryObjectType = Literal["TYPE", "VEH", "CP", "ORG", "CPREP", "ORGREP", "DOC-KIND", "DOCUMENT"]
+
+
+class DocumentCreate(StrictModel):
+    model_config = ConfigDict(str_strip_whitespace=False)
+    kind_ref: str
+    name: str
+    description: str | None = None
+
+
+class DocumentUpdate(StrictModel):
+    model_config = ConfigDict(str_strip_whitespace=False)
+    expected_version: PositiveVersion
+    name: str
+    description: str | None
+
+
+class DocumentResponse(StrictModel):
+    model_config = ConfigDict(str_strip_whitespace=False)
+    id: str
+    parent_type: Literal["CP", "ORG", "VEH"]
+    parent_id: str
+    kind_ref: str
+    kind_name: str
+    name: str
+    description: str | None
+    archive_state: Literal["Неархивный"]
+    display_state: Literal["Не загружен"]
+    version: int
 
 
 class DocumentKindCreate(StrictModel):

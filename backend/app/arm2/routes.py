@@ -9,6 +9,9 @@ from app.arm2.counterparty_models import Counterparty
 from app.arm2.counterparty_store import create_counterparty, update_counterparty
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_kind_store import create_document_kind, update_document_kind
+from app.arm2.document_models import Document
+from app.arm2.document_routes import router as document_router
+from app.arm2.document_store import parent_access
 from app.arm2.history_models import HistoryEvent
 from app.arm2.object_registry import OBJECT_REGISTRY, ObjectRegistryError
 from app.arm2.object_save import (
@@ -58,6 +61,7 @@ from app.permissions import Permission
 
 router = APIRouter(prefix="/api/arm2", tags=["arm2"])
 router.include_router(read_router)  # Static /search paths precede legacy /{id} routes.
+router.include_router(document_router)
 Arm2TypeViewer = Annotated[
     User,
     Depends(require_permission(Permission.ARM2_TYPE_VIEW)),
@@ -103,6 +107,7 @@ _EXPECTED_UNIQUE_CONSTRAINTS = {
     "uq_arm2_vehicles_plate_number",
 }
 _HISTORY_VIEW_PERMISSIONS = {
+    "DOCUMENT": Permission.ARM2_DOCUMENT_VIEW,
     "DOC-KIND": Permission.ARM2_DOC_KIND_VIEW,
     "TYPE": Permission.ARM2_TYPE_VIEW,
     "VEH": Permission.ARM2_VEH_VIEW,
@@ -258,6 +263,17 @@ def _validate_history_access(
         OBJECT_REGISTRY.require(object_type).validate_id(object_id)
     except ObjectRegistryError as error:
         raise HTTPException(422, "Invalid ARM2 history object id") from error
+    if object_type == "DOCUMENT":
+        document = db.get(Document, object_id)
+        if document is None:
+            raise HTTPException(404, "Документ не найден")
+        try:
+            parent_access(db, user, document.parent_type, document.parent_id)
+        except ObjectAuthorizationError as error:
+            raise HTTPException(403, "Нет прав на историю документов этого родителя") from error
+        except (ObjectNotFoundError, ValueError) as error:
+            raise HTTPException(404, "Родитель документа не найден") from error
+        return
     representative_parent = {
         "CPREP": (CounterpartyRepresentative, Counterparty, "CP"),
         "ORGREP": (OrganizationRepresentative, Organization, "ORG"),

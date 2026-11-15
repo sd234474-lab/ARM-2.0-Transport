@@ -29,7 +29,7 @@ class HistoryEvent(Base):
     )
 
     __table_args__ = (
-        CheckConstraint("object_type IN ('TYPE','VEH','CP','ORG','CPREP','ORGREP','DOC-KIND')", name="ck_arm2_history_object_type"),
+        CheckConstraint("object_type IN ('TYPE','VEH','CP','ORG','CPREP','ORGREP','DOC-KIND','DOCUMENT')", name="ck_arm2_history_object_type"),
         CheckConstraint(
             "(object_type = 'TYPE' AND object_id ~ '^TYPE-[0-9]{6,}$') OR "
             "(object_type = 'VEH' AND object_id ~ '^VEH-[0-9]{6,}$') OR "
@@ -37,7 +37,8 @@ class HistoryEvent(Base):
             "(object_type = 'ORG' AND object_id ~ '^ORG-[0-9]{6,}$') OR "
             "(object_type = 'CPREP' AND object_id ~ '^CPREP-[0-9]{6,}$') OR "
             "(object_type = 'ORGREP' AND object_id ~ '^ORGREP-[0-9]{6,}$') OR "
-            "(object_type = 'DOC-KIND' AND object_id ~ '^DOC-KIND-[0-9]{6,}$')",
+            "(object_type = 'DOC-KIND' AND object_id ~ '^DOC-KIND-[0-9]{6,}$') OR "
+            "(object_type = 'DOCUMENT' AND object_id ~ '^DOCUMENT-[0-9]{6,}$')",
             name="ck_arm2_history_object_id",
         ),
         CheckConstraint("operation IN ('CREATED', 'UPDATED')", name="ck_arm2_history_operation"),

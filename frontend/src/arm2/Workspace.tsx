@@ -4,6 +4,7 @@ import { catalogs, detail, list, save } from './api';
 import type { Kind, RecordData, Scalar } from './api';
 import SearchCatalog from './SearchCatalog';
 import DocumentKinds from './DocumentKinds';
+import Documents, { DocumentRoute } from './Documents';
 import Representatives from './Representatives';
 import { OwnerPicker, TypePicker } from './Selectors';
 import { emptyRecord, isParty, labels, missingRequirements, payload, repFields, requirementLabel, requirements } from './model';
@@ -18,7 +19,7 @@ export default function Workspace({can, userLookupAllowed = false}: {can: Can; u
   const docEdit = docView && can('arm2_doc_kind_edit');
   const visible = kinds.filter(kind => can(catalogs[kind].permission + '_view'));
   return <UserLookupAllowed.Provider value={userLookupAllowed}><section className="panel arm2"><h1>АРМ 2.0</h1><nav className="arm2-sections" aria-label="Справочники АРМ 2.0"><div className="arm2-section"><strong>Техника</strong><div>{visible.filter(kind => kind === 'VEH' || kind === 'TYPE').map(kind => <NavLink key={kind} to={link(kind)}>{catalogs[kind].label}</NavLink>)}<span aria-disabled="true">Согласование с заказчиком <small>Пока не реализовано</small></span></div></div>{visible.filter(kind => kind === 'ORG' || kind === 'CP').map(kind => <NavLink className="arm2-section" key={kind} to={link(kind)}>{catalogs[kind].label}</NavLink>)}{docView && <NavLink className="arm2-section" to="/arm2/document-kinds">Типы документов</NavLink>}{['Договоры', 'Территории', 'Нормативы'].map(name => <span className="arm2-section" aria-disabled="true" key={name}>{name}<small>Пока не реализовано</small></span>)}</nav><Routes>
-    {visible.map(kind => <Route key={kind} path={kind.toLowerCase()}><Route index element={<Catalog key={kind} kind={kind} can={can}/>}/><Route path=":id" element={<CardRoute kind={kind} can={can}/>}/>{isParty(kind) && <Route path=":parentId/representatives/:id" element={<RepRoute kind={kind} can={can}/>}/>}</Route>)}
+    {visible.map(kind => <Route key={kind} path={kind.toLowerCase()}><Route index element={<Catalog key={kind} kind={kind} can={can}/>}/><Route path=":id" element={<CardRoute kind={kind} can={can}/>}/>{kind !== 'TYPE' && <Route path=":parentId/documents/:id" element={<DocumentRoute parentType={kind} can={can}/>}/>}{isParty(kind) && <Route path=":parentId/representatives/:id" element={<RepRoute kind={kind} can={can}/>}/>}</Route>)}
     {docView && <Route path="document-kinds/*" element={<DocumentKinds editable={docEdit}/>}/>}
     <Route path="*" element={visible[0] ? <Navigate to={link(visible[0])} replace/> : docView ? <Navigate to="/arm2/document-kinds" replace/> : <p>Нет прав на просмотр справочников АРМ 2.0</p>}/>
   </Routes></section></UserLookupAllowed.Provider>;
@@ -49,13 +50,14 @@ function CardLoader({kind, id, can}: {kind: Kind; id: string; can: Can}) {
 }
 function Card({kind, initial, can, reload}: {kind: Kind; initial: RecordData; can: Can; reload: () => void}) {
   const alive = useAlive();
-  const [original, setOriginal] = useState(initial), [draft, setDraft] = useState(initial), [tab, setTab] = useState('Основное'), [history, setHistory] = useState(false);
+  const [tabParams, setTabParams] = useSearchParams();
+  const [original, setOriginal] = useState(initial), [draft, setDraft] = useState(initial), [tab, setTab] = useState(tabParams.get('tab') === 'documents' && kind !== 'TYPE' ? 'Документы' : 'Основное'), [history, setHistory] = useState(false);
   const navigate = useNavigate();
   const change = (field: string, value: Scalar) => setDraft(current => ({...current, [field]: value}));
   const fields = (keys: string[]) => <div className="arm2-grid">{keys.map(field => <Field key={field} field={field} value={draft[field]} change={value => change(field, value)} required={field === 'name' || field === 'plate_number'}/>)}</div>;
   const tabs = isParty(kind) ? ['Основное', 'Контакты', 'Банковские счета', 'Документы', 'Техника'] : kind === 'TYPE' ? ['Основное', 'Виды работ'] : ['Основное', 'Документы'];
   return <article><h2>{catalogs[kind].singular}: {original.id ? original.name : 'создание'}</h2>{kind !== 'VEH' && <div className="arm2-card-status"><p role="status">Состояние описания: {original.id ? original.status === 'CONFIRMED' ? 'Описание заполнено (CONFIRMED)' : 'Описание не завершено (REVIEW)' : 'будет рассчитано при сохранении'}</p><details><summary>Условия полного описания</summary>{isParty(kind) ? <p>Нужны рабочее имя, полное наименование и юридический адрес. Заполненные реквизиты проверяются сервером. Не заполнено: {['name', 'full_name', 'legal_address'].filter(key => !draft[key]).map(key => labels[key]).join(', ') || 'основные поля заполнены'}.</p> : <p>Не заполнено: {missingRequirements(draft) || 'все требования заполнены'}. Тип REVIEW нельзя вновь назначить машине.</p>}</details></div>}
-    <Tabs tabs={tabs} active={tab} setActive={setTab}/>
+    <Tabs tabs={tabs} active={tab} setActive={value => {setTab(value); setTabParams(current => {const next = new URLSearchParams(current); if (value === 'Документы') next.set('tab', 'documents'); else next.delete('tab'); return next;}, {replace: true});}}/>
     <SaveForm resource={`${catalogs[kind].path}/${encodeURIComponent(original.id)}`} original={original} allowed={can(catalogs[kind].permission + '_edit')} showSubmit={!['Документы', 'Виды работ', 'Техника'].includes(tab)} reload={reload} submit={async () => {
       const saved = await save(`${catalogs[kind].path}${original.id ? '/' + encodeURIComponent(original.id) : ''}`, payload(kind, draft, original), !!original.id);
       if (!alive.current) return;
@@ -66,10 +68,11 @@ function Card({kind, initial, can, reload}: {kind: Kind; initial: RecordData; ca
       {tab === 'Основное' && kind === 'TYPE' && <div className="arm2-grid arm2-type-main"><Field field="name" value={draft.name} required change={value => change('name', value)}/>{requirements.map(field => <Field key={field} field={field} value={draft[field] == null ? '' : String(draft[field])} change={value => change(field, value === 'true' ? true : value === 'false' ? false : null)} options={[{value: '', label: 'Не заполнено'}, {value: 'true', label: 'Требуется'}, ...(field === 'requires_sts' ? [] : [{value: 'false', label: 'Не требуется'}])]}/>)}</div>}
       {tab === 'Основное' && isParty(kind) && <><section><h3>Наименования и реквизиты</h3>{fields(['name', 'full_name', 'short_name', 'legal_form', 'inn', 'kpp', 'ogrn'])}</section><section><h3>Адреса и официальные контакты</h3>{fields(['legal_address', 'postal_address', 'phone', 'email'])}</section></>}
       {tab === 'Банковские счета' && <><p>Один актуальный комплект реквизитов</p>{fields(['bank_name', 'bik', 'settlement_account', 'correspondent_account'])}</>}
-      {tab === 'Документы' && <p className="arm2-note">Механизм документов пока не реализован — этап B3. Прикрепление файлов, СТС и тарировки здесь ещё недоступны.</p>}{tab === 'Виды работ' && <Unavailable/>}
+      {tab === 'Виды работ' && <Unavailable/>}
       {tab === 'Контакты' && (original.id ? <Representatives kind={kind} parent={original} signer={draft.primary_signer_id} changeSigner={value => change('primary_signer_id', value)} editable={editable}/> : <p>Сначала сохраните карточку, затем добавьте представителей и подписанта.</p>)}
       {tab === 'Техника' && (original.id ? <OwnedVehicles kind={kind} id={original.id} can={can}/> : <p>Сначала сохраните карточку.</p>)}
     </>}</SaveForm>
+    {tab === 'Документы' && kind !== 'TYPE' && (original.id ? <Documents parentType={kind} parentId={original.id} can={can}/> : <p>Сначала сохраните родительскую карточку, затем добавьте документ без файла.</p>)}
     {original.id && <div className="arm2-history-control"><button type="button" aria-expanded={history} onClick={() => setHistory(x => !x)}>{history ? 'Закрыть историю' : 'История'}</button>{history && <History type={kind} id={original.id}/>}</div>}
   </article>;
 }

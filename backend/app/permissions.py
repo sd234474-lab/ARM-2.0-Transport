@@ -34,9 +34,13 @@ class Permission(StrEnum):
     ARM2_ORG_EDIT = "arm2_org_edit"
     ARM2_DOC_KIND_VIEW = "arm2_doc_kind_view"
     ARM2_DOC_KIND_EDIT = "arm2_doc_kind_edit"
+    ARM2_DOCUMENT_VIEW = "arm2_document_view"
+    ARM2_DOCUMENT_EDIT = "arm2_document_edit"
 
 
 PERMISSIONS = {
+    Permission.ARM2_DOCUMENT_VIEW: ("Просмотр документов ARM 2.0", "АРМ 2.0", ()),
+    Permission.ARM2_DOCUMENT_EDIT: ("Редактирование документов ARM 2.0", "АРМ 2.0", (Permission.ARM2_DOCUMENT_VIEW,)),
     Permission.ARM2_DOC_KIND_VIEW: ("Просмотр типов документов ARM 2.0", "АРМ 2.0", ()),
     Permission.ARM2_DOC_KIND_EDIT: (
         "Редактирование типов документов ARM 2.0", "АРМ 2.0", (Permission.ARM2_DOC_KIND_VIEW,),
