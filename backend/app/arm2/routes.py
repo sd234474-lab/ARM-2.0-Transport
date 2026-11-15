@@ -7,6 +7,8 @@ from sqlalchemy.exc import IntegrityError
 
 from app.arm2.counterparty_models import Counterparty
 from app.arm2.counterparty_store import create_counterparty, update_counterparty
+from app.arm2.document_kind_models import DocumentKind
+from app.arm2.document_kind_store import create_document_kind, update_document_kind
 from app.arm2.history_models import HistoryEvent
 from app.arm2.object_registry import OBJECT_REGISTRY, ObjectRegistryError
 from app.arm2.object_save import (
@@ -27,6 +29,9 @@ from app.arm2.representative_store import (
     update_representative,
 )
 from app.arm2.schemas import (
+    DocumentKindCreate,
+    DocumentKindResponse,
+    DocumentKindUpdate,
     HistoryEventDetail,
     HistoryEventSummary,
     HistoryObjectType,
@@ -61,6 +66,8 @@ Arm2TypeEditor = Annotated[
     User,
     Depends(require_permission(Permission.ARM2_TYPE_EDIT)),
 ]
+Arm2DocumentKindViewer = Annotated[User, Depends(require_permission(Permission.ARM2_DOC_KIND_VIEW))]
+Arm2DocumentKindEditor = Annotated[User, Depends(require_permission(Permission.ARM2_DOC_KIND_EDIT))]
 Arm2VehicleViewer = Annotated[
     User,
     Depends(require_permission(Permission.ARM2_VEH_VIEW)),
@@ -89,12 +96,14 @@ Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0)]
 
 _EXPECTED_UNIQUE_CONSTRAINTS = {
+    "uq_arm2_document_kinds_name",
     "uq_arm2_counterparties_inn",
     "uq_arm2_organizations_inn",
     "uq_arm2_vehicle_types_name",
     "uq_arm2_vehicles_plate_number",
 }
 _HISTORY_VIEW_PERMISSIONS = {
+    "DOC-KIND": Permission.ARM2_DOC_KIND_VIEW,
     "TYPE": Permission.ARM2_TYPE_VIEW,
     "VEH": Permission.ARM2_VEH_VIEW,
     "CP": Permission.ARM2_CP_VIEW,
@@ -121,6 +130,12 @@ def _type_response(record: VehicleType) -> dict[str, Any]:
             "version",
         )
     }
+
+
+def _document_kind_response(record: DocumentKind) -> dict[str, Any]:
+    return {field: getattr(record, field) for field in (
+        "id", "name", "applicable_object_types", "max_current_documents", "version",
+    )}
 
 
 def _vehicle_response(record: Vehicle) -> dict[str, Any]:
@@ -299,6 +314,31 @@ def _save(db: Db, operation: Callable[[], Any]):
 @router.get("/status")
 def arm2_status(_: Arm2TypeViewer):
     return {"module": "arm2", "phase": "bootstrap"}
+
+
+@router.get("/document-kinds", response_model=list[DocumentKindResponse])
+def list_document_kinds(db: Db, _: Arm2DocumentKindViewer, limit: Limit = 100, offset: Offset = 0):
+    records = db.scalars(select(DocumentKind).order_by(DocumentKind.id).limit(limit).offset(offset))
+    return [_document_kind_response(record) for record in records]
+
+
+@router.get("/document-kinds/{kind_id}", response_model=DocumentKindResponse)
+def get_document_kind(kind_id: str, db: Db, _: Arm2DocumentKindViewer):
+    return _document_kind_response(_get_or_404(db, DocumentKind, kind_id, "ARM2 document kind not found"))
+
+
+@router.post("/document-kinds", status_code=201, response_model=DocumentKindResponse)
+def post_document_kind(body: DocumentKindCreate, db: Db, user: Arm2DocumentKindEditor):
+    record = _save(db, lambda: create_document_kind(db, **body.model_dump(), principal=user, context=_context(user)))
+    return _document_kind_response(record)
+
+
+@router.put("/document-kinds/{kind_id}", response_model=DocumentKindResponse)
+def put_document_kind(kind_id: str, body: DocumentKindUpdate, db: Db, user: Arm2DocumentKindEditor):
+    values = body.model_dump(exclude={"expected_version"})
+    record = _save(db, lambda: update_document_kind(db, kind_id, body.expected_version, **values,
+                                                  principal=user, context=_context(user)))
+    return _document_kind_response(record)
 
 
 @router.get("/types", response_model=list[VehicleTypeResponse])
