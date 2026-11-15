@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
 from app.arm2.document_kind_models import DocumentKind
-from app.arm2.document_kind_store import create_document_kind, update_document_kind
+from app.arm2.document_kind_store import create_document_kind as service_create_document_kind
+from app.arm2.document_kind_store import update_document_kind as service_update_document_kind
 from app.arm2.history_models import HistoryEvent
 from app.arm2.history_store import HistoryValidationError, append_history_event
 from app.arm2.object_registry import OBJECT_REGISTRY, ObjectRegistryError, initialize_object_adapters
@@ -32,6 +33,16 @@ from app.permissions import (
 
 VIEW = Permission.ARM2_DOC_KIND_VIEW
 EDIT = Permission.ARM2_DOC_KIND_EDIT
+NEUTRAL = {"applicable_object_types": ["CP", "ORG", "VEH"], "max_current_documents": None}
+
+
+def create_document_kind(db, name, *, principal, context):
+    # Keep the #53 regression cases explicit about the newly mandatory settings.
+    return service_create_document_kind(db, name, **NEUTRAL, principal=principal, context=context)
+
+
+def update_document_kind(db, kind_id, version, name, *, principal, context):
+    return service_update_document_kind(db, kind_id, version, name, **NEUTRAL, principal=principal, context=context)
 
 
 @pytest.fixture
@@ -71,7 +82,10 @@ def test_create_rename_noop_persistent_ids_and_real_author(session):
             created.correlation_id, created.version_before, created.version_after) == (
         "DOC-KIND", "CREATED", "HUMAN", str(principal.id), "doc-kind-service-test", "kind-53", None, 1,
     )
-    assert created.changes == {"name": {"before": None, "after": "СТС"}, "version": {"before": None, "after": 1}}
+    assert created.changes == {
+        "name": {"before": None, "after": "СТС"}, "version": {"before": None, "after": 1},
+        **{field: {"before": None, "after": value} for field, value in NEUTRAL.items()},
+    }
     assert created.related_objects == []
     db.commit()
     result = update_document_kind(db, first.id, 1, "  Свидетельство  ", principal=principal, context=context(principal))
@@ -82,7 +96,7 @@ def test_create_rename_noop_persistent_ids_and_real_author(session):
     }
     assert (changed.version_before, changed.version_after) == (1, 2)
     no_op = update_object(db, object_type="DOC-KIND", object_id=first.id, expected_version=2,
-                          values={"name": " Свидетельство "}, principal=principal, context=context(principal))
+                          values={"name": " Свидетельство ", **NEUTRAL}, principal=principal, context=context(principal))
     assert not no_op.changed and no_op.event is None and no_op.record.version == 2
     assert counts(db) == (2, 3)
     with pytest.raises(ObjectVersionConflictError):
@@ -162,12 +176,12 @@ def test_registry_generic_save_id_immutability_and_history_validation(session):
     registry = initialize_object_adapters()
     adapter = registry.require("DOC-KIND").adapter
     assert initialize_object_adapters().require("DOC-KIND").adapter is adapter
-    assert set(registry.require("DOC-KIND").command_fields) == {"name"}
+    assert set(registry.require("DOC-KIND").command_fields) == {"name", *NEUTRAL}
     for values in [{"name": "Test", "id": "DOC-KIND-999999"}, {"name": "Test", "version": 5},
                    {"name": "Test", "revision_policy": "new"}, {"name": None}]:
         with pytest.raises(ObjectRegistryError):
-            create_object(db, object_type="DOC-KIND", values=values, principal=principal, context=context(principal))
-    created = create_object(db, object_type="DOC-KIND", values={"name": "Generic"}, principal=principal, context=context(principal))
+            create_object(db, object_type="DOC-KIND", values={**NEUTRAL, **values}, principal=principal, context=context(principal))
+    created = create_object(db, object_type="DOC-KIND", values={"name": "Generic", **NEUTRAL}, principal=principal, context=context(principal))
     assert created.event.object_type == "DOC-KIND" and created.record.version == 1
     with pytest.raises(ObjectRegistryError):
         update_object(db, object_type="DOC-KIND", object_id=created.record.id, expected_version=1,
@@ -192,14 +206,14 @@ def test_history_failure_rolls_back_document_kind_and_version(session):
         raise RuntimeError("history unavailable")
 
     with pytest.raises(RuntimeError, match="history unavailable"):
-        create_object(db, object_type="DOC-KIND", values={"name": "Failed"}, principal=principal,
+        create_object(db, object_type="DOC-KIND", values={"name": "Failed", **NEUTRAL}, principal=principal,
                       context=context(principal), history_writer=fail_history)
     assert counts(db) == (0, 0)
     record = create_document_kind(db, "Before", principal=principal, context=context(principal))
     db.commit()
     with pytest.raises(RuntimeError, match="history unavailable"):
         update_object(db, object_type="DOC-KIND", object_id=record.id, expected_version=1,
-                      values={"name": "Failed"}, principal=principal, context=context(principal), history_writer=fail_history)
+                      values={"name": "Failed", **NEUTRAL}, principal=principal, context=context(principal), history_writer=fail_history)
     assert (record.name, record.version) == ("Before", 1)
     assert counts(db) == (1, 1)
 
@@ -259,9 +273,9 @@ def test_concurrent_expected_version_has_one_winner(session):
     assert counts(db) == (1, 2)
 
 
-def test_db_enforces_three_fields_trim_uniqueness_id_and_positive_version(session):
+def test_db_enforces_five_fields_trim_uniqueness_id_and_positive_version(session):
     db = session
-    assert [c["name"] for c in inspect(db.get_bind()).get_columns("arm2_document_kinds")] == ["id", "name", "version"]
+    assert [c["name"] for c in inspect(db.get_bind()).get_columns("arm2_document_kinds")] == ["id", "name", "version", *NEUTRAL]
     for row in [
         {"id": "TYPE-000001", "name": "Valid", "version": 1},
         {"id": "DOC-KIND-00001", "name": "Valid", "version": 1},
@@ -271,7 +285,7 @@ def test_db_enforces_three_fields_trim_uniqueness_id_and_positive_version(sessio
         {"id": "DOC-KIND-000001", "name": "Valid", "version": 0},
     ]:
         with pytest.raises(IntegrityError), db.begin_nested():
-            db.add(DocumentKind(**row))
+            db.add(DocumentKind(**row, **NEUTRAL))
             db.flush()
     assert counts(db) == (0, 0)
 
