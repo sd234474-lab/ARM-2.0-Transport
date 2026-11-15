@@ -1,0 +1,138 @@
+import { useContext, useEffect, useRef, useState } from 'react';
+import { Link, Navigate, Route, Routes, UNSAFE_NavigationContext, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { api, ApiError } from '../api';
+import type { DocumentKind, DocumentParent } from './api';
+import { ErrorMessage, History, useAlive, useLoad } from './shared';
+
+const base = '/arm2/document-kinds';
+const parents: DocumentParent[] = ['CP', 'ORG', 'VEH'];
+const names = {CP: 'Контрагенты', ORG: 'Собственные организации', VEH: 'Техника'};
+const canonical = (values: DocumentParent[]) => parents.filter(value => values.includes(value));
+const applicability = (values: DocumentParent[]) => canonical(values).map(value => names[value]).join(' / ');
+const multiplicity = (value: number | null) => value === null ? 'Без ограничения' : String(value);
+interface Page {items: DocumentKind[]; total: number; matched: number; limit: number; offset: number}
+interface Draft {name: string; parents: DocumentParent[]; mode: '' | 'unlimited' | 'limited'; maximum: string}
+const draftOf = (record?: DocumentKind): Draft => record ? {name: record.name, parents: canonical(record.applicable_object_types),
+  mode: record.max_current_documents === null ? 'unlimited' : 'limited', maximum: record.max_current_documents === null ? '' : String(record.max_current_documents)} : {name: '', parents: [], mode: '', maximum: ''};
+
+// BrowserRouter is not a data router: use a local, mounted-form guard rather than
+// useBlocker (which requires changing App). No guard is installed for legacy cards.
+function useDraftGuard(blocked: boolean) {
+  const {navigator} = useContext(UNSAFE_NavigationContext);
+  const location = useLocation();
+  const dirty = useRef(blocked); dirty.current = blocked;
+  const index = useRef<number | undefined>(window.history.state?.idx);
+  useEffect(() => {index.current = window.history.state?.idx;}, [location.key]);
+  useEffect(() => {
+    const leave = () => !dirty.current || window.confirm('Покинуть карточку и потерять несохранённые изменения?');
+    const push = navigator.push, replace = navigator.replace, go = navigator.go;
+    const guardedPush: typeof push = (...args) => {if (leave()) {dirty.current = false; push.apply(navigator, args);}};
+    const guardedReplace: typeof replace = (...args) => {if (leave()) {dirty.current = false; replace.apply(navigator, args);}};
+    const guardedGo: typeof go = (...args) => {if (leave()) {dirty.current = false; go.apply(navigator, args);}};
+    navigator.push = guardedPush; navigator.replace = guardedReplace; navigator.go = guardedGo;
+    let restoring = false;
+    const pop = (event: PopStateEvent) => {
+      if (restoring) {restoring = false; event.stopImmediatePropagation(); return;}
+      const next = event.state?.idx;
+      if (dirty.current && typeof next === 'number' && typeof index.current === 'number' && next !== index.current) {
+        if (!leave()) {event.stopImmediatePropagation(); restoring = true; window.history.go(index.current - next); return;}
+        dirty.current = false;
+      }
+      index.current = next;
+    };
+    const unload = (event: BeforeUnloadEvent) => {if (dirty.current) {event.preventDefault(); event.returnValue = '';}};
+    window.addEventListener('popstate', pop, true); window.addEventListener('beforeunload', unload);
+    return () => {
+      if (navigator.push === guardedPush) navigator.push = push;
+      if (navigator.replace === guardedReplace) navigator.replace = replace;
+      if (navigator.go === guardedGo) navigator.go = go;
+      window.removeEventListener('popstate', pop, true); window.removeEventListener('beforeunload', unload);
+    };
+  }, [navigator]);
+  return dirty;
+}
+
+export default function DocumentKinds({editable}: {editable: boolean}) {
+  return <Routes><Route index element={<KindList editable={editable}/>}/>
+    <Route path="new" element={editable ? <KindRoute key="new" editable/> : <Navigate to={base} replace/>}/>
+    <Route path=":id" element={<KindRoute editable={editable}/>}/><Route path="*" element={<Navigate to={base} replace/>}/></Routes>;
+}
+
+function KindList({editable}: {editable: boolean}) {
+  const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const q = params.get('q') || '', raw = Number(params.get('offset') || 0);
+  const offset = Number.isSafeInteger(raw) && raw >= 0 && raw % 100 === 0 ? raw : 0;
+  const result = useLoad(signal => api<Page>(`${base}/search?${new URLSearchParams({q, limit: '100', offset: String(offset)})}`, 'GET', undefined, signal), [q, offset]);
+  const change = (query: string, next: number, replace = false) => setParams({q: query, offset: String(next)}, {replace});
+  return <><header className="arm2-actions"><h2>Типы документов</h2>{editable && <Link to={base + '/new'} state={{from: location.pathname + location.search}}>Создать тип документа</Link>}</header>
+    <label className="arm2-field">Поиск по имени во всём справочнике<input value={q} onChange={event => change(event.target.value, 0, true)}/></label>
+    <ErrorMessage error={result.error} retry={result.reload}/>{result.loading && <p role="status">Загружаем типы документов…</p>}
+    {result.data && <><p>Найдено: {result.data.matched} / Всего: {result.data.total}</p><div className="arm2-table"><table><thead><tr><th>Имя</th><th>Постоянный ID</th><th>Применимость</th><th>Максимум актуальных документов</th><th>Версия</th></tr></thead><tbody>{result.data.items.map(row => <tr key={row.id}><td><Link to={base + '/' + encodeURIComponent(row.id)} state={{from: location.pathname + location.search}}>{row.name}</Link></td><td>{row.id}</td><td>{applicability(row.applicable_object_types)}</td><td>{multiplicity(row.max_current_documents)}</td><td>{row.version}</td></tr>)}</tbody></table></div>
+      {!result.data.items.length && <p>По заданным условиям типов документов нет</p>}<nav className="arm2-actions" aria-label="Страницы типов документов"><button type="button" disabled={!offset} onClick={() => change(q, Math.max(0, offset - 100))}>Предыдущая страница</button><span>Страница {offset / 100 + 1}</span><button type="button" disabled={offset + result.data.items.length >= result.data.matched} onClick={() => change(q, offset + 100)}>Следующая страница</button></nav></>}
+  </>;
+}
+
+function KindRoute({editable}: {editable: boolean}) {
+  const {id = 'new'} = useParams();
+  const location = useLocation();
+  const from = (location.state as {from?: unknown} | null)?.from;
+  const back = typeof from === 'string' && (from === base || from.startsWith(base + '?')) ? from : base;
+  return id === 'new' ? <KindForm key="new" editable={editable} back={back}/> : <KindLoader key={id} id={id} editable={editable} back={back}/>;
+}
+function KindLoader({id, editable, back}: {id: string; editable: boolean; back: string}) {
+  const result = useLoad(signal => api<DocumentKind>(base + '/' + encodeURIComponent(id), 'GET', undefined, signal), [id]);
+  return <><ErrorMessage error={result.error} retry={result.reload}/>{result.loading && <p role="status">Открываем тип документа…</p>}{result.data ? <KindForm initial={result.data} editable={editable} back={back}/> : <Link to={back}>← К типам документов</Link>}</>;
+}
+
+function KindForm({initial, editable, back}: {initial?: DocumentKind; editable: boolean; back: string}) {
+  const [original, setOriginal] = useState(initial), [draft, setDraft] = useState(() => draftOf(initial));
+  const [busy, setBusy] = useState(false), [denied, setDenied] = useState(false), [error, setError] = useState<unknown>();
+  const [validation, setValidation] = useState(''), [status, setStatus] = useState(''), [comparison, setComparison] = useState<DocumentKind>();
+  const [readError, setReadError] = useState<unknown>(), [history, setHistory] = useState(false);
+  const alive = useAlive(), saving = useRef(false), navigate = useNavigate();
+  const changed = JSON.stringify(draft) !== JSON.stringify(draftOf(original));
+  const guard = useDraftGuard(changed || busy);
+  const canEdit = editable && !denied;
+  const change = (value: Partial<Draft>) => {setDraft(current => ({...current, ...value})); setStatus(''); setValidation('');};
+  const readFresh = async (reload: boolean) => {
+    if (!original || (reload && !window.confirm('Перезагрузить карточку и заменить несохранённые изменения данными сервера?'))) return;
+    setReadError(undefined);
+    try {
+      const record = await api<DocumentKind>(base + '/' + encodeURIComponent(original.id));
+      if (!alive.current) return;
+      if (reload) {guard.current = false; setOriginal(record); setDraft(draftOf(record)); setError(undefined); setComparison(undefined); setStatus(''); setValidation('');}
+      else setComparison(record);
+    } catch (error) {if (alive.current) setReadError(error);}
+  };
+  const save = async () => {
+    if (!canEdit || saving.current) return;
+    const maximum = draft.mode === 'limited' ? Number(draft.maximum) : null;
+    if (!draft.name.trim()) {setValidation('Укажите имя типа документа.'); return;}
+    if (!draft.parents.length) {setValidation('Выберите хотя бы один родительский справочник.'); return;}
+    if (!draft.mode || (draft.mode === 'limited' && (!/^[0-9]+$/.test(draft.maximum) || !Number.isSafeInteger(maximum) || maximum! <= 0))) {setValidation('Выберите «Без ограничения» либо укажите положительное целое число.'); return;}
+    const body = {name: draft.name.trim(), applicable_object_types: canonical(draft.parents), max_current_documents: maximum};
+    saving.current = true; setBusy(true); setError(undefined); setStatus(''); setValidation('');
+    try {
+      const record = await api<DocumentKind>(base + (original ? '/' + encodeURIComponent(original.id) : ''), original ? 'PUT' : 'POST', original ? {...body, expected_version: original.version} : body);
+      if (!alive.current) return;
+      guard.current = false; setOriginal(record); setDraft(draftOf(record)); setComparison(undefined);
+      setStatus(original && original.version === record.version ? `Изменений нет — версия ${record.version}` : `Сохранено сервером — версия ${record.version}`);
+      if (!original) navigate(base + '/' + encodeURIComponent(record.id), {replace: true, state: {from: back}});
+    } catch (error) {if (alive.current) {setError(error); if (error instanceof ApiError && error.status === 403) setDenied(true);}}
+    finally {saving.current = false; if (alive.current) setBusy(false);}
+  };
+  return <article className="arm2-document-kind"><Link to={back}>{changed ? 'Отмена / к типам документов' : '← К типам документов'}</Link><h2>{original ? 'Тип документа: ' + original.name : 'Создание типа документа'}</h2>
+    {original && <p>Постоянный ID: {original.id} · Версия: {original.version}</p>}{!canEdit && <p role="status">Только просмотр — нет права редактирования</p>}
+    <ErrorMessage error={error}/><ErrorMessage error={readError}/>{validation && <p role="alert" className="error">{validation}</p>}
+    {error instanceof ApiError && error.status === 409 && original && <div className="arm2-actions"><button type="button" onClick={() => void readFresh(false)}>Сравнить с сервером</button><button type="button" onClick={() => void readFresh(true)}>Перезагрузить карточку</button></div>}
+    {comparison && <section aria-label="Версия на сервере"><h3>Версия на сервере (черновик ниже сохранён)</h3><p>{comparison.name} · Версия: {comparison.version}</p><p>{applicability(comparison.applicable_object_types)} · {multiplicity(comparison.max_current_documents)}</p></section>}
+    <form noValidate onSubmit={event => {event.preventDefault(); void save();}}><fieldset disabled={!canEdit || busy}>
+      <label className="arm2-field">Имя типа документа *<input value={draft.name} required onChange={event => change({name: event.target.value})}/></label>
+      <fieldset className="arm2-document-parents"><legend>Применимость — выберите хотя бы один справочник</legend>{parents.map(parent => <label key={parent}><input type="checkbox" checked={draft.parents.includes(parent)} onChange={event => change({parents: canonical(event.target.checked ? [...draft.parents, parent] : draft.parents.filter(value => value !== parent))})}/>{names[parent]}</label>)}</fieldset>
+      <label className="arm2-field">Максимум актуальных документов *<select value={draft.mode} onChange={event => change({mode: event.target.value as Draft['mode']})}><option value="">Выберите ограничение</option><option value="unlimited">Без ограничения</option><option value="limited">Ограничено</option></select></label>
+      {draft.mode === 'limited' && <label className="arm2-field">Положительное целое число *<input inputMode="numeric" value={draft.maximum} onChange={event => change({maximum: event.target.value})}/></label>}
+    </fieldset>{canEdit && <button type="submit" disabled={busy}>{busy ? 'Сохраняем…' : error instanceof ApiError && error.status >= 500 ? 'Повторить сохранение' : 'Сохранить'}</button>}{status && <p role="status">{status}</p>}</form>
+    {original && <div className="arm2-history-control"><button type="button" aria-expanded={history} onClick={() => setHistory(value => !value)}>{history ? 'Закрыть историю' : 'История'}</button>{history && <History type="DOC-KIND" id={original.id}/>}</div>}
+  </article>;
+}

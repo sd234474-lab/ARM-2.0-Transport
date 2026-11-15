@@ -7,8 +7,9 @@ from pydantic import BaseModel
 from sqlalchemy import case, func, literal, or_, select
 
 from app.arm2.counterparty_models import Counterparty
+from app.arm2.document_kind_models import DocumentKind
 from app.arm2.organization_models import Organization
-from app.arm2.schemas import PartyResponse, VehicleResponse, VehicleTypeResponse
+from app.arm2.schemas import DocumentKindResponse, PartyResponse, VehicleResponse, VehicleTypeResponse
 from app.arm2.vehicle_models import Vehicle
 from app.arm2.vehicle_store import _LATIN_TO_CYRILLIC
 from app.arm2.vehicle_type_models import VehicleType
@@ -46,6 +47,14 @@ class PartyPage(BaseModel):
 
 class TypePage(BaseModel):
     items: list[VehicleTypeResponse]
+    total: int
+    matched: int
+    limit: int
+    offset: int
+
+
+class DocumentKindPage(BaseModel):
+    items: list[DocumentKindResponse]
     total: int
     matched: int
     limit: int
@@ -164,3 +173,12 @@ def search_types(db: Db, user: CurrentUser, q: TextQuery = '', limit: Limit = 10
     if q.strip():
         stmt = stmt.where(_text_match(VehicleType.name, q.strip()))
     return _page(db, stmt, VehicleType, VehicleType.name, 'asc', limit, offset)
+
+
+@router.get('/document-kinds/search', response_model=DocumentKindPage)
+def search_document_kinds(db: Db, user: CurrentUser, q: TextQuery = '', limit: Limit = 100, offset: Offset = 0):
+    check_permission(user, Permission.ARM2_DOC_KIND_VIEW)
+    stmt = select(*[getattr(DocumentKind, field).label(field) for field in DocumentKindResponse.model_fields])
+    if q.strip():
+        stmt = stmt.where(_text_match(DocumentKind.name, q.strip()))
+    return _page(db, stmt, DocumentKind, DocumentKind.id, 'asc', limit, offset)

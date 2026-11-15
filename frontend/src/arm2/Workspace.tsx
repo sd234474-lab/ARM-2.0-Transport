@@ -3,6 +3,7 @@ import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams, useSear
 import { catalogs, detail, list, save } from './api';
 import type { Kind, RecordData, Scalar } from './api';
 import SearchCatalog from './SearchCatalog';
+import DocumentKinds from './DocumentKinds';
 import Representatives from './Representatives';
 import { OwnerPicker, TypePicker } from './Selectors';
 import { emptyRecord, isParty, labels, missingRequirements, payload, repFields, requirementLabel, requirements } from './model';
@@ -13,10 +14,13 @@ const kinds: Kind[] = ['VEH', 'TYPE', 'ORG', 'CP'];
 const UserLookupAllowed = createContext(false);
 const link = (kind: Kind, id?: string) => `/arm2/${kind.toLowerCase()}${id ? '/' + encodeURIComponent(id) : ''}`;
 export default function Workspace({can, userLookupAllowed = false}: {can: Can; userLookupAllowed?: boolean}) {
+  const docView = can('arm2_doc_kind_view');
+  const docEdit = docView && can('arm2_doc_kind_edit');
   const visible = kinds.filter(kind => can(catalogs[kind].permission + '_view'));
-  return <UserLookupAllowed.Provider value={userLookupAllowed}><section className="panel arm2"><h1>АРМ 2.0</h1><nav className="arm2-sections" aria-label="Справочники АРМ 2.0"><div className="arm2-section"><strong>Техника</strong><div>{visible.filter(kind => kind === 'VEH' || kind === 'TYPE').map(kind => <NavLink key={kind} to={link(kind)}>{catalogs[kind].label}</NavLink>)}<span aria-disabled="true">Согласование с заказчиком <small>Пока не реализовано</small></span></div></div>{visible.filter(kind => kind === 'ORG' || kind === 'CP').map(kind => <NavLink className="arm2-section" key={kind} to={link(kind)}>{catalogs[kind].label}</NavLink>)}{['Договоры', 'Территории', 'Нормативы'].map(name => <span className="arm2-section" aria-disabled="true" key={name}>{name}<small>Пока не реализовано</small></span>)}</nav><Routes>
+  return <UserLookupAllowed.Provider value={userLookupAllowed}><section className="panel arm2"><h1>АРМ 2.0</h1><nav className="arm2-sections" aria-label="Справочники АРМ 2.0"><div className="arm2-section"><strong>Техника</strong><div>{visible.filter(kind => kind === 'VEH' || kind === 'TYPE').map(kind => <NavLink key={kind} to={link(kind)}>{catalogs[kind].label}</NavLink>)}<span aria-disabled="true">Согласование с заказчиком <small>Пока не реализовано</small></span></div></div>{visible.filter(kind => kind === 'ORG' || kind === 'CP').map(kind => <NavLink className="arm2-section" key={kind} to={link(kind)}>{catalogs[kind].label}</NavLink>)}{docView && <NavLink className="arm2-section" to="/arm2/document-kinds">Типы документов</NavLink>}{['Договоры', 'Территории', 'Нормативы'].map(name => <span className="arm2-section" aria-disabled="true" key={name}>{name}<small>Пока не реализовано</small></span>)}</nav><Routes>
     {visible.map(kind => <Route key={kind} path={kind.toLowerCase()}><Route index element={<Catalog key={kind} kind={kind} can={can}/>}/><Route path=":id" element={<CardRoute kind={kind} can={can}/>}/>{isParty(kind) && <Route path=":parentId/representatives/:id" element={<RepRoute kind={kind} can={can}/>}/>}</Route>)}
-    <Route path="*" element={visible[0] ? <Navigate to={link(visible[0])} replace/> : <p>Нет прав на просмотр справочников АРМ 2.0</p>}/>
+    {docView && <Route path="document-kinds/*" element={<DocumentKinds editable={docEdit}/>}/>}
+    <Route path="*" element={visible[0] ? <Navigate to={link(visible[0])} replace/> : docView ? <Navigate to="/arm2/document-kinds" replace/> : <p>Нет прав на просмотр справочников АРМ 2.0</p>}/>
   </Routes></section></UserLookupAllowed.Provider>;
 }
 function Catalog({kind, can}: {kind: Kind; can: Can}) {

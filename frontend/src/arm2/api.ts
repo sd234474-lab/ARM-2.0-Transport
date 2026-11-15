@@ -1,7 +1,9 @@
 import { api } from '../api';
 
 export type Kind = 'TYPE' | 'VEH' | 'CP' | 'ORG';
-export type ObjectType = Kind | 'CPREP' | 'ORGREP';
+export type ObjectType = Kind | 'CPREP' | 'ORGREP' | 'DOC-KIND';
+export type DocumentParent = 'CP' | 'ORG' | 'VEH';
+export interface DocumentKind {id: string; name: string; applicable_object_types: DocumentParent[]; max_current_documents: number | null; version: number}
 export type Scalar = string | number | boolean | null;
 export interface RecordData { id: string; version: number; name: string; [field: string]: Scalar }
 export interface VehicleType extends RecordData { requires_sts: boolean | null; requires_calibration: boolean | null; requires_wialon: boolean | null; status: string }
