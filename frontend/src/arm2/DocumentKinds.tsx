@@ -12,41 +12,55 @@ const applicability = (values: DocumentParent[]) => canonical(values).map(value 
 const multiplicity = (value: number | null) => value === null ? 'Без ограничения' : String(value);
 interface Page {items: DocumentKind[]; total: number; matched: number; limit: number; offset: number}
 interface Draft {name: string; parents: DocumentParent[]; mode: '' | 'unlimited' | 'limited'; maximum: string}
+interface ParkedDraft {original?: DocumentKind; draft: Draft; denied: boolean; error: unknown}
+// Only a cancelled POP may need to remount a form before its listener runs.
+// Keep the original version too: restoring a draft must never bypass a 409.
+const parkedDrafts = new Map<string, ParkedDraft>();
 const draftOf = (record?: DocumentKind): Draft => record ? {name: record.name, parents: canonical(record.applicable_object_types),
   mode: record.max_current_documents === null ? 'unlimited' : 'limited', maximum: record.max_current_documents === null ? '' : String(record.max_current_documents)} : {name: '', parents: [], mode: '', maximum: ''};
 
 // BrowserRouter is not a data router: use a local, mounted-form guard rather than
 // useBlocker (which requires changing App). No guard is installed for legacy cards.
-function useDraftGuard(blocked: boolean) {
+function useDraftGuard(blocked: boolean, park: () => void, discard: () => void) {
   const {navigator} = useContext(UNSAFE_NavigationContext);
   const location = useLocation();
   const dirty = useRef(blocked); dirty.current = blocked;
+  const callbacks = useRef({park, discard}); callbacks.current = {park, discard};
   const index = useRef<number | undefined>(window.history.state?.idx);
   useEffect(() => {index.current = window.history.state?.idx;}, [location.key]);
   useEffect(() => {
+    const mountedHref = window.location.href;
     const leave = () => !dirty.current || window.confirm('Покинуть карточку и потерять несохранённые изменения?');
     const push = navigator.push, replace = navigator.replace, go = navigator.go;
     const guardedPush: typeof push = (...args) => {if (leave()) {dirty.current = false; push.apply(navigator, args);}};
     const guardedReplace: typeof replace = (...args) => {if (leave()) {dirty.current = false; replace.apply(navigator, args);}};
     const guardedGo: typeof go = (...args) => {if (leave()) {dirty.current = false; go.apply(navigator, args);}};
     navigator.push = guardedPush; navigator.replace = guardedReplace; navigator.go = guardedGo;
-    let restoring = false;
+    let restoring = false, unmounted = false;
+    const remove = () => {window.removeEventListener('popstate', pop, true); window.removeEventListener('beforeunload', unload);};
     const pop = (event: PopStateEvent) => {
-      if (restoring) {restoring = false; event.stopImmediatePropagation(); return;}
+      if (restoring) {restoring = false; if (unmounted) remove(); else event.stopImmediatePropagation(); return;}
       const next = event.state?.idx;
       if (dirty.current && typeof next === 'number' && typeof index.current === 'number' && next !== index.current) {
         if (!leave()) {event.stopImmediatePropagation(); restoring = true; window.history.go(index.current - next); return;}
-        dirty.current = false;
+        dirty.current = false; callbacks.current.discard();
       }
       index.current = next;
     };
     const unload = (event: BeforeUnloadEvent) => {if (dirty.current) {event.preventDefault(); event.returnValue = '';}};
     window.addEventListener('popstate', pop, true); window.addEventListener('beforeunload', unload);
     return () => {
+      unmounted = true;
       if (navigator.push === guardedPush) navigator.push = push;
       if (navigator.replace === guardedReplace) navigator.replace = replace;
       if (navigator.go === guardedGo) navigator.go = go;
-      window.removeEventListener('popstate', pop, true); window.removeEventListener('beforeunload', unload);
+      if (dirty.current && window.location.href !== mountedHref) {
+        callbacks.current.park();
+        // A Window POP can synchronously unmount us in Router's earlier listener.
+        // Finish this event before removing our listener; a refused POP remounts
+        // from parked state, while an accepted POP discards it.
+        window.setTimeout(() => {if (!restoring) {remove(); callbacks.current.discard();}}, 0);
+      } else remove();
     };
   }, [navigator]);
   return dirty;
@@ -86,15 +100,18 @@ function KindLoader({id, editable, back}: {id: string; editable: boolean; back: 
 }
 
 function KindForm({initial, editable, back}: {initial?: DocumentKind; editable: boolean; back: string}) {
-  const [original, setOriginal] = useState(initial), [draft, setDraft] = useState(() => draftOf(initial));
-  const [busy, setBusy] = useState(false), [denied, setDenied] = useState(false), [error, setError] = useState<unknown>();
+  const key = initial?.id || 'new';
+  const [parked] = useState(() => parkedDrafts.get(key));
+  const [original, setOriginal] = useState(parked?.original || initial), [draft, setDraft] = useState(() => parked?.draft || draftOf(initial));
+  const [busy, setBusy] = useState(false), [denied, setDenied] = useState(parked?.denied || false), [error, setError] = useState<unknown>(parked?.error);
+  useEffect(() => {parkedDrafts.delete(key);}, [key]);
   const [validation, setValidation] = useState(''), [status, setStatus] = useState(''), [comparison, setComparison] = useState<DocumentKind>();
   const [readError, setReadError] = useState<unknown>(), [history, setHistory] = useState(false);
   const alive = useAlive(), saving = useRef(false), navigate = useNavigate();
   const changed = JSON.stringify(draft) !== JSON.stringify(draftOf(original));
-  const guard = useDraftGuard(changed || busy);
+  const guard = useDraftGuard(changed || busy, () => parkedDrafts.set(key, {original, draft, denied, error}), () => parkedDrafts.delete(key));
   const canEdit = editable && !denied;
-  const change = (value: Partial<Draft>) => {setDraft(current => ({...current, ...value})); setStatus(''); setValidation('');};
+  const change = (value: Partial<Draft>) => {guard.current = true; setDraft(current => ({...current, ...value})); setStatus(''); setValidation('');};
   const readFresh = async (reload: boolean) => {
     if (!original || (reload && !window.confirm('Перезагрузить карточку и заменить несохранённые изменения данными сервера?'))) return;
     setReadError(undefined);
@@ -112,7 +129,7 @@ function KindForm({initial, editable, back}: {initial?: DocumentKind; editable: 
     if (!draft.parents.length) {setValidation('Выберите хотя бы один родительский справочник.'); return;}
     if (!draft.mode || (draft.mode === 'limited' && (!/^[0-9]+$/.test(draft.maximum) || !Number.isSafeInteger(maximum) || maximum! <= 0))) {setValidation('Выберите «Без ограничения» либо укажите положительное целое число.'); return;}
     const body = {name: draft.name.trim(), applicable_object_types: canonical(draft.parents), max_current_documents: maximum};
-    saving.current = true; setBusy(true); setError(undefined); setStatus(''); setValidation('');
+    saving.current = true; guard.current = true; setBusy(true); setError(undefined); setStatus(''); setValidation('');
     try {
       const record = await api<DocumentKind>(base + (original ? '/' + encodeURIComponent(original.id) : ''), original ? 'PUT' : 'POST', original ? {...body, expected_version: original.version} : body);
       if (!alive.current) return;

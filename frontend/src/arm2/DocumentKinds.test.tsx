@@ -150,3 +150,16 @@ it('guards native Browser Back/Forward without losing a refused draft', async ()
   await act(async()=>{window.history.forward(); await new Promise(resolve=>setTimeout(resolve,35));});
   expect(control('Имя типа').value).toBe('Вид 1'); expect(writes()).toHaveLength(0);
 });
+
+it('arms the draft guard in the input event before the next React render', async () => {
+  await mount(base+'/'+records[0].id);
+  const confirm = vi.spyOn(window,'confirm').mockReturnValue(false);
+  await act(async()=>{
+    const input=control('Имя типа');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(input,'Быстрый черновик');
+    input.dispatchEvent(new Event('input',{bubbles:true}));
+    host.querySelector<HTMLAnchorElement>('article > a')!.click();
+    await tick();
+  });
+  expect(confirm).toHaveBeenCalled(); expect(control('Имя типа').value).toBe('Быстрый черновик'); expect(writes()).toHaveLength(0);
+});

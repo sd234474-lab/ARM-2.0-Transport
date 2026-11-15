@@ -74,7 +74,7 @@ export default function App() {
   if(!user)return <Login initialError={error} onLogin={u=>{setUser(u);setError('');}}/>;
   if(!meta)return <div className="full-loading"><ErrorBox error={error}/>{error?<button onClick={()=>refresh().then(()=>setError('')).catch(e=>setError(e.message))}>Повторить</button>:'Загружаем справочники…'}</div>;
   const admin=user.role==='ADMIN_OPERATOR';
-  const arm2Allowed = ['type', 'veh', 'cp', 'org'].some(kind => hasPermission(user, 'arm2_' + kind + '_view'));
+  const arm2Allowed = ['type', 'veh', 'cp', 'org', 'doc_kind'].some(kind => hasPermission(user, 'arm2_' + kind + '_view'));
   const links = [
     {to:'/', label:'Обзор', Icon:ChartNoAxesCombined, allowed:hasPermission(user,'reports_view')},
     {to:'/news', label:'Новости', Icon:Newspaper, allowed:hasPermission(user,'news_view')},

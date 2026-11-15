@@ -21,10 +21,10 @@ def test_document_kind_search_all_rows_cyrillic_literals_order_and_history(admin
     for query in ["тарировка за сотой ёж", "ТАРИРОВКА ЗА СОТОЙ ЁЖ"]:
         found = admin.get(PATH + "/search", params={"q": query}).json()
         assert (found["total"], found["matched"], found["items"]) == (105, 1, [records[-1]])
-    for name, query in [("Справка 100%", "%"), ("Прочий_вид", "_"), ("Путь\\оригинал", "\\"), ("Акт 'подрядчика'", "'")]:
+    for expected_total, (name, query) in enumerate([("Справка 100%", "%"), ("Прочий_вид", "_"), ("Путь\\оригинал", "\\"), ("Акт 'подрядчика'", "'")], 106):
         assert admin.post(PATH, json={"name": name, "applicable_object_types": ["CP", "ORG"], "max_current_documents": None}).status_code == 201
         result = admin.get(PATH + "/search", params={"q": query}).json()
-        assert result["total"] == 109 and result["matched"] == 1 and result["items"][0]["name"] == name
+        assert result["total"] == expected_total and result["matched"] == 1 and result["items"][0]["name"] == name
     assert admin.get(PATH + "/search", params={"q": "нет такого имени"}).json()["matched"] == 0
     assert admin.get(PATH + "/search", params={"q": "  "}).json()["matched"] == 109
     assert admin.get(PATH + "/search?offset=200").json()["items"] == []
