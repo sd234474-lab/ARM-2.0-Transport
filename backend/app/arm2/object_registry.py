@@ -214,6 +214,11 @@ TYPE_HISTORY_FIELDS = {
 }
 
 OBJECT_REGISTRY = ObjectRegistry()
+DOCUMENT_FIELDS = {"parent_type": FieldSpec((str,)), "parent_id": FieldSpec((str,)), "kind_ref": FieldSpec((str,)),
+                   "name": FieldSpec((str,)), "description": FieldSpec((str,), nullable=True)}
+OBJECT_REGISTRY.register(ObjectDefinition("DOCUMENT", "DOCUMENT", DOCUMENT_FIELDS,
+    {**DOCUMENT_FIELDS, "archive_state": FieldSpec((str,)), "version": FieldSpec((int,))},
+    edit_permission=Permission.ARM2_DOCUMENT_EDIT))
 OBJECT_REGISTRY.register(
     ObjectDefinition(
         "DOC-KIND", "DOC-KIND",
@@ -291,6 +296,9 @@ OBJECT_REGISTRY.register(
 
 def initialize_object_adapters() -> ObjectRegistry:
     """Idempotently attach every production adapter to the shared registry."""
+    from app.arm2.document_store import register_document_adapter
+
+    register_document_adapter(OBJECT_REGISTRY)
     from app.arm2.document_kind_store import register_document_kind_adapter
 
     register_document_kind_adapter(OBJECT_REGISTRY)

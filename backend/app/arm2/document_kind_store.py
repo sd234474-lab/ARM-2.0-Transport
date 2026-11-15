@@ -42,7 +42,7 @@ class _DocumentKindAdapter:
         return record
 
     def lock_record(self, db, object_id):
-        return db.scalar(select(DocumentKind).where(DocumentKind.id == object_id).with_for_update())
+        return db.scalar(select(DocumentKind).where(DocumentKind.id == object_id).with_for_update().execution_options(populate_existing=True))
 
     def apply(self, record, values):
         for field, value in values.items():
@@ -53,7 +53,9 @@ DOCUMENT_KIND_ADAPTER = _DocumentKindAdapter()
 
 
 def register_document_kind_adapter(registry=OBJECT_REGISTRY):
-    registry.attach_adapter("DOC-KIND", DOCUMENT_KIND_ADAPTER)
+    from app.arm2.document_store import guard_kind_rules
+
+    registry.attach_adapter("DOC-KIND", DOCUMENT_KIND_ADAPTER, reference_rules=(guard_kind_rules,))
 
 
 def create_document_kind(

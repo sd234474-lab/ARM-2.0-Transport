@@ -103,7 +103,7 @@ it('TYPE main has four fields together and documents expose no fake attach actio
   expect(element.querySelector('.arm2-type-main')?.querySelectorAll('label')).toHaveLength(4);
   expect(element.querySelector('[aria-label="Разделы карточки"]')?.textContent).not.toContain('Требования к технике');
   await follow('Техника'); await follow('+ Новая запись'); await click('Документы');
-  expect(element.textContent).toContain('этап B3'); expect(element.querySelector('input[type=file]')).toBeNull();
+  expect(element.textContent).toContain('Сначала сохраните родительскую карточку'); expect(element.querySelector('input[type=file]')).toBeNull();
   expect([...element.querySelectorAll('button')].some(item => item.textContent === 'Сохранить')).toBe(false);
 });
 
@@ -186,7 +186,7 @@ it.each(['cp', 'org'])('%s preserves untouched requisites and string bank accoun
   expect(body).toEqual({name: 'Партнёр', expected_version: 2, bik: '000000001', settlement_account: '00000000000000000001', correspondent_account: '00000000000000000002'});
   await follow('← К списку'); await follow('Партнёр'); await click('Основное'); expect(control('Полное наименование').value).toBe('Полное имя');
   await click('Банковские счета'); expect(control('БИК').value).toBe('000000001');
-  await click('Документы'); expect(element.textContent).toContain('этап B3'); expect(element.textContent).not.toContain('Загрузить документ');
+  await click('Документы'); expect(element.textContent).toContain('Наименование документа'); expect(element.textContent).not.toContain('Загрузить документ');
 });
 it.each(['cp', 'org'])('%s representative edit sends the complete record and retains user link', async kind => {
   const rep = {...emptyRecord('REP'), id: 'REP-1', name: 'Представитель', version: 9, phone: '123', user_id: 8, last_name: 'Старое', first_name: 'Иван', middle_name: 'Сохранено', state: 'Архивный', authority_basis: 'Доверенность'};
