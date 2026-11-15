@@ -23,7 +23,17 @@ class _DocumentKindAdapter:
         name = values["name"].strip()
         if not name:
             raise ValueError("Document kind name must not be empty")
-        return {"name": name}
+        parents = values["applicable_object_types"]
+        connected = ("CP", "ORG", "VEH")
+        if not parents or any(type(parent) is not str or parent not in connected for parent in parents):
+            raise ValueError("Document kind parents must be a nonempty list drawn from CP, ORG, VEH")
+        if len(set(parents)) != len(parents):
+            raise ValueError("Document kind parents must not contain duplicates")
+        maximum = values["max_current_documents"]
+        if maximum is not None and (type(maximum) is not int or maximum <= 0):
+            raise ValueError("max_current_documents must be a positive integer or None")
+        return {"name": name, "applicable_object_types": [parent for parent in connected if parent in parents],
+                "max_current_documents": maximum}
 
     def create_record(self, db, values):
         record = DocumentKind(id=next_id(db, "DOC-KIND"), version=1, **values)
@@ -35,7 +45,8 @@ class _DocumentKindAdapter:
         return db.scalar(select(DocumentKind).where(DocumentKind.id == object_id).with_for_update())
 
     def apply(self, record, values):
-        record.name = values["name"]
+        for field, value in values.items():
+            setattr(record, field, value)
 
 
 DOCUMENT_KIND_ADAPTER = _DocumentKindAdapter()
@@ -46,19 +57,24 @@ def register_document_kind_adapter(registry=OBJECT_REGISTRY):
 
 
 def create_document_kind(
-    db: Session, name: str, *, principal: User, context: SaveContext,
+    db: Session, name: str, *, applicable_object_types: list[str], max_current_documents: int | None,
+    principal: User, context: SaveContext,
 ) -> DocumentKind:
     """Create via the common SAVE transaction; the caller owns commit/rollback."""
     return create_object(
-        db, object_type="DOC-KIND", values={"name": name}, principal=principal, context=context,
+        db, object_type="DOC-KIND", values={"name": name, "applicable_object_types": applicable_object_types,
+                                             "max_current_documents": max_current_documents},
+        principal=principal, context=context,
     ).record
 
 
 def update_document_kind(
-    db: Session, kind_id: str, expected_version: int, name: str, *, principal: User, context: SaveContext,
+    db: Session, kind_id: str, expected_version: int, name: str, *, applicable_object_types: list[str],
+    max_current_documents: int | None, principal: User, context: SaveContext,
 ) -> DocumentKind:
-    """Rename with the common conflict/no-op semantics; never replace the ID."""
+    """Update name/settings with common conflict/no-op semantics; keep the ID."""
     return update_object(
         db, object_type="DOC-KIND", object_id=kind_id, expected_version=expected_version,
-        values={"name": name}, principal=principal, context=context,
+        values={"name": name, "applicable_object_types": applicable_object_types,
+                "max_current_documents": max_current_documents}, principal=principal, context=context,
     ).record

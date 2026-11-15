@@ -216,8 +216,11 @@ TYPE_HISTORY_FIELDS = {
 OBJECT_REGISTRY = ObjectRegistry()
 OBJECT_REGISTRY.register(
     ObjectDefinition(
-        "DOC-KIND", "DOC-KIND", {"name": FieldSpec((str,))},
-        {"name": FieldSpec((str,)), "version": FieldSpec((int,))},
+        "DOC-KIND", "DOC-KIND",
+        {"name": FieldSpec((str,)), "applicable_object_types": FieldSpec((list,)),
+         "max_current_documents": FieldSpec((int,), nullable=True)},
+        {"name": FieldSpec((str,)), "version": FieldSpec((int,)),
+         "applicable_object_types": FieldSpec((list,)), "max_current_documents": FieldSpec((int,), nullable=True)},
         edit_permission=Permission.ARM2_DOC_KIND_EDIT,
     )
 )

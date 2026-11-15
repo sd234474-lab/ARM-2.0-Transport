@@ -36,7 +36,7 @@ def test_upgrade_downgrade_roundtrip_preserves_legacy_objects_history_and_ids(is
     settings.cache_clear()
     engine = create_engine(isolated_arm2_database_url, poolclass=NullPool)
     try:
-        assert ScriptDirectory.from_config(configuration()).get_heads() == ["0062"]
+        assert ScriptDirectory.from_config(configuration()).get_heads() == ["0063"]
         with Session(engine) as db:
             principal = User(login="legacy-regression", name="legacy", password_hash="unused", active=True,
                              role="ADMIN_OPERATOR", permissions=[])
@@ -58,13 +58,16 @@ def test_upgrade_downgrade_roundtrip_preserves_legacy_objects_history_and_ids(is
             assert conn.scalar(text("SELECT to_regclass('arm2_document_kind_id_seq')")) is None
             assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0061"
         assert snapshot(engine) == before
-        command.upgrade(configuration(), "0062")
+        command.upgrade(configuration(), "0063")
         assert snapshot(engine) == before
-        assert [c["name"] for c in inspect(engine).get_columns("arm2_document_kinds")] == ["id", "name", "version"]
+        assert [c["name"] for c in inspect(engine).get_columns("arm2_document_kinds")] == [
+            "id", "name", "version", "applicable_object_types", "max_current_documents",
+        ]
         with Session(engine) as db:
             principal = db.scalar(select(User).where(User.login == "legacy-regression"))
             ctx = SaveContext("HUMAN", str(principal.id), "migration-regression")
-            new = create_document_kind(db, "Новый тип документа", principal=principal, context=ctx)
+            new = create_document_kind(db, "Новый тип документа", applicable_object_types=["VEH"], max_current_documents=1,
+                                       principal=principal, context=ctx)
             assert new.id == "DOC-KIND-000001"
             # Independent sequences and pre-existing legacy data survived the roundtrip.
             next_type = create_vehicle_type(db, "Следующий старый тип", principal=principal, context=ctx)
@@ -83,14 +86,17 @@ def test_downgrade_refuses_existing_document_kind_data_without_deleting_it(isola
     try:
         with engine.begin() as conn:
             if existing == "row":
-                conn.execute(text("INSERT INTO arm2_document_kinds (id,name) VALUES ('DOC-KIND-000001','Сохранить')"))
+                conn.execute(text("INSERT INTO arm2_document_kinds (id,name,applicable_object_types) "
+                                  "VALUES ('DOC-KIND-000001','Сохранить','[\"CP\",\"ORG\",\"VEH\"]'::jsonb)"))
         if existing != "row":
             with Session(engine) as db:
                 if existing == "event":
                     append_history_event(
                         db, object_type="DOC-KIND", object_id="DOC-KIND-000001", operation="CREATED",
                         actor_kind="HUMAN", actor_id="1", source="migration-test", version_after=1,
-                        changes={"name": {"before": None, "after": "Сохранить"}, "version": {"before": None, "after": 1}},
+                        changes={"name": {"before": None, "after": "Сохранить"}, "version": {"before": None, "after": 1},
+                                 "applicable_object_types": {"before": None, "after": ["CP", "ORG", "VEH"]},
+                                 "max_current_documents": {"before": None, "after": None}},
                     )
                 else:
                     append_history_event(
@@ -106,7 +112,7 @@ def test_downgrade_refuses_existing_document_kind_data_without_deleting_it(isola
         assert snapshot(engine) == before
         assert "arm2_document_kinds" in inspect(engine).get_table_names()
         with engine.connect() as conn:
-            assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0062"
+            assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0063"
             if existing == "row":
                 assert conn.scalar(text("SELECT name FROM arm2_document_kinds")) == "Сохранить"
     finally:
