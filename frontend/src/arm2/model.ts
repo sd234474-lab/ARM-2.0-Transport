@@ -2,6 +2,7 @@ import { ApiError } from '../api';
 import type { Kind, RecordData, Scalar } from './api';
 
 export const labels: Record<string, string> = {
+  applicable_object_types: 'Применимость', max_current_documents: 'Максимум актуальных документов',
   name: 'Рабочее имя', full_name: 'Полное наименование', short_name: 'Краткое наименование', inn: 'ИНН', kpp: 'КПП', ogrn: 'ОГРН / ОГРНИП', legal_form: 'Организационно-правовая форма', legal_address: 'Юридический адрес', postal_address: 'Почтовый адрес', phone: 'Официальный телефон', email: 'Официальный email', bank_name: 'Банк', bik: 'БИК', settlement_account: 'Расчётный счёт', correspondent_account: 'Корреспондентский счёт', primary_signer_id: 'Основной подписант',
   requires_sts: 'СТС', requires_calibration: 'Тарировка', requires_wialon: 'Wialon', plate_number: 'Государственный номер', type_id: 'Тип техники', accounting_state: 'Состояние учёта', model: 'Модель', wialon_unit_id: 'Идентификатор машины Wialon', owner_cp_id: 'Владелец — контрагент', owner_org_id: 'Владелец — собственная организация',
   position: 'Должность', authority_basis: 'Основание полномочий', state: 'Состояние', last_name: 'Фамилия', first_name: 'Имя', middle_name: 'Отчество', user_id: 'Связанная учётная запись', version: 'Версия', status: 'Состояние описания',
@@ -41,6 +42,7 @@ export function payload(kind: Kind | 'REP', draft: RecordData, original: RecordD
 }
 export function errorText(error: unknown): string {
   if (!(error instanceof ApiError)) return 'Не удалось связаться с сервером. Повторите попытку.';
+  if (error.status === 409 && error.detail === 'ARM2 object already exists') return 'Запись с такими данными уже существует. Измените имя или уникальные реквизиты.';
   const messages: Record<number, string> = {401: 'Сессия завершена. Войдите снова.', 403: 'Недостаточно прав. Доступен только разрешённый просмотр.', 404: 'Запись или родитель не найдены.', 409: 'Данные изменены другим оператором либо запись уже существует. Сравните с сервером или перезагрузите карточку. Автоматического перезаписывания нет.', 422: 'Проверьте заполненные поля.'};
   if (error.status >= 500) return 'Ошибка сервера. Данные формы сохранены на экране; повторите попытку.';
   const detail = error.status === 422 ? ` ${validationText(error.detail)}` : '';

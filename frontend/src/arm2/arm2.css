@@ -16,6 +16,11 @@
 .arm2-table td, .arm2-table th { padding: 10px; text-align: left; vertical-align: top; overflow-wrap: anywhere; border-bottom: 1px solid var(--border, #8886); }
 .arm2-choice, .arm2-history { padding: 12px; margin: 16px 0; border: 1px solid var(--border, #8886); border-radius: 8px; }
 .arm2-history-control { margin-top: 24px; }
+.arm2-document-kind { max-width:1000px; min-width:0; }
+.arm2-document-kind fieldset { min-width:0; border:0; padding:0; margin:12px 0; }
+.arm2-document-kind .arm2-document-parents { border:1px solid var(--border,#8886); border-radius:8px; padding:12px; }
+.arm2-document-parents label { display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px; margin:10px 0; }
+.arm2-document-parents input { width:auto; flex:none; }
 .arm2 :focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 .arm2 dd { overflow-wrap: anywhere; }
 .arm2-create { display:inline-block; background:#175c43; color:#fff; padding:10px 16px; border-radius:7px; text-decoration:none; font-weight:650; }
