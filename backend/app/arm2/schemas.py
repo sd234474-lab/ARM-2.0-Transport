@@ -1,12 +1,33 @@
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, StrictInt
 
 from app.schemas import StrictModel
 
 PositiveVersion = Annotated[int, Field(strict=True, gt=0)]
-HistoryObjectType = Literal["TYPE", "VEH", "CP", "ORG", "CPREP", "ORGREP"]
+HistoryObjectType = Literal["TYPE", "VEH", "CP", "ORG", "CPREP", "ORGREP", "DOC-KIND"]
+
+
+class DocumentKindCreate(StrictModel):
+    # Preserve parent strings for the service's exact connected-type validation;
+    # the same service already owns name trimming.
+    model_config = ConfigDict(str_strip_whitespace=False)
+    name: str
+    applicable_object_types: list[str]
+    max_current_documents: StrictInt | None
+
+
+class DocumentKindUpdate(DocumentKindCreate):
+    expected_version: PositiveVersion
+
+
+class DocumentKindResponse(StrictModel):
+    id: str
+    name: str
+    applicable_object_types: list[str]
+    max_current_documents: int | None
+    version: int
 
 
 class VehicleTypeCreate(StrictModel):
