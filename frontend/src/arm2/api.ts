@@ -34,6 +34,11 @@ export type Scalar = string | number | boolean | null;
 export interface RecordData { id: string; version: number; name: string; [field: string]: Scalar }
 export interface VehicleType extends RecordData { requires_sts: boolean | null; requires_calibration: boolean | null; requires_wialon: boolean | null; status: string }
 export interface Vehicle extends RecordData { plate_number: string; type_id: string | null; owner_cp_id: string | null; owner_org_id: string | null; accounting_state: string; model: string | null; wialon_unit_id: string | null }
+export interface OwnerIdentity {kind: 'CP' | 'ORG' | null; id: string | null}
+export interface OwnerCommand {expected_version: number; target_kind: OwnerIdentity['kind']; target_id: string | null; expected_owner_kind: OwnerIdentity['kind']; expected_owner_id: string | null; confirm_reassignment: boolean; initiator_kind?: 'CP' | 'ORG'; initiator_id?: string}
+export const ownerOf = (record: RecordData): OwnerIdentity => record.owner_cp_id ? {kind:'CP',id:String(record.owner_cp_id)} : record.owner_org_id ? {kind:'ORG',id:String(record.owner_org_id)} : {kind:null,id:null};
+export const sameOwner = (a: OwnerIdentity,b: OwnerIdentity) => a.kind===b.kind && a.id===b.id;
+export const setOperationalOwner = (id: string, command: OwnerCommand) => api<Vehicle & {no_op:boolean}>(`/arm2/vehicles/${encodeURIComponent(id)}/operational-owner`,'POST',command);
 export interface Party extends RecordData { status: string; primary_signer_id: string | null }
 export interface Representative extends RecordData { parent_id: string; user_id: number | null; state: string }
 export interface EventSummary { event_id: number; object_type: ObjectType; object_id: string; operation: string; occurred_at: string; actor_kind: string; actor_id: string; source: string; version_before: number | null; version_after: number | null }

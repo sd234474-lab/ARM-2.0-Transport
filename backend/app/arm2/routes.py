@@ -38,6 +38,8 @@ from app.arm2.schemas import (
     HistoryEventDetail,
     HistoryEventSummary,
     HistoryObjectType,
+    OperationalOwnerCommand,
+    OperationalOwnerResponse,
     PartyCreate,
     PartyResponse,
     PartyUpdate,
@@ -52,7 +54,7 @@ from app.arm2.schemas import (
     VehicleUpdate,
 )
 from app.arm2.vehicle_models import Vehicle
-from app.arm2.vehicle_store import create_vehicle, update_vehicle
+from app.arm2.vehicle_store import create_vehicle, set_operational_owner, update_vehicle
 from app.arm2.vehicle_type_models import VehicleType
 from app.arm2.vehicle_type_store import create_vehicle_type, update_vehicle_type
 from app.auth import CurrentUser, Db, check_permission, require_permission
@@ -431,6 +433,13 @@ def get_vehicle(vehicle_id: str, db: Db, _: Arm2VehicleViewer):
     if record is None:
         raise HTTPException(404, "ARM2 vehicle not found")
     return _vehicle_response(record)
+
+
+@router.post("/vehicles/{vehicle_id}/operational-owner", response_model=OperationalOwnerResponse)
+def post_operational_owner(vehicle_id: str, body: OperationalOwnerCommand, db: Db, user: CurrentUser):
+    saved = _save(db, lambda: set_operational_owner(db, vehicle_id, **body.model_dump(),
+                  principal=user, context=SaveContext("HUMAN", str(user.id), "arm2-api-operational-owner")))
+    return {**_vehicle_response(saved.record), "no_op": not saved.changed}
 
 
 @router.post("/vehicles", status_code=201, response_model=VehicleResponse)

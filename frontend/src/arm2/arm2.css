@@ -58,3 +58,8 @@
 .arm2-document-operations {margin-block:1rem;padding:1rem;border:1px solid var(--border,#d2d8df);border-radius:.5rem;}
 .arm2-document-operations fieldset {border:0;padding:0;min-width:0;}
 .arm2-correction {display:block;color:#7a3e00;background:#fff4df;padding:.4rem .6rem;border-radius:.3rem;}
+.arm2-owner-command {margin-block:1rem;padding:1rem;border:1px solid #d2d8df;border-radius:.5rem;}
+.arm2-owner-command fieldset {border:0;padding:0;min-width:0;}
+.arm2-owner-confirm {display:flex;align-items:flex-start;gap:.6rem;margin-block:1rem;}
+.arm2-owner-confirm input {width:auto;flex-shrink:0;}
+.arm2-vehicle-fields {border:0;margin:0;padding:0;min-width:0;}
