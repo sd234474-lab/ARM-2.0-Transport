@@ -139,7 +139,7 @@ def _type_response(record: VehicleType) -> dict[str, Any]:
 
 def _document_kind_response(record: DocumentKind) -> dict[str, Any]:
     return {field: getattr(record, field) for field in (
-        "id", "name", "applicable_object_types", "max_current_documents", "version",
+        "id", "name", "applicable_object_types", "max_current_documents", "version", "file_naming_template",
     )}
 
 

@@ -2,6 +2,7 @@ import { ApiError } from '../api';
 import type { Kind, RecordData, Scalar } from './api';
 
 export const labels: Record<string, string> = {
+  current_revision_id: 'Текущая редакция комплекта', file_naming_template: 'Шаблон имени файла',
   kind_ref: 'Тип документа', parent_type: 'Тип родителя', parent_id: 'Родитель', description: 'Описание', archive_state: 'Архивность', display_state: 'Состояние документа',
   applicable_object_types: 'Применимость', max_current_documents: 'Максимум актуальных документов',
   name: 'Рабочее имя', full_name: 'Полное наименование', short_name: 'Краткое наименование', inn: 'ИНН', kpp: 'КПП', ogrn: 'ОГРН / ОГРНИП', legal_form: 'Организационно-правовая форма', legal_address: 'Юридический адрес', postal_address: 'Почтовый адрес', phone: 'Официальный телефон', email: 'Официальный email', bank_name: 'Банк', bik: 'БИК', settlement_account: 'Расчётный счёт', correspondent_account: 'Корреспондентский счёт', primary_signer_id: 'Основной подписант',

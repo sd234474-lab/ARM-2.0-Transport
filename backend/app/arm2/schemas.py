@@ -33,7 +33,7 @@ class DocumentResponse(StrictModel):
     name: str
     description: str | None
     archive_state: Literal["Неархивный"]
-    display_state: Literal["Не загружен"]
+    display_state: Literal["Не загружен", "Доступен", "Файл недоступен", "Архивный"]
     version: int
 
 
@@ -44,6 +44,7 @@ class DocumentKindCreate(StrictModel):
     name: str
     applicable_object_types: list[str]
     max_current_documents: StrictInt | None
+    file_naming_template: Literal["DOCUMENT_NAME", "PARENT_AND_KIND"] | None = None
 
 
 class DocumentKindUpdate(DocumentKindCreate):
@@ -51,6 +52,7 @@ class DocumentKindUpdate(DocumentKindCreate):
 
 
 class DocumentKindResponse(StrictModel):
+    file_naming_template: Literal["DOCUMENT_NAME", "PARENT_AND_KIND"] | None
     id: str
     name: str
     applicable_object_types: list[str]

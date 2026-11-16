@@ -55,6 +55,7 @@ def test_0062_existing_row_backfill_and_safe_roundtrip_preserve_old_data_and_eve
         assert [c["name"] for c in inspect(engine).get_columns("arm2_document_kinds")] == ["id", "name", "version"]
         command.upgrade(config(), "0063")
         assert snapshots(engine) == old
+        command.upgrade(config(), "0065")
         with Session(engine) as db:
             principal = User(login="backfill-editor", name="backfill-editor", password_hash="unused", role="OPERATOR",
                              active=True, permissions=["arm2_doc_kind_view", "arm2_doc_kind_edit"])
@@ -96,7 +97,7 @@ def test_0063_downgrade_refuses_settings_or_new_history_without_losses(isolated_
             command.downgrade(config(), "0062")
         assert snapshots(engine) == old
         with engine.connect() as db:
-            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0064"
+            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0065"
             assert db.execute(text("SELECT row_to_json(d)::text FROM arm2_document_kinds d")).scalars().all() == before
     finally:
         engine.dispose()

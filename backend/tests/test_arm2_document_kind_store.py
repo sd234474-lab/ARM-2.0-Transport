@@ -33,7 +33,7 @@ from app.permissions import (
 
 VIEW = Permission.ARM2_DOC_KIND_VIEW
 EDIT = Permission.ARM2_DOC_KIND_EDIT
-NEUTRAL = {"applicable_object_types": ["CP", "ORG", "VEH"], "max_current_documents": None}
+NEUTRAL = {"applicable_object_types": ["CP", "ORG", "VEH"], "max_current_documents": None, "file_naming_template": "DOCUMENT_NAME"}
 
 
 def create_document_kind(db, name, *, principal, context):

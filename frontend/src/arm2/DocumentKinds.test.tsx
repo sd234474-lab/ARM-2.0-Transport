@@ -25,12 +25,12 @@ beforeEach(() => {
     const url = new URL(path, 'http://test');
     if (method === 'POST' || method === 'PUT') {
       if (failures.length) throw failures.shift()!;
-      const input = body as {name: string; applicable_object_types: DocumentKind['applicable_object_types']; max_current_documents: number | null; expected_version?: number};
+      const input = body as {name: string; applicable_object_types: DocumentKind['applicable_object_types']; max_current_documents: number | null; expected_version?: number; file_naming_template: DocumentKind['file_naming_template']};
       const current = method === 'PUT' ? records.find(r => r.id === path.split('/').at(-1)) : undefined;
       if (current && input.expected_version !== current.version) throw new ApiError(409, 'ARM2 object version conflict');
       const next: DocumentKind = {id: current?.id || `DOC-KIND-${String(records.length + 1).padStart(6, '0')}`, name: input.name,
-        applicable_object_types: ['CP', 'ORG', 'VEH'].filter(p => input.applicable_object_types.includes(p as 'CP')) as DocumentKind['applicable_object_types'], max_current_documents: input.max_current_documents, version: current?.version || 1};
-      const fields = ['name', 'applicable_object_types', 'max_current_documents'] as const;
+        applicable_object_types: ['CP', 'ORG', 'VEH'].filter(p => input.applicable_object_types.includes(p as 'CP')) as DocumentKind['applicable_object_types'], max_current_documents: input.max_current_documents, version: current?.version || 1, file_naming_template: input.file_naming_template};
+      const fields = ['name', 'applicable_object_types', 'max_current_documents', 'file_naming_template'] as const;
       const changed = fields.filter(field => JSON.stringify(current?.[field]) !== JSON.stringify(next[field]));
       if (!current || changed.length) {
         if (current) next.version++;
@@ -78,11 +78,11 @@ it('searches beyond 100, creates/updates/reopens persisted fields and reads real
   expect(control('Максимум').value).toBe(''); expect(host.textContent).not.toContain('История');
   await change('Имя типа', '  Новый вид  '); await check('Собственные организации'); await check('Контрагенты'); await change('Максимум', 'unlimited');
   await click('Сохранить');
-  expect(writes()[0][2]).toEqual({name:'Новый вид', applicable_object_types:['CP','ORG'], max_current_documents:null});
+  expect(writes()[0][2]).toEqual({name:'Новый вид', applicable_object_types:['CP','ORG'], max_current_documents:null, file_naming_template:'DOCUMENT_NAME'});
   expect(host.textContent).toContain('DOC-KIND-000106'); expect(host.textContent).toContain('Версия: 1');
   await click('Browser back'); await click('Browser forward'); expect(control('Имя типа').value).toBe('Новый вид');
   await check('Контрагенты'); await check('Собственные организации'); await check('Техника'); await change('Максимум','limited'); await change('Положительное','1');
-  await click('Сохранить'); expect(writes().at(-1)![2]).toEqual({name:'Новый вид', applicable_object_types:['VEH'], max_current_documents:1, expected_version:1});
+  await click('Сохранить'); expect(writes().at(-1)![2]).toEqual({name:'Новый вид', applicable_object_types:['VEH'], max_current_documents:1, expected_version:1, file_naming_template:'DOCUMENT_NAME'});
   expect(host.textContent).toContain('Сохранено сервером — версия 2');
   await click('Browser back'); await click('Browser forward'); expect((control('Техника') as HTMLInputElement).checked).toBe(true); expect(control('Положительное').value).toBe('1');
   await click('История'); await click('Открыть событие UPDATED'); expect(host.textContent).toContain('Применимость'); expect(host.textContent).toContain('["CP","ORG"]'); expect(host.textContent).toContain('["VEH"]'); expect(host.textContent).toContain('HUMAN 7'); expect(host.textContent).toContain('arm2-api');

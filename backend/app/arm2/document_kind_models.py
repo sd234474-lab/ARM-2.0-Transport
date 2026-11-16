@@ -13,8 +13,10 @@ class DocumentKind(Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     applicable_object_types: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     max_current_documents: Mapped[int | None] = mapped_column(BigInteger)
+    file_naming_template: Mapped[str | None] = mapped_column(String)
 
     __table_args__ = (
+        CheckConstraint("file_naming_template IS NULL OR file_naming_template IN ('DOCUMENT_NAME','PARENT_AND_KIND')", name="ck_arm2_kind_file_naming"),
         CheckConstraint("id ~ '^DOC-KIND-[0-9]{6,}$'", name="ck_arm2_document_kinds_id"),
         CheckConstraint(
             "name = btrim(name) AND name <> '' AND name !~ '^[[:space:]]|[[:space:]]$'",

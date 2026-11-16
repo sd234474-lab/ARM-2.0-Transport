@@ -200,6 +200,38 @@ class YandexDisk:
             uploaded.raise_for_status()
         self.wait_for_file(target, digest)
 
+    def download_document(self, resource: str, target: Path, digest: str, size: int):
+        """Private DOCUMENT read: verified original; provider URL never leaves server."""
+        import hashlib
+
+        try:
+            meta = self.document_metadata(resource)
+            if not meta or meta.get("type") != "file" or meta.get("sha256") != digest or meta.get("size") != size:
+                raise DownloadRejected("DOCUMENT_ORIGINAL_UNAVAILABLE")
+            response = self.request("GET", "/resources/download", params={"path": resource})
+            response.raise_for_status()
+            href = safe_url(response.json()["href"], ("yandex.net", "yandex.ru", "yandex.com"))
+            # Existing downloader validates redirects/hosts, bounds bytes and sends no OAuth.
+            download_file(href, target, ("yandex.net", "yandex.ru", "yandex.com"))
+            result = hashlib.sha256()
+            with target.open("rb") as source:
+                while chunk := source.read(64 * 1024):
+                    result.update(chunk)
+            if target.stat().st_size != size or result.hexdigest() != digest:
+                raise DownloadRejected("DOCUMENT_ORIGINAL_INTEGRITY_FAILURE")
+        except Exception:
+            target.unlink(missing_ok=True)
+            # HTTP exceptions may contain signed URLs. Never propagate their text.
+            raise DownloadRejected("DOCUMENT_ORIGINAL_UNAVAILABLE") from None
+
+    def document_metadata(self, resource: str):
+        """Bound the document read preflight without altering photo upload/move policy."""
+        response = self.request("GET", "/resources", params={"path": resource, "fields": "type,sha256,size"}, timeout=1.5)
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        return response.json()
+
     def move(self, source: str, target: str, digest: str):
         if self.matches(target, digest):
             return

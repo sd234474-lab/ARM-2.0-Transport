@@ -215,7 +215,7 @@ TYPE_HISTORY_FIELDS = {
 
 OBJECT_REGISTRY = ObjectRegistry()
 DOCUMENT_FIELDS = {"parent_type": FieldSpec((str,)), "parent_id": FieldSpec((str,)), "kind_ref": FieldSpec((str,)),
-                   "name": FieldSpec((str,)), "description": FieldSpec((str,), nullable=True)}
+                   "name": FieldSpec((str,)), "description": FieldSpec((str,), nullable=True), "current_revision_id": FieldSpec((str,), nullable=True)}
 OBJECT_REGISTRY.register(ObjectDefinition("DOCUMENT", "DOCUMENT", DOCUMENT_FIELDS,
     {**DOCUMENT_FIELDS, "archive_state": FieldSpec((str,)), "version": FieldSpec((int,))},
     edit_permission=Permission.ARM2_DOCUMENT_EDIT))
@@ -223,9 +223,9 @@ OBJECT_REGISTRY.register(
     ObjectDefinition(
         "DOC-KIND", "DOC-KIND",
         {"name": FieldSpec((str,)), "applicable_object_types": FieldSpec((list,)),
-         "max_current_documents": FieldSpec((int,), nullable=True)},
+         "max_current_documents": FieldSpec((int,), nullable=True), "file_naming_template": FieldSpec((str,), nullable=True)},
         {"name": FieldSpec((str,)), "version": FieldSpec((int,)),
-         "applicable_object_types": FieldSpec((list,)), "max_current_documents": FieldSpec((int,), nullable=True)},
+         "applicable_object_types": FieldSpec((list,)), "max_current_documents": FieldSpec((int,), nullable=True), "file_naming_template": FieldSpec((str,), nullable=True)},
         edit_permission=Permission.ARM2_DOC_KIND_EDIT,
     )
 )

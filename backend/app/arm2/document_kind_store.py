@@ -32,7 +32,10 @@ class _DocumentKindAdapter:
         maximum = values["max_current_documents"]
         if maximum is not None and (type(maximum) is not int or maximum <= 0):
             raise ValueError("max_current_documents must be a positive integer or None")
-        return {"name": name, "applicable_object_types": [parent for parent in connected if parent in parents],
+        preset = values["file_naming_template"]
+        if preset not in (None, "DOCUMENT_NAME", "PARENT_AND_KIND"):
+            raise ValueError("Unsupported document file naming template")
+        return {"file_naming_template": preset, "name": name, "applicable_object_types": [parent for parent in connected if parent in parents],
                 "max_current_documents": maximum}
 
     def create_record(self, db, values):
@@ -60,23 +63,23 @@ def register_document_kind_adapter(registry=OBJECT_REGISTRY):
 
 def create_document_kind(
     db: Session, name: str, *, applicable_object_types: list[str], max_current_documents: int | None,
-    principal: User, context: SaveContext,
+    principal: User, context: SaveContext, file_naming_template: str | None = "DOCUMENT_NAME",
 ) -> DocumentKind:
     """Create via the common SAVE transaction; the caller owns commit/rollback."""
     return create_object(
         db, object_type="DOC-KIND", values={"name": name, "applicable_object_types": applicable_object_types,
-                                             "max_current_documents": max_current_documents},
+                                             "max_current_documents": max_current_documents, "file_naming_template": file_naming_template or "DOCUMENT_NAME"},
         principal=principal, context=context,
     ).record
 
 
 def update_document_kind(
     db: Session, kind_id: str, expected_version: int, name: str, *, applicable_object_types: list[str],
-    max_current_documents: int | None, principal: User, context: SaveContext,
+    max_current_documents: int | None, principal: User, context: SaveContext, file_naming_template: str | None = None,
 ) -> DocumentKind:
     """Update name/settings with common conflict/no-op semantics; keep the ID."""
     return update_object(
         db, object_type="DOC-KIND", object_id=kind_id, expected_version=expected_version,
         values={"name": name, "applicable_object_types": applicable_object_types,
-                "max_current_documents": max_current_documents}, principal=principal, context=context,
+                "max_current_documents": max_current_documents, **({"file_naming_template": file_naming_template} if file_naming_template is not None else {})}, partial=True, principal=principal, context=context,
     ).record
