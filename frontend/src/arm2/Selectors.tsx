@@ -1,9 +1,9 @@
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { catalogs, detail, searchPage } from './api';
 import type { Kind, RecordData, Scalar } from './api';
 import type { Can } from './Workspace';
 import { missingRequirements } from './model';
-import { ErrorMessage, useLoad } from './shared';
+import { ErrorMessage, useAlive, useLoad } from './shared';
 
 type Option = {id: string; name: string; disabled?: boolean; hint?: string};
 function Picker({label, selected, load, resolve, change, disabled = false, identity, clearLabel = 'Не назначено'}: {
@@ -38,19 +38,25 @@ export function TypePicker({selected, change, can, editable, currentType, label 
       hint: row.status !== 'CONFIRMED' ? `REVIEW: ${missingRequirements(row) || 'описание не завершено'}${row.id === currentType ? ' — текущее назначение сохраняется' : ''}` : undefined}))}/>;
 }
 
-export function OwnerPicker({cp, org, change, can, editable, label = 'Операционный владелец', none = false, unowned = false}: {
+export function OwnerPicker({cp, org, change, can, editable, label = 'Операционный владелец', none = false, unowned = false, beforeChange}: {
   cp: Scalar | undefined; org: Scalar | undefined; change: (cp: string | null, org: string | null, empty?: boolean) => void;
   can: Can; editable: boolean; label?: string; none?: boolean; unowned?: boolean;
+  beforeChange?: (cp:string|null,org:string|null)=>Promise<boolean>;
 }) {
+  const [pending,setPending]=useState(false),[error,setError]=useState<unknown>();
+  const inFlight=useRef(false),alive=useAlive();
   const value = unowned ? 'NONE' : cp ? `CP:${cp}` : org ? `ORG:${org}` : '';
   const cpAllowed = can('arm2_cp_view'), orgAllowed = can('arm2_org_view');
-  return <Picker label={label} selected={value} identity={`OWNER:${cpAllowed}:${orgAllowed}`} disabled={!editable || (!cpAllowed && !orgAllowed)}
+  return <><ErrorMessage error={error}/><Picker label={label} selected={value} identity={`OWNER:${cpAllowed}:${orgAllowed}`} disabled={pending || !editable || (!cpAllowed && !orgAllowed)}
     clearLabel={none ? 'Любой владелец' : 'Без владельца'}
-    change={id => {if (id === 'NONE') change(null, null, true); else {const [kind, selected] = id.split(':'); change(kind === 'CP' ? selected : null, kind === 'ORG' ? selected : null);}}}
+    change={id => {if(inFlight.current)return;const [kind,selected]=id.split(':');const nextCp=kind==='CP'?selected:null,nextOrg=kind==='ORG'?selected:null;
+      if(!beforeChange){change(nextCp,nextOrg,id==='NONE');return;}
+      inFlight.current=true;setPending(true);setError(undefined);
+      void beforeChange(nextCp,nextOrg).then(confirmed=>{if(confirmed&&alive.current)change(nextCp,nextOrg,id==='NONE');}).catch(error=>{if(alive.current)setError(error);}).finally(()=>{inFlight.current=false;if(alive.current)setPending(false);});}}
     resolve={async signal => {const kind = cp ? 'CP' : 'ORG'; if (value === 'NONE') return 'Без владельца'; if (!value) return ''; if (!can(catalogs[kind].permission + '_view')) return 'Текущий владелец (нет доступа)'; const row = await detail<RecordData>(`${catalogs[kind].path}/${encodeURIComponent(String(cp || org))}`, signal); return `${kind === 'CP' ? 'Контрагент' : 'Организация'} · ${row.name}`;}}
     load={async (q, signal) => {
       const kinds: Kind[] = [...(cpAllowed ? ['CP' as const] : []), ...(orgAllowed ? ['ORG' as const] : [])];
       const pages = await Promise.all(kinds.map(async kind => (await searchPage(catalogs[kind].path, new URLSearchParams({q, limit: '100'}), signal)).items.map(row => ({id: `${kind}:${row.id}`, name: `${kind === 'CP' ? 'Контрагент' : 'Организация'} · ${row.name}`}))));
       return [...(none ? [{id: 'NONE', name: 'Без владельца'}] : []), ...pages.flat()];
-    }}/>;
+    }}/>{pending && <p role="status">Проверяем прежнего и нового владельца…</p>}</>;
 }

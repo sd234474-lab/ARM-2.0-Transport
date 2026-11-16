@@ -85,16 +85,16 @@ it('server search resets pagination, shows exact counters, filtering and empty r
   expect([...element.querySelectorAll('a')].some(a => a.textContent === '+ Новая запись')).toBe(false);
 });
 
-it.each(['cp', 'org'])('%s embedded vehicles use server owner filtering without B2 writes', async kind => {
+it.each(['cp', 'org'])('%s embedded vehicles use server owner filtering without automatic writes', async kind => {
   vi.mocked(api).mockImplementation(async path => path.includes('/vehicles/search?') ? {items: [vehicle], total: 130, matched: 1, limit: 100, offset: 0} : {...party, id: 'PARENT-1'});
   await mount(`/arm2/${kind}/PARENT-1`); await click('Техника');
   const request = vi.mocked(api).mock.calls.find(([path]) => path.startsWith('/arm2/vehicles/search?'))![0];
   const params = new URLSearchParams(request.split('?')[1]);
   expect(params.get('owner_kind')).toBe(kind.toUpperCase()); expect(params.get('owner_id')).toBe('PARENT-1');
   expect(element.querySelector('table')?.textContent).toContain('Машина');
-  expect(element.textContent).toContain('этапом B2');
+  expect(element.textContent).toContain('Добавить технику');
   expect(vi.mocked(api).mock.calls.some(([, method]) => method === 'PUT' || method === 'POST')).toBe(false);
-  expect([...element.querySelectorAll('button,a')].some(item => item.textContent === 'Добавить технику')).toBe(false);
+  expect([...element.querySelectorAll('button,a')].some(item => item.textContent === 'Добавить технику')).toBe(true);
 });
 
 it('TYPE main has four fields together and documents expose no fake attach action', async () => {
@@ -161,6 +161,7 @@ it('creates REVIEW TYPE then completes requirements using false, reopens server 
   expect(vi.mocked(api).mock.calls.find(([, method]) => method === 'PUT')?.[2]).toMatchObject({expected_version: 5, requires_calibration: false});
 });
 it('VEH keeps existing REVIEW TYPE, disables new REVIEW and switches CP to ORG then clears owner', async () => {
+  vi.spyOn(window,'confirm').mockReturnValue(true);
   let saved: RecordData = {...vehicle};
   mockAPI(async (path, method, body) => {
     if (method === 'PUT') {saved = {...saved, ...body as RecordData, version: saved.version + 1}; return saved;}

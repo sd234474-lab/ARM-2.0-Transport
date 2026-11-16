@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import ConfigDict, Field, StrictInt
+from pydantic import ConfigDict, Field, StrictBool, StrictInt
 
 from app.schemas import StrictModel
 
@@ -130,6 +130,21 @@ class VehicleResponse(StrictModel):
     owner_cp_id: str | None
     owner_org_id: str | None
     version: int
+
+
+class OperationalOwnerCommand(StrictModel):
+    expected_version: PositiveVersion
+    target_kind: Literal["CP", "ORG"] | None
+    target_id: str | None
+    expected_owner_kind: Literal["CP", "ORG"] | None
+    expected_owner_id: str | None
+    confirm_reassignment: StrictBool = False
+    initiator_kind: Literal["CP", "ORG"] | None = None
+    initiator_id: str | None = None
+
+
+class OperationalOwnerResponse(VehicleResponse):
+    no_op: bool
 
 
 class PartyCreate(StrictModel):
