@@ -32,9 +32,16 @@ class DocumentResponse(StrictModel):
     kind_name: str
     name: str
     description: str | None
-    archive_state: Literal["Неархивный"]
+    archive_state: Literal["Неархивный", "Архивный"]
     display_state: Literal["Не загружен", "Доступен", "Файл недоступен", "Архивный"]
     version: int
+
+
+class DocumentOperation(StrictModel):
+    expected_version: PositiveVersion
+    kind_ref: str | None = None
+    target_type: Literal["CP", "ORG", "VEH"] | None = None
+    target_id: str | None = None
 
 
 class DocumentKindCreate(StrictModel):

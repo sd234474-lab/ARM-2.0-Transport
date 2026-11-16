@@ -11,7 +11,9 @@ from sqlalchemy import select, text
 from app.arm2 import document_file_storage as files
 from app.arm2.document_file_models import (
     DocumentFile,
+    DocumentFileCorrection,
     DocumentRevision,
+    DocumentRevisionContext,
     FileAcceptance,
     FileStage,
     RevisionFile,
@@ -94,32 +96,41 @@ def display_state(db, document):
     )
 
 
-def public_file(row, position):
+def public_file(row, position, correction=None):
     return {
         key: getattr(row, key)
         for key in ["id", "original_upload_name", "stored_name", "size", "sha256", "media_type", "extension"]
-    } | {"position": position}
+    } | {"position": position, "correction": ({
+        "reason_code": correction.reason_code, "operation": correction.operation,
+        "actor_id": correction.actor_id, "occurred_at": correction.occurred_at.isoformat(),
+        "history_event_id": correction.history_event_id,
+    } if correction else None)}
 
 
-def bundles(db, document):
+def bundles(db, document, include_history=True):
     revisions = []
     for revision in db.scalars(
         select(DocumentRevision)
-        .where(DocumentRevision.document_id == document.id)
+        .where(DocumentRevision.document_id == document.id,
+               True if include_history else DocumentRevision.id == document.current_revision_id)
         .order_by(DocumentRevision.number.desc())
     ):
+        snapshot = db.get(DocumentRevisionContext, revision.id)
+        if snapshot is None:
+            raise ValueError("Историческая привязка редакции не найдена")
         revisions.append(
             {
                 "id": revision.id,
                 "number": revision.number,
                 "document_id": document.id,
-                "parent_type": document.parent_type,
-                "parent_id": document.parent_id,
+                "parent_type": snapshot.parent_type,
+                "parent_id": snapshot.parent_id,
                 "author_id": revision.author_id,
                 "occurred_at": revision.occurred_at.isoformat(),
                 "source": revision.source,
                 "files": [
-                    public_file(row, i) for i, row in enumerate(revision_files(db, document.id, revision.id))
+                    public_file(row, i, db.get(DocumentFileCorrection, row.id))
+                    for i, row in enumerate(revision_files(db, document.id, revision.id))
                 ],
             }
         )
@@ -154,10 +165,13 @@ def reauthorize(db, user, session_hash, ptype, pid, docid):
     return document_access(db, user, ptype, pid, docid, edit=True)
 
 
-def prepare(db, user, session_hash, document, expected_version, key, selection):
+def prepare(db, user, session_hash, document, expected_version, key, selection, correction=None):
+    request = {"document": document.id, "expected_version": expected_version, "files": selection}
+    if correction is not None:
+        request["correction"] = correction
     fingerprint = hashlib.sha256(
         json.dumps(
-            {"document": document.id, "expected_version": expected_version, "files": selection},
+            request,
             sort_keys=True,
         ).encode()
     ).hexdigest()
@@ -177,6 +191,17 @@ def prepare(db, user, session_hash, document, expected_version, key, selection):
     if document.version != expected_version:
         raise ObjectVersionConflictError("Документ изменён другим оператором")
     current = revision_files(db, document.id, document.current_revision_id)
+    if correction:
+        if correction["file_id"] not in {row.id for row in current}:
+            raise ValueError("Исправить можно только файл текущего комплекта")
+        if db.get(DocumentFileCorrection, correction["file_id"]):
+            raise ValueError("Ошибочная загрузка уже исправлена")
+        selection = []
+        for row in current:
+            if row.id != correction["file_id"]:
+                selection.append({"file_id": row.id})
+            elif correction.get("stage_id"):
+                selection.append({"stage_id": correction["stage_id"]})
     current_ids = {row.id for row in current}
     existing = {
         row.sha256: row
@@ -198,6 +223,10 @@ def prepare(db, user, session_hash, document, expected_version, key, selection):
             if row is None or row.document_id != document.id or row.id not in current_ids:
                 raise ObjectAuthorizationError("Файл не принадлежит текущему составу документа")
         source = row or stage
+        if row is not None and db.get(DocumentFileCorrection, row.id):
+            raise ValueError("Исправленная ошибочная загрузка не может включаться в рабочий комплект")
+        if correction and row is not None and row.id == correction["file_id"]:
+            raise ValueError("Верный оригинал должен отличаться от ошибочно загруженного файла")
         if source.sha256 in seen:
             raise ValueError("Одинаковые файлы нельзя дважды включать в один комплект")
         seen.add(source.sha256)
@@ -251,6 +280,7 @@ def prepare(db, user, session_hash, document, expected_version, key, selection):
         "noop": noop,
         "files": resolved,
         "uploaded": [],
+        "correction": correction,
     }
     attempt = FileAcceptance(
         id=key,
@@ -269,10 +299,10 @@ def prepare(db, user, session_hash, document, expected_version, key, selection):
     return attempt
 
 
-def accept(db, user, session_hash, ptype, pid, docid, expected_version, key, selection):
+def accept(db, user, session_hash, ptype, pid, docid, expected_version, key, selection, correction=None):
     document = reauthorize(db, user, session_hash, ptype, pid, docid)
     with attempt_lease(db, key):
-        attempt = prepare(db, user, session_hash, document, expected_version, key, selection)
+        attempt = prepare(db, user, session_hash, document, expected_version, key, selection, correction)
         if attempt.state == "accepted":
             return attempt.result
         plan = attempt.plan
@@ -312,6 +342,9 @@ def accept(db, user, session_hash, ptype, pid, docid, expected_version, key, sel
             locked = ADAPTER.lock_record(db, docid)  # Existing lock order: kind -> document.
             if locked.version != expected_version:
                 raise ObjectVersionConflictError("Документ изменён; черновик и прежняя редакция сохранены")
+            reauthorize(db, user, session_hash, ptype, pid, docid)
+            if any(db.get(DocumentFileCorrection, item["id"]) for item in plan["files"]):
+                raise ValueError("Исправленный оригинал нельзя возвращать в рабочий комплект")
             if not all(files.verify_remote(type("FileMetadata", (), item)) for item in plan["files"]):
                 raise files.StorageUnavailable(
                     "Перед публикацией доступность всего комплекта не подтверждена; текущая редакция не изменена"
@@ -323,7 +356,7 @@ def accept(db, user, session_hash, ptype, pid, docid, expected_version, key, sel
                     number=plan["number"],
                     file_ids=[item["id"] for item in plan["files"]],
                     author_id=user.id,
-                    source="arm2-api-manual",
+                    source="arm2-api-correct" if correction else "arm2-api-manual",
                 )
                 db.add(revision)
                 for item in plan["files"]:
@@ -339,6 +372,8 @@ def accept(db, user, session_hash, ptype, pid, docid, expected_version, key, sel
                             )
                         )
                 db.flush()
+                db.add(DocumentRevisionContext(revision_id=revision.id, document_id=docid,
+                                               parent_type=locked.parent_type, parent_id=locked.parent_id))
                 for position, item in enumerate(plan["files"]):
                     db.add(
                         RevisionFile(
@@ -354,8 +389,15 @@ def accept(db, user, session_hash, ptype, pid, docid, expected_version, key, sel
                 values={"current_revision_id": plan["revision_id"]},
                 partial=True,
                 principal=user,
-                context=SaveContext("HUMAN", str(user.id), "arm2-api-manual", key),
+                context=SaveContext("HUMAN", str(user.id), "arm2-api-correct" if correction else "arm2-api-manual", key),
             )
+            if correction:
+                if not saved.changed or saved.event is None:
+                    raise ValueError("Исправление не создало согласованного события истории")
+                db.add(DocumentFileCorrection(file_id=correction["file_id"], document_id=docid,
+                     reason_code="incorrect_upload", operation="CORRECT", actor_id=user.id,
+                     correlation_id=key, history_event_id=saved.event.event_id))
+                db.flush()
             for item in plan["files"]:
                 if item["stage_id"]:
                     db.get(FileStage, item["stage_id"]).state = "consumed"

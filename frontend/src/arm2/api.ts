@@ -22,11 +22,11 @@ export async function previewBytes(path: string, maximum: number): Promise<Blob>
 
 export type Kind = 'TYPE' | 'VEH' | 'CP' | 'ORG';
 export type ObjectType = Kind | 'CPREP' | 'ORGREP' | 'DOC-KIND' | 'DOCUMENT';
-export interface DocumentRecord extends RecordData {parent_type: DocumentParent; parent_id: string; kind_ref: string; kind_name: string; description: string | null; archive_state: 'Неархивный'; display_state: 'Не загружен' | 'Доступен' | 'Файл недоступен' | 'Архивный'}
+export interface DocumentRecord extends RecordData {parent_type: DocumentParent; parent_id: string; kind_ref: string; kind_name: string; description: string | null; archive_state: 'Неархивный' | 'Архивный'; display_state: 'Не загружен' | 'Доступен' | 'Файл недоступен' | 'Архивный'}
 export type DocumentParent = 'CP' | 'ORG' | 'VEH';
 export type FileNamingPreset = 'DOCUMENT_NAME' | 'PARENT_AND_KIND';
 export interface DocumentKind {id: string; name: string; applicable_object_types: DocumentParent[]; max_current_documents: number | null; version: number; file_naming_template?: FileNamingPreset | null}
-export interface DocumentFile {id: string; original_upload_name: string; stored_name: string; size: number; sha256: string; media_type: string; extension: string; position: number}
+export interface DocumentFile {id: string; original_upload_name: string; stored_name: string; size: number; sha256: string; media_type: string; extension: string; position: number; correction?: {operation: 'CORRECT'; reason_code: 'incorrect_upload'; actor_id: number; occurred_at: string; history_event_id: number} | null}
 export interface DocumentRevision {id: string; number: number; document_id: string; parent_type: DocumentParent; parent_id: string; author_id: number; occurred_at: string; source: string; files: DocumentFile[]}
 export interface FileBundle {document_id: string; document_version: number; current_revision_id: string | null; display_state: string; revisions: DocumentRevision[]; max_files: number; max_file_bytes: number}
 export interface FileStage {id: string; original_upload_name: string; size: number; sha256: string | null; media_type: string | null; extension: string | null; state: 'empty' | 'ready' | 'consumed'}

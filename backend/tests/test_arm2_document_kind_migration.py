@@ -36,7 +36,7 @@ def test_upgrade_downgrade_roundtrip_preserves_legacy_objects_history_and_ids(is
     settings.cache_clear()
     engine = create_engine(isolated_arm2_database_url, poolclass=NullPool)
     try:
-        assert ScriptDirectory.from_config(configuration()).get_heads() == ["0065"]
+        assert ScriptDirectory.from_config(configuration()).get_heads() == ["0066"]
         with Session(engine) as db:
             principal = User(login="legacy-regression", name="legacy", password_hash="unused", active=True,
                              role="ADMIN_OPERATOR", permissions=[])
@@ -113,7 +113,7 @@ def test_downgrade_refuses_existing_document_kind_data_without_deleting_it(isola
         assert snapshot(engine) == before
         assert "arm2_document_kinds" in inspect(engine).get_table_names()
         with engine.connect() as conn:
-            assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0065"
+            assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0066"
             if existing == "row":
                 assert conn.scalar(text("SELECT name FROM arm2_document_kinds")) == "Сохранить"
     finally:

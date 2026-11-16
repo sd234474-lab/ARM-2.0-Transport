@@ -217,6 +217,7 @@ def test_document_common_save_rolls_back_failed_history_and_does_not_reuse_ids(d
                     "name": "Не записывать",
                     "description": None,
                     "current_revision_id": None,
+                    "archive_state": "Неархивный",
                 },
                 principal=user,
                 context=context,
