@@ -215,7 +215,7 @@ TYPE_HISTORY_FIELDS = {
 
 OBJECT_REGISTRY = ObjectRegistry()
 DOCUMENT_FIELDS = {"parent_type": FieldSpec((str,)), "parent_id": FieldSpec((str,)), "kind_ref": FieldSpec((str,)),
-                   "name": FieldSpec((str,)), "description": FieldSpec((str,), nullable=True), "current_revision_id": FieldSpec((str,), nullable=True)}
+                   "name": FieldSpec((str,)), "description": FieldSpec((str,), nullable=True), "current_revision_id": FieldSpec((str,), nullable=True), "archive_state": FieldSpec((str,))}
 OBJECT_REGISTRY.register(ObjectDefinition("DOCUMENT", "DOCUMENT", DOCUMENT_FIELDS,
     {**DOCUMENT_FIELDS, "archive_state": FieldSpec((str,)), "version": FieldSpec((int,))},
     edit_permission=Permission.ARM2_DOCUMENT_EDIT))

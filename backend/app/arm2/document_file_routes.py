@@ -14,7 +14,13 @@ from starlette.background import BackgroundTask
 from starlette.responses import FileResponse
 
 from app.arm2 import document_file_storage as files
-from app.arm2.document_file_models import DocumentFile, DocumentRevision, FileStage, RevisionFile
+from app.arm2.document_file_models import (
+    DocumentFile,
+    DocumentFileCorrection,
+    DocumentRevision,
+    FileStage,
+    RevisionFile,
+)
 from app.arm2.document_file_store import (
     accept,
     attempt_lease,
@@ -51,6 +57,13 @@ class AcceptInput(StrictModel):
     expected_version: StrictInt = Field(gt=0)
     idempotency_key: str = Field(pattern=r"^[0-9a-f-]{36}$")
     files: list[Candidate] = Field(max_length=files.MAX_FILES)
+
+
+class CorrectInput(StrictModel):
+    expected_version: StrictInt = Field(gt=0)
+    idempotency_key: str = Field(pattern=r"^[0-9a-f-]{36}$")
+    file_id: str = Field(pattern=r"^FILE-[0-9]{6,}$")
+    stage_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 def translated(db, operation):
@@ -92,9 +105,9 @@ def stage_data(stage):
 
 
 @router.get(base + "/files")
-def get_files(parent_type: Token, parent_id: str, document_id: str, db: Db, user: CurrentUser):
+def get_files(parent_type: Token, parent_id: str, document_id: str, db: Db, user: CurrentUser, history: bool = True):
     return translated(
-        db, lambda: bundles(db, document_access(db, user, parent_type.upper(), parent_id, document_id))
+        db, lambda: bundles(db, document_access(db, user, parent_type.upper(), parent_id, document_id), history)
     )
 
 
@@ -327,7 +340,7 @@ def read_file(
                 RevisionFile.document_id == document_id,
             )
         )
-        if revision is None or revision.document_id != document_id or row is None:
+        if revision is None or revision.document_id != document_id or row is None or db.get(DocumentFileCorrection, file_id):
             raise ObjectNotFoundError("Файл не входит в указанную редакцию этого документа")
         kind = db.get(DocumentKind, document.kind_ref)
         parent = db.get(PARENTS[document.parent_type][0], document.parent_id)
@@ -336,3 +349,11 @@ def read_file(
         return protected_response(path, name, row.media_type, action == "preview", temporary=True)
 
     return translated(db, operation)
+
+
+@router.post(base + "/corrections")
+def correct_file(parent_type: Token, parent_id: str, document_id: str, body: CorrectInput,
+                 request: Request, db: Db, user: CurrentUser):
+    return translated(db, lambda: accept(db, user, request.state.login_session.token_hash,
+        parent_type.upper(), parent_id, document_id, body.expected_version, body.idempotency_key,
+        None, {"file_id": body.file_id, "stage_id": body.stage_id}))

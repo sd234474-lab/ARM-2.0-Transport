@@ -1,16 +1,22 @@
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import false, select
+from sqlalchemy import select
 
 from app.arm2.document_file_routes import router as file_router
 from app.arm2.document_file_store import display_state
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_models import Document
-from app.arm2.document_store import create_document, parent_access, update_document
+from app.arm2.document_store import create_document, operate_document, parent_access, update_document
 from app.arm2.object_save import ObjectAuthorizationError, ObjectNotFoundError
 from app.arm2.read_routes import _text_match
-from app.arm2.schemas import DocumentCreate, DocumentKindResponse, DocumentResponse, DocumentUpdate
+from app.arm2.schemas import (
+    DocumentCreate,
+    DocumentKindResponse,
+    DocumentOperation,
+    DocumentResponse,
+    DocumentUpdate,
+)
 from app.auth import CurrentUser, Db
 
 router = APIRouter()
@@ -81,7 +87,9 @@ def list_documents(
         Document.parent_type == parent_type.upper(), Document.parent_id == parent_id
     )
     if archive == "archived":
-        stmt = stmt.where(false())  # No archive operation/records in B3-B.
+        stmt = stmt.where(Document.archive_state == "Архивный")
+    elif archive == "non_archived":
+        stmt = stmt.where(Document.archive_state == "Неархивный")
     return [response(db, row) for row in db.scalars(stmt.order_by(Document.id).limit(limit).offset(offset))]
 
 
@@ -97,6 +105,24 @@ def get_document(parent_type: ParentToken, parent_id: str, document_id: str, db:
     )
     if record is None:
         raise HTTPException(404, "Документ этой карточки не найден")
+    return response(db, record)
+
+
+@router.post("/{parent_type}/{parent_id}/documents/{document_id}/operations/{operation}", response_model=DocumentResponse)
+def document_operation(parent_type: ParentToken, parent_id: str, document_id: str,
+                       operation: Literal["archive", "restore", "retype", "move"],
+                       body: DocumentOperation, db: Db, user: CurrentUser):
+    from app.arm2.object_save import SaveContext
+    from app.arm2.routes import _save
+
+    allowed = {"expected_version"} | ({"kind_ref"} if operation == "retype" else
+                                      {"target_type", "target_id"} if operation == "move" else set())
+    if body.model_fields_set - allowed:
+        raise HTTPException(422, "Поля не относятся к выбранной операции")
+    record = _save(db, lambda: operate_document(db, parent_type.upper(), parent_id, document_id,
+                   operation=operation, principal=user,
+                   context=SaveContext("HUMAN", str(user.id), "arm2-api-document-" + operation),
+                   **body.model_dump()))
     return response(db, record)
 
 

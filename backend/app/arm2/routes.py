@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -818,3 +818,28 @@ def list_object_history(
         .offset(offset)
     )
     return [_history_summary_response(event) for event in events]
+
+
+@router.get("/history/{object_type}/{object_id}/document-moves", response_model=list[HistoryEventDetail])
+def list_related_document_moves(object_type: Literal["CP", "ORG", "VEH"], object_id: str,
+                                db: Db, user: CurrentUser, limit: Limit = 100, offset: Offset = 0):
+    try:
+        parent_access(db, user, object_type, object_id)
+    except ObjectAuthorizationError:
+        raise HTTPException(403, "Нет прав на историю связей документов") from None
+    except (ObjectNotFoundError, ValueError):
+        raise HTTPException(404, "Родитель не найден") from None
+    # Only one real DOCUMENT UPDATED event; never fabricate a CP/ORG/VEH event.
+    matches = [HistoryEvent.related_objects.contains([
+        {"object_type": object_type, "object_id": object_id, "relation": relation}
+    ]) for relation in ("document_parent_from", "document_parent_to")]
+    events = db.scalars(select(HistoryEvent).join(Document, Document.id == HistoryEvent.object_id)
+        .where(HistoryEvent.object_type == "DOCUMENT", HistoryEvent.operation == "UPDATED",
+               HistoryEvent.changes.has_key("parent_id"),  # noqa: W601 - PostgreSQL JSONB
+               Document.parent_type == object_type, matches[0] | matches[1])
+        .order_by(HistoryEvent.occurred_at.desc(), HistoryEvent.event_id.desc()).limit(limit).offset(offset))
+    result = []
+    for event in events:
+        _validate_history_access(db, user, "DOCUMENT", event.object_id)
+        result.append(_history_detail_response(event))
+    return result

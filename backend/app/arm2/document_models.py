@@ -57,7 +57,7 @@ class Document(Base):
             "name=btrim(name) AND name<>'' AND name !~ '^[[:space:]]|[[:space:]]$'",
             name="ck_arm2_documents_name",
         ),
-        CheckConstraint("archive_state='Неархивный'", name="ck_arm2_documents_archive"),
+        CheckConstraint("archive_state IN ('Неархивный','Архивный')", name="ck_arm2_documents_archive"),
         CheckConstraint("version>0", name="ck_arm2_documents_version"),
         Index("ix_arm2_documents_parent_kind", "parent_type", "parent_id", "kind_ref", "archive_state"),
     )

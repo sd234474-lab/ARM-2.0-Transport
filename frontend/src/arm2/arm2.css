@@ -55,3 +55,6 @@
 .arm2-badge { display:block; color:var(--muted,#55655f); }
 @media(max-width:800px) { .arm2-type-main,.arm2-vehicle-main { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:600px) { .arm2-grid { grid-template-columns: 1fr; } .arm2-tabs a, .arm2-tabs button { padding: 8px; } }
+.arm2-document-operations {margin-block:1rem;padding:1rem;border:1px solid var(--border,#d2d8df);border-radius:.5rem;}
+.arm2-document-operations fieldset {border:0;padding:0;min-width:0;}
+.arm2-correction {display:block;color:#7a3e00;background:#fff4df;padding:.4rem .6rem;border-radius:.3rem;}
