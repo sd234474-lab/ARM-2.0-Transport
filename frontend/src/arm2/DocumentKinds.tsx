@@ -11,13 +11,13 @@ const canonical = (values: DocumentParent[]) => parents.filter(value => values.i
 const applicability = (values: DocumentParent[]) => canonical(values).map(value => names[value]).join(' / ');
 const multiplicity = (value: number | null) => value === null ? 'Без ограничения' : String(value);
 interface Page {items: DocumentKind[]; total: number; matched: number; limit: number; offset: number}
-interface Draft {name: string; parents: DocumentParent[]; mode: '' | 'unlimited' | 'limited'; maximum: string}
+interface Draft {name: string; parents: DocumentParent[]; mode: '' | 'unlimited' | 'limited'; maximum: string; template: '' | 'DOCUMENT_NAME' | 'PARENT_AND_KIND'}
 interface ParkedDraft {original?: DocumentKind; draft: Draft; denied: boolean; error: unknown}
 // Only a cancelled POP may need to remount a form before its listener runs.
 // Keep the original version too: restoring a draft must never bypass a 409.
 const parkedDrafts = new Map<string, ParkedDraft>();
-const draftOf = (record?: DocumentKind): Draft => record ? {name: record.name, parents: canonical(record.applicable_object_types),
-  mode: record.max_current_documents === null ? 'unlimited' : 'limited', maximum: record.max_current_documents === null ? '' : String(record.max_current_documents)} : {name: '', parents: [], mode: '', maximum: ''};
+const draftOf = (record?: DocumentKind): Draft => record ? {template: record.file_naming_template || '', name: record.name, parents: canonical(record.applicable_object_types),
+  mode: record.max_current_documents === null ? 'unlimited' : 'limited', maximum: record.max_current_documents === null ? '' : String(record.max_current_documents)} : {name: '', parents: [], mode: '', maximum: '', template: 'DOCUMENT_NAME'};
 
 // BrowserRouter is not a data router: use a local, mounted-form guard rather than
 // useBlocker (which requires changing App). No guard is installed for legacy cards.
@@ -128,7 +128,7 @@ function KindForm({initial, editable, back}: {initial?: DocumentKind; editable: 
     if (!draft.name.trim()) {setValidation('Укажите имя типа документа.'); return;}
     if (!draft.parents.length) {setValidation('Выберите хотя бы один родительский справочник.'); return;}
     if (!draft.mode || (draft.mode === 'limited' && (!/^[0-9]+$/.test(draft.maximum) || !Number.isSafeInteger(maximum) || maximum! <= 0))) {setValidation('Выберите «Без ограничения» либо укажите положительное целое число.'); return;}
-    const body = {name: draft.name.trim(), applicable_object_types: canonical(draft.parents), max_current_documents: maximum};
+    const body = {name: draft.name.trim(), applicable_object_types: canonical(draft.parents), max_current_documents: maximum, file_naming_template: draft.template || null};
     saving.current = true; guard.current = true; setBusy(true); setError(undefined); setStatus(''); setValidation('');
     try {
       const record = await api<DocumentKind>(base + (original ? '/' + encodeURIComponent(original.id) : ''), original ? 'PUT' : 'POST', original ? {...body, expected_version: original.version} : body);
@@ -145,6 +145,7 @@ function KindForm({initial, editable, back}: {initial?: DocumentKind; editable: 
     {error instanceof ApiError && error.status === 409 && original && <div className="arm2-actions"><button type="button" onClick={() => void readFresh(false)}>Сравнить с сервером</button><button type="button" onClick={() => void readFresh(true)}>Перезагрузить карточку</button></div>}
     {comparison && <section aria-label="Версия на сервере"><h3>Версия на сервере (черновик ниже сохранён)</h3><p>{comparison.name} · Версия: {comparison.version}</p><p>{applicability(comparison.applicable_object_types)} · {multiplicity(comparison.max_current_documents)}</p></section>}
     <form noValidate onSubmit={event => {event.preventDefault(); void save();}}><fieldset disabled={!canEdit || busy}>
+      <label className="arm2-field">Шаблон имени файла<select value={draft.template} onChange={event => change({template: event.target.value as Draft['template']})}>{original && !original.file_naming_template && <option value="">Не настроен (существующий тип)</option>}<option value="DOCUMENT_NAME">Имя документа + FILE-ID</option><option value="PARENT_AND_KIND">Имя родителя + тип документа + FILE-ID</option></select></label><p className="arm2-note">Без даты. Сохранённые оригиналы не переименовываются; имя скачивания вычисляется из актуальных данных.</p>
       <label className="arm2-field">Имя типа документа *<input value={draft.name} required onChange={event => change({name: event.target.value})}/></label>
       <fieldset className="arm2-document-parents"><legend>Применимость — выберите хотя бы один справочник</legend>{parents.map(parent => <label key={parent}><input type="checkbox" checked={draft.parents.includes(parent)} onChange={event => change({parents: canonical(event.target.checked ? [...draft.parents, parent] : draft.parents.filter(value => value !== parent))})}/>{names[parent]}</label>)}</fieldset>
       <label className="arm2-field">Максимум актуальных документов *<select value={draft.mode} onChange={event => change({mode: event.target.value as Draft['mode']})}><option value="">Выберите ограничение</option><option value="unlimited">Без ограничения</option><option value="limited">Ограничено</option></select></label>

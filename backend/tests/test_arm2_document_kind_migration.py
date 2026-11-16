@@ -36,7 +36,7 @@ def test_upgrade_downgrade_roundtrip_preserves_legacy_objects_history_and_ids(is
     settings.cache_clear()
     engine = create_engine(isolated_arm2_database_url, poolclass=NullPool)
     try:
-        assert ScriptDirectory.from_config(configuration()).get_heads() == ["0064"]
+        assert ScriptDirectory.from_config(configuration()).get_heads() == ["0065"]
         with Session(engine) as db:
             principal = User(login="legacy-regression", name="legacy", password_hash="unused", active=True,
                              role="ADMIN_OPERATOR", permissions=[])
@@ -63,6 +63,7 @@ def test_upgrade_downgrade_roundtrip_preserves_legacy_objects_history_and_ids(is
         assert [c["name"] for c in inspect(engine).get_columns("arm2_document_kinds")] == [
             "id", "name", "version", "applicable_object_types", "max_current_documents",
         ]
+        command.upgrade(configuration(), "0065")
         with Session(engine) as db:
             principal = db.scalar(select(User).where(User.login == "legacy-regression"))
             ctx = SaveContext("HUMAN", str(principal.id), "migration-regression")
@@ -96,7 +97,7 @@ def test_downgrade_refuses_existing_document_kind_data_without_deleting_it(isola
                         actor_kind="HUMAN", actor_id="1", source="migration-test", version_after=1,
                         changes={"name": {"before": None, "after": "Сохранить"}, "version": {"before": None, "after": 1},
                                  "applicable_object_types": {"before": None, "after": ["CP", "ORG", "VEH"]},
-                                 "max_current_documents": {"before": None, "after": None}},
+                                 "max_current_documents": {"before": None, "after": None}, "file_naming_template": {"before": None, "after": None}},
                     )
                 else:
                     append_history_event(
@@ -112,7 +113,7 @@ def test_downgrade_refuses_existing_document_kind_data_without_deleting_it(isola
         assert snapshot(engine) == before
         assert "arm2_document_kinds" in inspect(engine).get_table_names()
         with engine.connect() as conn:
-            assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0064"
+            assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0065"
             if existing == "row":
                 assert conn.scalar(text("SELECT name FROM arm2_document_kinds")) == "Сохранить"
     finally:

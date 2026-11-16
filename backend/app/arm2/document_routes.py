@@ -3,6 +3,8 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import false, select
 
+from app.arm2.document_file_routes import router as file_router
+from app.arm2.document_file_store import display_state
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_models import Document
 from app.arm2.document_store import create_document, parent_access, update_document
@@ -12,6 +14,7 @@ from app.arm2.schemas import DocumentCreate, DocumentKindResponse, DocumentRespo
 from app.auth import CurrentUser, Db
 
 router = APIRouter()
+router.include_router(file_router)
 ParentToken = Literal["cp", "org", "veh"]
 Limit = Annotated[int, Query(ge=1, le=100)]
 Offset = Annotated[int, Query(ge=0)]
@@ -38,7 +41,7 @@ def response(db, record):
         "name": record.name,
         "description": record.description,
         "archive_state": record.archive_state,
-        "display_state": "Не загружен",
+        "display_state": display_state(db, record),
         "version": record.version,
     }
 

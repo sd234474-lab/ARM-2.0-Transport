@@ -92,6 +92,11 @@ def document_relations(db, current, values):
         and count + (1 if current is None else 0) > kind.max_current_documents
     ):
         raise ValueError("Превышено допустимое количество неархивных документов этого типа у родителя")
+    if values["current_revision_id"] is not None:
+        from app.arm2.document_file_models import DocumentRevision
+        revision = db.get(DocumentRevision, values["current_revision_id"])
+        if current is None or revision is None or revision.document_id != current.id:
+            raise ValueError("Редакция не принадлежит документу")
     return (
         ObjectReference(ptype, pid, "document_parent"),
         ObjectReference("DOC-KIND", kind.id, "document_kind"),
@@ -149,6 +154,7 @@ class _DocumentAdapter:
 
     def apply(self, record, values):
         record.name, record.description = values["name"], values["description"]
+        record.current_revision_id = values["current_revision_id"]
 
 
 ADAPTER = _DocumentAdapter()
@@ -179,6 +185,7 @@ def create_document(
             "kind_ref": kind_ref,
             "name": name,
             "description": description,
+            "current_revision_id": None,
         },
         principal=principal,
         context=context,

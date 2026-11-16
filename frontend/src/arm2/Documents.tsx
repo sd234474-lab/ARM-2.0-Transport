@@ -1,12 +1,29 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import { Link, UNSAFE_NavigationContext, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError } from '../api';
-import { catalogs } from './api';
-import type { DocumentKind, DocumentParent, DocumentRecord, RecordData } from './api';
+import { catalogs, previewBytes } from './api';
+import { apiUrl } from '../workspace';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import type { PDFDocumentProxy, PDFDocumentLoadingTask } from 'pdfjs-dist';
+import type { DocumentKind, DocumentParent, DocumentRecord, RecordData, DocumentFile, FileBundle, FileStage } from './api';
 import type { Can } from './Workspace';
 import { ErrorMessage, History, Pagination, useAlive, useLoad } from './shared';
 
 interface Scope {parentType: DocumentParent; parentId: string; can: Can}
+interface FilePreview {url: string; name: string; media: string; blob?: string; pdf?: PDFDocumentProxy; load?: PDFDocumentLoadingTask; page?: number}
+
+async function pdfPage(document: PDFDocumentProxy, number: number): Promise<Blob> {
+  const page = await document.getPage(number), base = page.getViewport({scale:1});
+  if (![base.width,base.height].every(value => Number.isFinite(value) && value > 0)) throw new Error('Invalid PDF page size');
+  const scale = Math.min(1.5,1600/base.width,2400/base.height,Math.sqrt(4000000/(base.width*base.height)));
+  const viewport = page.getViewport({scale}), canvas = window.document.createElement('canvas');
+  canvas.width = Math.max(1,Math.ceil(viewport.width)); canvas.height = Math.max(1,Math.ceil(viewport.height));
+  try {
+    // Raster only. No viewer, annotations, links, forms, XFA or scripting manager.
+    await page.render({canvas,viewport,annotationMode:0}).promise;
+    return await new Promise<Blob>((resolve,reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('PDF raster failed')),'image/png'));
+  } finally {page.cleanup(); canvas.width = 0; canvas.height = 0;}
+}
 const endpoint = (type: DocumentParent, id: string) => `/arm2/${type.toLowerCase()}/${encodeURIComponent(id)}/documents`;
 const parentLink = (type: DocumentParent, id: string) => `/arm2/${type.toLowerCase()}/${encodeURIComponent(id)}?tab=documents`;
 const view = ({parentType, can}: Pick<Scope, 'parentType' | 'can'>) => can(catalogs[parentType].permission + '_view') && can('arm2_document_view');
@@ -14,6 +31,121 @@ const edit = (scope: Pick<Scope, 'parentType' | 'can'>) => view(scope) && scope.
 
 export default function Documents(scope: Scope) {
   return view(scope) ? <DocumentList {...scope}/> : <p>Нет прав просмотра документов этой карточки.</p>;
+}
+
+function DocumentFiles({path, original, editable, blocked, draft, setDraft, refreshed}: {
+  path: string; original: DocumentRecord; editable: boolean; blocked: boolean; draft?: FileDraft;
+  setDraft: (value: FileDraft | undefined | ((current: FileDraft | undefined) => FileDraft | undefined)) => void; refreshed: () => Promise<void>;
+}) {
+  const result = useLoad(signal => api<FileBundle>(path + '/files', 'GET', undefined, signal), [path, original.version]);
+  const current = result.data?.revisions?.find(row => row.id === result.data?.current_revision_id);
+  const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(), [status, setStatus] = useState('');
+  const [denied, setDenied] = useState(false), [comparison, setComparison] = useState<FileBundle>();
+  const [preview, setPreview] = useState<FilePreview>();
+  const previewTicket = useRef(0);
+  useEffect(() => {const url = preview?.blob; return () => {if (url) URL.revokeObjectURL(url);};}, [preview?.blob]);
+  useEffect(() => {const task = preview?.load; return () => {if (task) void task.destroy().catch(() => {});};}, [preview?.load]);
+  const showPreview = async (value: {url: string; name: string; media: string}) => {
+    const ticket = ++previewTicket.current;
+    if (value.media === 'application/pdf') {
+      const blob = await previewBytes(value.url, result.data?.max_file_bytes || 0);
+      const pdfjs = await import('pdfjs-dist');
+      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+      // Only the low-level canvas API is used: PDF scripting/annotation managers
+      // are never instantiated. Parse bytes in the pinned local worker, with no URL fetching.
+      const task = pdfjs.getDocument({data:new Uint8Array(await blob.arrayBuffer()),enableXfa:false,
+        disableFontFace:true,useSystemFonts:true,useWorkerFetch:false,useWasm:false,stopAtErrors:true,
+        disableWorkerRendering:true,disableAutoFetch:true,disableRange:true,disableStream:true,maxImageSize:20000000,canvasMaxAreaInBytes:16000000});
+      try {
+        const doc = await task.promise;
+        if (doc.numPages > 1000) throw new Error('PDF page limit');
+        const raster = await pdfPage(doc,1);
+        if (alive.current && ticket === previewTicket.current) setPreview({...value,pdf:doc,load:task,page:1,blob:URL.createObjectURL(raster)});
+        else await task.destroy();
+      } catch {
+        await task.destroy().catch(() => {});
+        if (ticket !== previewTicket.current) return;
+        throw new ApiError(422,'Не удалось безопасно отобразить PDF. Исходный файл доступен для скачивания.');
+      }
+    } else if (value.media.startsWith('image/')) {
+      const blob = await previewBytes(value.url, result.data?.max_file_bytes || 0);
+      if (alive.current && ticket === previewTicket.current) setPreview({...value, blob:URL.createObjectURL(blob)});
+    } else if (alive.current) setPreview(value);
+  };
+  const input = useRef<HTMLInputElement>(null), replacing = useRef<number | undefined>(undefined), inFlight = useRef(false), alive = useAlive();
+  const allowed = editable && !denied;
+  const begin = () => {setError(undefined); setStatus(''); setPreview(undefined); setDraft({key: crypto.randomUUID(), expectedVersion: original.version, candidates: (current?.files || []).map(file => ({key: file.id, current: file}))});};
+  const change = (candidates: FileCandidate[]) => {if (draft) setDraft({...draft, key: crypto.randomUUID(), candidates}); setStatus(''); setError(undefined); setComparison(undefined);};
+  const updateStage = (candidate: FileCandidate, stage: FileStage) => setDraft(value => value ? {...value, candidates: value.candidates.map(row => row.key === candidate.key ? {...row, stage} : row)} : value);
+  const staged = async (candidate: FileCandidate) => {
+    if (!candidate.file) throw new Error('Выберите файл повторно');
+    let stage = candidate.stage;
+    if (stage?.state === 'ready') return stage;
+    if (stage) stage = await api<FileStage>(path + '/stages/' + stage.id);
+    else {stage = await api<FileStage>(path + '/stages', 'POST', {original_upload_name: candidate.file.name, size: candidate.file.size}); if (alive.current) updateStage(candidate, stage);}
+    if (stage.state !== 'ready') stage = await api<FileStage>(path + '/stages/' + stage.id + '/content', 'PUT', candidate.file);
+    if (alive.current) updateStage(candidate, stage);
+    return stage;
+  };
+  const operation = async (action: () => Promise<void>, preserveError = false) => {
+    if (inFlight.current) return;
+    inFlight.current = true; setBusy(true); if (!preserveError) setError(undefined); setStatus('');
+    try {await action();} catch (e) {if (alive.current) {setError(e); if (e instanceof ApiError && e.status === 403) setDenied(true);}}
+    finally {inFlight.current = false; if (alive.current) setBusy(false);}
+  };
+  const openCandidate = (candidate: FileCandidate) => void operation(async () => {
+    if (candidate.current && current) {await showPreview({url: `${path}/revisions/${current.id}/files/${candidate.current.id}/preview`, name: candidate.current.original_upload_name, media: candidate.current.media_type}); return;}
+    const stage = await staged(candidate);
+    if (alive.current) await showPreview({url: `${path}/stages/${stage.id}/preview`, name: stage.original_upload_name, media: stage.media_type || ''});
+  });
+  const accept = () => void operation(async () => {
+    if (!draft || !allowed || blocked) return;
+    const selection = [];
+    for (const candidate of draft.candidates) selection.push(candidate.current ? {file_id: candidate.current.id} : {stage_id: (await staged(candidate)).id});
+    const response = await api<{no_op: boolean; document_version: number}>(path + '/accept', 'POST', {expected_version: draft.expectedVersion, idempotency_key: draft.key, files: selection});
+    if (!alive.current) return;
+    await refreshed(); result.reload(); setPreview(undefined); setComparison(undefined);
+    setStatus(response.no_op ? `Состав не изменился — версия ${response.document_version}` : `Комплект принят — версия ${response.document_version}`);
+  });
+  const compare = () => void operation(async () => {const page = await api<FileBundle>(path + '/files'); if (alive.current) setComparison(page);}, true);
+  const turnPdf = (number: number) => void operation(async () => {
+    if (!preview?.pdf || number < 1 || number > preview.pdf.numPages) return;
+    const ticket = previewTicket.current, previous = preview;
+    try {const blob = await pdfPage(preview.pdf,number); if (alive.current && ticket === previewTicket.current) setPreview({...previous,page:number,blob:URL.createObjectURL(blob)});}
+    catch {if (ticket === previewTicket.current) throw new ApiError(422,'Не удалось отобразить страницу PDF. Исходный файл доступен для скачивания.');}
+  }, true);
+  const reload = () => {
+    if (!window.confirm('Заменить несохранённый состав и сведения документа данными сервера?')) return;
+    void operation(async () => {await refreshed(); if (alive.current) {setDraft(undefined); setPreview(undefined); setComparison(undefined); result.reload();}});
+  };
+  const selectFile = (file: File) => {
+    if (!draft || !allowed || busy) return;
+    const maximum = result.data?.max_file_bytes || 0;
+    if (!file.size || file.size > maximum) {setError(new ApiError(422, 'Недопустимый размер файла')); return;}
+    const candidate: FileCandidate = {key: crypto.randomUUID(), file};
+    if (replacing.current !== undefined) change(draft.candidates.map((row, index) => index === replacing.current ? candidate : row));
+    else if (draft.candidates.length < (result.data?.max_files || 32)) change([...draft.candidates, candidate]);
+    else setError(new ApiError(422, 'Достигнут предел файлов в комплекте'));
+  };
+  const fileRows = (files: DocumentFile[], revisionId: string) => <ol className="arm2-file-list">{files.map(file => <li key={file.id}><span>{file.original_upload_name} · {file.size} байт</span><button type="button" onClick={() => void operation(() => showPreview({url: `${path}/revisions/${revisionId}/files/${file.id}/preview`, name: file.original_upload_name, media: file.media_type}), true)}>Открыть файл</button><a href={apiUrl(`${path}/revisions/${revisionId}/files/${file.id}/download`)}>Скачать файл</a><small>{file.id} · SHA-256: {file.sha256}</small></li>)}</ol>;
+  return <section className="arm2-files" aria-label="Файлы и редакции"><h3>Файлы и редакции</h3>
+    <ErrorMessage error={result.error} retry={result.reload}/>{result.loading && <p role="status">Загружаем состав документа…</p>}<ErrorMessage error={error}/>{status && <p role="status">{status}</p>}
+    {blocked && <p>Сначала сохраните изменения сведений документа.</p>}{!allowed && <p>Файлы доступны только для просмотра.</p>}
+    {result.data && <><p>Состояние комплекта: {result.data.display_state}. Доступность подтверждается хранилищем; при таймауте или незавершённой проверке доступ не подтверждается.</p><button type="button" disabled={busy} onClick={result.reload}>Проверить доступность</button>
+      {!draft && <><h4>{current ? `Текущая редакция ${current.number}` : 'Текущих файлов нет'}</h4>{current && fileRows(current.files, current.id)}{!current?.files.length && <p>Комплект не содержит файлов.</p>}{allowed && <button type="button" disabled={blocked || busy || result.loading} onClick={begin}>{current ? 'Изменить состав' : '+ Добавить файл'}</button>}</>}
+      {draft && <div aria-label="Черновик состава"><h4>{current ? 'Изменение состава' : 'Добавление файлов'}</h4><p>Добавляйте файлы по одному. Откройте кандидаты для проверки; принятие публикует весь комплект одним действием.</p>
+        <input ref={input} type="file" hidden accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.docx,.xlsx,.pptx" aria-label="Выбор одного файла" disabled={!allowed || busy} onChange={event => {const file = event.target.files?.[0]; if (file) selectFile(file); event.target.value = '';}}/>
+        <ol className="arm2-file-list">{draft.candidates.map((candidate,index) => <li key={candidate.key}><span>{candidate.file?.name || candidate.current?.original_upload_name}</span><button type="button" disabled={busy} onClick={() => openCandidate(candidate)}>Открыть файл</button>
+          {allowed && <><button type="button" disabled={busy} onClick={() => {replacing.current = index; input.current?.click();}}>Заменить файл</button><button type="button" disabled={busy} onClick={() => change(draft.candidates.filter((_,i) => i !== index))}>Исключить файл</button></>}</li>)}</ol>
+        {allowed && <><button type="button" disabled={busy || draft.candidates.length >= result.data.max_files} onClick={() => {replacing.current = undefined; input.current?.click();}}>+ Добавить файл</button><button type="button" disabled={busy || blocked} onClick={accept}>{busy ? 'Сохраняем комплект…' : current ? 'Сохранить новую редакцию' : 'Сохранить и принять'}</button></>}
+        <button type="button" disabled={busy} onClick={() => {if (window.confirm('Отменить несохранённые изменения состава?')) {setDraft(undefined); setPreview(undefined); setError(undefined);}}}>Отменить изменение состава</button>
+      </div>}
+      {error instanceof ApiError && error.status === 409 && <div className="arm2-actions"><button type="button" onClick={compare}>Сравнить состав с сервером</button><button type="button" onClick={reload}>Перезагрузить состав</button></div>}
+      {comparison && <section aria-label="Состав на сервере"><h4>Состав на сервере — версия {comparison.document_version}; ваш черновик сохранён</h4>{comparison.revisions.find(row => row.id === comparison.current_revision_id)?.files.map(file => <p key={file.id}>{file.original_upload_name}</p>)}</section>}
+      {result.data.revisions.filter(row => row.id !== result.data?.current_revision_id).map(revision => <details key={revision.id}><summary>Предыдущая редакция {revision.number} · {new Date(revision.occurred_at).toLocaleString('ru-RU')} · Автор {revision.author_id}</summary><p>{revision.id} · {revision.source}</p>{fileRows(revision.files,revision.id)}</details>)}
+    </>}
+    {preview && <section aria-label="Предпросмотр файла"><h4>{preview.name}</h4>{preview.pdf && <nav className="arm2-actions" aria-label="Страницы PDF"><button type="button" disabled={busy || preview.page === 1} onClick={() => turnPdf((preview.page || 1)-1)}>Предыдущая страница PDF</button><span>Страница PDF {preview.page} из {preview.pdf.numPages}</span><button type="button" disabled={busy || preview.page === preview.pdf.numPages} onClick={() => turnPdf((preview.page || 1)+1)}>Следующая страница PDF</button></nav>}{preview.blob ? <iframe title={'Предпросмотр: ' + preview.name} sandbox="" src={preview.blob}/> : <p>Этот формат открывается скачиванием в подходящей программе.</p>}<a href={apiUrl(preview.url.replace(/\/preview$/, '/download'))}>Скачать для просмотра</a><button type="button" onClick={() => {previewTicket.current++; setPreview(undefined);}}>Закрыть просмотр</button></section>}
+  </section>;
 }
 function DocumentList(scope: Scope) {
   const {parentType, parentId} = scope;
@@ -44,7 +176,9 @@ function DocumentLoader({id, ...scope}: Scope & {id: string}) {
 }
 
 interface Draft {kind_ref: string; name: string; description: string | null}
-interface Parked {original?: DocumentRecord; draft: Draft; denied: boolean; error: unknown}
+interface FileCandidate {key: string; current?: DocumentFile; file?: File; stage?: FileStage}
+interface FileDraft {key: string; expectedVersion: number; candidates: FileCandidate[]}
+interface Parked {original?: DocumentRecord; draft: Draft; denied: boolean; error: unknown; files?: FileDraft}
 const parkedDrafts = new Map<string, Parked>();
 const draftOf = (record?: DocumentRecord): Draft => ({kind_ref: record?.kind_ref || '', name: record?.name || '', description: record?.description ?? null});
 
@@ -117,11 +251,12 @@ function DocumentForm({initial, parent, ...scope}: Scope & {initial?: DocumentRe
   const [original, setOriginal] = useState(parked?.original || initial), [draft, setDraft] = useState(() => parked?.draft || draftOf(initial));
   const [busy, setBusy] = useState(false), [denied, setDenied] = useState(parked?.denied || false), [error, setError] = useState<unknown>(parked?.error);
   useEffect(() => {parkedDrafts.delete(key);}, [key]);
+  const [fileDraft, setFileDraft] = useState<FileDraft | undefined>(parked?.files);
   const [validation, setValidation] = useState(''), [status, setStatus] = useState(''), [comparison, setComparison] = useState<DocumentRecord>();
   const [readError, setReadError] = useState<unknown>(), [history, setHistory] = useState(false);
   const alive = useAlive(), saving = useRef(false), navigate = useNavigate();
   const changed = JSON.stringify(draft) !== JSON.stringify(draftOf(original));
-  const guard = useDraftGuard(changed || busy, () => parkedDrafts.set(key, {original, draft, denied, error}), () => parkedDrafts.delete(key));
+  const guard = useDraftGuard(changed || busy || !!fileDraft, () => parkedDrafts.set(key, {original, draft, denied, error, files: fileDraft}), () => parkedDrafts.delete(key));
   const canEdit = edit(scope) && !denied;
   const change = (value: Partial<Draft>) => {guard.current = true; setDraft(current => ({...current, ...value})); setStatus(''); setValidation('');};
   const readFresh = async (reload: boolean) => {
@@ -135,7 +270,7 @@ function DocumentForm({initial, parent, ...scope}: Scope & {initial?: DocumentRe
     } catch (error) {if (alive.current) setReadError(error);}
   };
   const save = async () => {
-    if (!canEdit || saving.current) return;
+    if (!canEdit || saving.current || fileDraft) return;
     if (!draft.name.trim()) {setValidation('Укажите наименование документа.'); return;}
     if (!draft.kind_ref) {setValidation('Выберите существующий тип документа.'); return;}
     const body = {name: draft.name.trim(), description: draft.description};
@@ -149,17 +284,22 @@ function DocumentForm({initial, parent, ...scope}: Scope & {initial?: DocumentRe
     } catch (error) {if (alive.current) {setError(error); if (error instanceof ApiError && error.status === 403) setDenied(true);}}
     finally {saving.current = false; if (alive.current) setBusy(false);}
   };
-  return <article className="arm2-document"><Link to={back}>{changed ? 'Отмена / к документам родителя' : '← К документам родителя'}</Link><h2>{original ? 'Документ: ' + original.name : 'Добавить документ'}</h2>
-    <p>Родитель: {parent.name} · {scope.parentType} · {scope.parentId}</p><p>Документ сохраняется без файла. Добавление файлов будет доступно на следующем этапе.</p>
+  return <article className="arm2-document"><Link to={back}>{changed || fileDraft ? 'Отмена / к документам родителя' : '← К документам родителя'}</Link><h2>{original ? 'Документ: ' + original.name : 'Добавить документ'}</h2>
+    <p>Родитель: {parent.name} · {scope.parentType} · {scope.parentId}</p><p>Сведения можно сохранить без файла. После сохранения добавьте файлы по одному и примите комплект.</p>
     {original && <><p>Постоянный ID: {original.id} · Версия: {original.version}</p><p>Тип документа: {original.kind_name} · {original.kind_ref}</p><p>Архивность: {original.archive_state} · Состояние документа: {original.display_state}</p></>}{!canEdit && <p role="status">Только просмотр — нет права редактирования</p>}
     <ErrorMessage error={error}/><ErrorMessage error={readError}/>{validation && <p role="alert" className="error">{validation}</p>}
     {error instanceof ApiError && error.status === 409 && original && <div className="arm2-actions"><button type="button" onClick={() => void readFresh(false)}>Сравнить с сервером</button><button type="button" onClick={() => void readFresh(true)}>Перезагрузить карточку</button></div>}
     {comparison && <section aria-label="Версия на сервере"><h3>Версия на сервере (черновик ниже сохранён)</h3><p>{comparison.name} · Версия: {comparison.version}</p><p>{comparison.description ?? 'Описание не заполнено'}</p></section>}
-    <form noValidate onSubmit={event => {event.preventDefault(); void save();}}><fieldset disabled={!canEdit || busy}>
+    <form noValidate onSubmit={event => {event.preventDefault(); void save();}}><fieldset disabled={!canEdit || busy || !!fileDraft}>
       {!original && <KindPicker path={path} value={draft.kind_ref} change={kind_ref => change({kind_ref})} can={scope.can}/>}
       <label className="arm2-field">Наименование документа *<input value={draft.name} required onChange={event => change({name: event.target.value})}/></label>
       <label className="arm2-field">Описание документа<textarea rows={4} value={draft.description ?? ''} onChange={event => change({description: event.target.value})}/></label>
-    </fieldset>{canEdit && <button type="submit" disabled={busy}>{busy ? 'Сохраняем…' : error instanceof ApiError && error.status >= 500 ? 'Повторить сохранение' : 'Сохранить'}</button>}{status && <p role="status">{status}</p>}</form>
+    </fieldset>{canEdit && <button type="submit" disabled={busy || !!fileDraft}>{busy ? 'Сохраняем…' : error instanceof ApiError && error.status >= 500 ? 'Повторить сохранение' : 'Сохранить'}</button>}{status && <p role="status">{status}</p>}</form>
+    {original && <DocumentFiles path={path + '/' + encodeURIComponent(original.id)} original={original} editable={canEdit} blocked={changed || busy} draft={fileDraft} setDraft={setFileDraft} refreshed={async () => {
+      const record = await api<DocumentRecord>(path + '/' + encodeURIComponent(original.id));
+      if (!alive.current) return;
+      guard.current = false; setOriginal(record); setDraft(draftOf(record)); setFileDraft(undefined); setStatus('');
+    }}/>}
     {original && <div className="arm2-history-control"><button type="button" aria-expanded={history} onClick={() => setHistory(value => !value)}>{history ? 'Закрыть историю' : 'История'}</button>{history && <History type="DOCUMENT" id={original.id}/>}</div>}
   </article>;
 }

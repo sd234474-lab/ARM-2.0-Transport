@@ -1,10 +1,35 @@
 import { api } from '../api';
+import { ApiError } from '../api';
+import { apiUrl } from '../workspace';
+
+// Read verified ARM bytes; never frame an authenticated API response (global X-Frame-Options: DENY).
+// Writes continue to use the existing api()/CSRF implementation unchanged.
+export async function previewBytes(path: string, maximum: number): Promise<Blob> {
+  const response = await fetch(apiUrl(path), {credentials: 'same-origin', redirect: 'error'});
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({detail:'Файл временно недоступен'}));
+    if (response.status === 401) window.dispatchEvent(new Event('session-expired'));
+    throw new ApiError(response.status, error.detail);
+  }
+  const reader = response.body?.getReader();
+  if (!reader) throw new ApiError(503, 'Не удалось прочитать файл');
+  const chunks: Uint8Array<ArrayBuffer>[] = []; let size = 0;
+  try {
+    for (;;) {const {done, value} = await reader.read(); if (done) break; size += value.byteLength; if (size > maximum) throw new ApiError(413, 'Файл превышает установленный предел'); chunks.push(new Uint8Array(value));}
+  } finally {await reader.cancel();}
+  return new Blob(chunks, {type:response.headers.get('Content-Type')?.split(';')[0] || 'application/octet-stream'});
+}
 
 export type Kind = 'TYPE' | 'VEH' | 'CP' | 'ORG';
 export type ObjectType = Kind | 'CPREP' | 'ORGREP' | 'DOC-KIND' | 'DOCUMENT';
-export interface DocumentRecord extends RecordData {parent_type: DocumentParent; parent_id: string; kind_ref: string; kind_name: string; description: string | null; archive_state: 'Неархивный'; display_state: 'Не загружен'}
+export interface DocumentRecord extends RecordData {parent_type: DocumentParent; parent_id: string; kind_ref: string; kind_name: string; description: string | null; archive_state: 'Неархивный'; display_state: 'Не загружен' | 'Доступен' | 'Файл недоступен' | 'Архивный'}
 export type DocumentParent = 'CP' | 'ORG' | 'VEH';
-export interface DocumentKind {id: string; name: string; applicable_object_types: DocumentParent[]; max_current_documents: number | null; version: number}
+export type FileNamingPreset = 'DOCUMENT_NAME' | 'PARENT_AND_KIND';
+export interface DocumentKind {id: string; name: string; applicable_object_types: DocumentParent[]; max_current_documents: number | null; version: number; file_naming_template?: FileNamingPreset | null}
+export interface DocumentFile {id: string; original_upload_name: string; stored_name: string; size: number; sha256: string; media_type: string; extension: string; position: number}
+export interface DocumentRevision {id: string; number: number; document_id: string; parent_type: DocumentParent; parent_id: string; author_id: number; occurred_at: string; source: string; files: DocumentFile[]}
+export interface FileBundle {document_id: string; document_version: number; current_revision_id: string | null; display_state: string; revisions: DocumentRevision[]; max_files: number; max_file_bytes: number}
+export interface FileStage {id: string; original_upload_name: string; size: number; sha256: string | null; media_type: string | null; extension: string | null; state: 'empty' | 'ready' | 'consumed'}
 export type Scalar = string | number | boolean | null;
 export interface RecordData { id: string; version: number; name: string; [field: string]: Scalar }
 export interface VehicleType extends RecordData { requires_sts: boolean | null; requires_calibration: boolean | null; requires_wialon: boolean | null; status: string }

@@ -132,7 +132,7 @@ def test_failed_history_and_missing_edit_preserve_saved_rules(service):
 
     with pytest.raises(RuntimeError, match="history failure"):
         update_object(db, object_type="DOC-KIND", object_id=record.id, expected_version=1,
-                      values={"name": "After", "applicable_object_types": ["CP"], "max_current_documents": None},
+                      values={"name": "After", "applicable_object_types": ["CP"], "max_current_documents": None, "file_naming_template": "DOCUMENT_NAME"},
                       principal=user, context=ctx, history_writer=fail)
     for permissions in [["arm2_doc_kind_view"], ["arm2_doc_kind_edit"]]:
         user.permissions = permissions

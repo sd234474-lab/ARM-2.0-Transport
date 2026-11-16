@@ -44,7 +44,7 @@ def api(isolated_arm2_database_url, monkeypatch):
 
 
 def body(**changes):
-    return {"name": "СТС", "applicable_object_types": ["VEH"], "max_current_documents": 1} | changes
+    return {"name": "СТС", "applicable_object_types": ["VEH"], "max_current_documents": 1, "file_naming_template": "DOCUMENT_NAME"} | changes
 
 
 def post(client, values=None):
@@ -82,6 +82,7 @@ def test_api_create_commit_read_update_noop_conflict_and_history(api):
         "name": {"before": None, "after": "СТС"}, "version": {"before": None, "after": 1},
         "applicable_object_types": {"before": None, "after": ["VEH"]},
         "max_current_documents": {"before": None, "after": 1},
+        "file_naming_template": {"before": None, "after": "DOCUMENT_NAME"},
     }
     changed_body = body(name="Доверенность", applicable_object_types=["ORG", "CP"], max_current_documents=None)
     response = client.put(PATH + "/" + id, json={"expected_version": 1, **changed_body})
@@ -113,7 +114,8 @@ def test_api_rejects_bad_bodies_for_post_and_put_without_changes(api):
                body(applicable_object_types="CP"), body(applicable_object_types=[1]), body(applicable_object_types=None),
                body(applicable_object_types=[" CP "]), body(applicable_object_types=["cp"])]
     invalid.extend(body(max_current_documents=value) for value in [True, False, "1", 0, -1, 1.5])
-    invalid.extend({key: value for key, value in body().items() if key != missing} for missing in body())
+    # The three pre-existing required fields remain required; the new preset has a default.
+    invalid.extend({key: value for key, value in body().items() if key != missing} for missing in ('name', 'applicable_object_types', 'max_current_documents'))
     invalid.extend(body(**{key: value}) for key, value in [
         ("id", "DOC-KIND-999999"), ("version", 999), ("revision_policy", "fake"),
         ("file_naming_template", "fake"), ("actor_id", "999999"), ("source", "spoofed"),

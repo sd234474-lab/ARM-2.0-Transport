@@ -20,6 +20,14 @@
 .arm2-document-kind fieldset { min-width:0; border:0; padding:0; margin:12px 0; }
 .arm2-document fieldset { min-width:0; border:0; padding:0; margin:12px 0; }
 .arm2-document textarea { width:100%; box-sizing:border-box; resize:vertical; font:inherit; }
+.arm2-files { margin:24px 0; padding:16px; border:1px solid var(--border,#8886); border-radius:8px; }
+.arm2-file-list { padding-left:24px; }
+.arm2-file-list li { padding:12px 0; border-bottom:1px solid var(--border,#8886); display:flex; flex-wrap:wrap; align-items:center; gap:10px; overflow-wrap:anywhere; }
+.arm2-file-list li span { flex:1 1 260px; }
+.arm2-file-list small { flex-basis:100%; overflow-wrap:anywhere; }
+.arm2-files iframe { display:block; width:100%; height:500px; border:1px solid var(--border,#8886); margin:12px 0; }
+.arm2-files details { margin-top:16px; }
+.arm2-files button,.arm2-files a { margin:4px; }
 .arm2-document-kind .arm2-document-parents { border:1px solid var(--border,#8886); border-radius:8px; padding:12px; }
 .arm2-document-parents label { display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:8px; margin:10px 0; }
 .arm2-document-parents input { width:auto; flex:none; }

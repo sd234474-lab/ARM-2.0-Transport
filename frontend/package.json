@@ -16,6 +16,7 @@
     "@tiptap/starter-kit": "^3.32.0",
     "jsqr": "^1.4.0",
     "lucide-react": "^0.468.0",
+    "pdfjs-dist": "6.5.438",
     "qrcode": "^1.5.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
