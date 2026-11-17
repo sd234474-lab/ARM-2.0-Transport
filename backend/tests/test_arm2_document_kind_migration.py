@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from alembic.config import Config
@@ -13,10 +14,9 @@ from app.arm2.counterparty_store import create_counterparty
 from app.arm2.document_kind_store import create_document_kind
 from app.arm2.history_models import HistoryEvent
 from app.arm2.history_store import append_history_event
+from app.arm2.ids import next_id
 from app.arm2.object_save import SaveContext
 from app.arm2.organization_store import create_organization
-from app.arm2.vehicle_store import create_vehicle
-from app.arm2.vehicle_type_store import create_vehicle_type
 from app.config import settings
 from app.models import User
 
@@ -31,24 +31,43 @@ def snapshot(engine):
         return {table: sorted(connection.execute(text(f"SELECT row_to_json(t)::text FROM {table} t")).scalars()) for table in tables}
 
 
+def frozen_legacy_record(db, kind, table, values, principal):
+    """Seed the 0064 representation, independently of newer TYPE commands."""
+    identifier = next_id(db, kind)
+    fields = {"id": identifier, **values, "version": 1}
+    columns = ",".join(fields)
+    placeholders = ",".join(":" + key for key in fields)
+    db.execute(text(f"INSERT INTO {table} ({columns}) VALUES ({placeholders})"), fields)
+    db.add(HistoryEvent(object_type=kind, object_id=identifier, operation="CREATED", actor_kind="HUMAN",
+                        actor_id=str(principal.id), source="migration-regression", version_after=1,
+                        changes={k: {"before": None, "after": v} for k, v in fields.items() if k != "id"},
+                        related_objects=[]))
+    db.flush()
+    return SimpleNamespace(id=identifier)
+
+
 def test_upgrade_downgrade_roundtrip_preserves_legacy_objects_history_and_ids(isolated_arm2_database_url, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", isolated_arm2_database_url)
     settings.cache_clear()
     engine = create_engine(isolated_arm2_database_url, poolclass=NullPool)
     try:
-        assert ScriptDirectory.from_config(configuration()).get_heads() == ["0064"]
+        assert ScriptDirectory.from_config(configuration()).get_heads() == ["0066"]
+        # This test exercises the historical B3 migration boundary. New TYPE
+        # categories and their guarded downgrade have their own B4 tests.
+        command.downgrade(configuration(), "0064")
         with Session(engine) as db:
             principal = User(login="legacy-regression", name="legacy", password_hash="unused", active=True,
                              role="ADMIN_OPERATOR", permissions=[])
             db.add(principal)
             db.flush()
             ctx = SaveContext("HUMAN", str(principal.id), "migration-regression")
-            kind = create_vehicle_type(db, "Старый тип", requires_calibration=False, requires_wialon=False,
-                                       principal=principal, context=ctx)
+            kind = frozen_legacy_record(db, "TYPE", "arm2_vehicle_types", {"name": "Старый тип", "requires_sts": True,
+                                        "requires_calibration": False, "requires_wialon": False, "status": "CONFIRMED"}, principal)
             cp = create_counterparty(db, "Старый CP", principal=principal, context=ctx)
             org = create_organization(db, "Старая ORG", principal=principal, context=ctx)
-            vehicle = create_vehicle(db, "Старая техника", "А123ВС86", type_id=kind.id,
-                                     owner_cp_id=cp.id, principal=principal, context=ctx)
+            vehicle = frozen_legacy_record(db, "VEH", "arm2_vehicles", {"name": "Старая техника", "plate_number": "А123ВС86",
+                                           "type_id": kind.id, "owner_cp_id": cp.id, "owner_org_id": None, "model": None,
+                                           "wialon_unit_id": None, "accounting_state": "Действующая"}, principal)
             assert (kind.id, cp.id, org.id, vehicle.id) == ("TYPE-000001", "CP-000001", "ORG-000001", "VEH-000001")
             db.commit()
         before = snapshot(engine)
@@ -70,7 +89,9 @@ def test_upgrade_downgrade_roundtrip_preserves_legacy_objects_history_and_ids(is
                                        principal=principal, context=ctx)
             assert new.id == "DOC-KIND-000001"
             # Independent sequences and pre-existing legacy data survived the roundtrip.
-            next_type = create_vehicle_type(db, "Следующий старый тип", principal=principal, context=ctx)
+            next_type = frozen_legacy_record(db, "TYPE", "arm2_vehicle_types", {"name": "Следующий старый тип",
+                                            "requires_sts": True, "requires_calibration": None, "requires_wialon": None,
+                                            "status": "REVIEW"}, principal)
             assert next_type.id == "TYPE-000002"
             db.commit()
     finally:
@@ -112,7 +133,7 @@ def test_downgrade_refuses_existing_document_kind_data_without_deleting_it(isola
         assert snapshot(engine) == before
         assert "arm2_document_kinds" in inspect(engine).get_table_names()
         with engine.connect() as conn:
-            assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0064"
+            assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0066"
             if existing == "row":
                 assert conn.scalar(text("SELECT name FROM arm2_document_kinds")) == "Сохранить"
     finally:

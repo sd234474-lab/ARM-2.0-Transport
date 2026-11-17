@@ -7,7 +7,7 @@ export type DocumentParent = 'CP' | 'ORG' | 'VEH';
 export interface DocumentKind {id: string; name: string; applicable_object_types: DocumentParent[]; max_current_documents: number | null; version: number}
 export type Scalar = string | number | boolean | null;
 export interface RecordData { id: string; version: number; name: string; [field: string]: Scalar }
-export interface VehicleType extends RecordData { requires_sts: boolean | null; requires_calibration: boolean | null; requires_wialon: boolean | null; status: string }
+export interface VehicleType extends RecordData { plate_category: 'Автомобильный' | 'Самоходная техника' | null; requires_sts: boolean | null; requires_calibration: boolean | null; requires_wialon: boolean | null; status: string }
 export interface Vehicle extends RecordData { plate_number: string; type_id: string | null; owner_cp_id: string | null; owner_org_id: string | null; accounting_state: string; model: string | null; wialon_unit_id: string | null }
 export interface Party extends RecordData { status: string; primary_signer_id: string | null }
 export interface Representative extends RecordData { parent_id: string; user_id: number | null; state: string }

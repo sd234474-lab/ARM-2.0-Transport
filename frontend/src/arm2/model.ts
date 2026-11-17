@@ -2,6 +2,7 @@ import { ApiError } from '../api';
 import type { Kind, RecordData, Scalar } from './api';
 
 export const labels: Record<string, string> = {
+  plate_category: 'Тип государственного номера',
   kind_ref: 'Тип документа', parent_type: 'Тип родителя', parent_id: 'Родитель', description: 'Описание', archive_state: 'Архивность', display_state: 'Состояние документа',
   applicable_object_types: 'Применимость', max_current_documents: 'Максимум актуальных документов',
   name: 'Рабочее имя', full_name: 'Полное наименование', short_name: 'Краткое наименование', inn: 'ИНН', kpp: 'КПП', ogrn: 'ОГРН / ОГРНИП', legal_form: 'Организационно-правовая форма', legal_address: 'Юридический адрес', postal_address: 'Почтовый адрес', phone: 'Официальный телефон', email: 'Официальный email', bank_name: 'Банк', bik: 'БИК', settlement_account: 'Расчётный счёт', correspondent_account: 'Корреспондентский счёт', primary_signer_id: 'Основной подписант',
@@ -20,9 +21,9 @@ export function shortRepresentativeName(name: string): string {
 export const vehicleFields = ['name', 'plate_number', 'type_id', 'accounting_state', 'model', 'wialon_unit_id', 'owner_cp_id', 'owner_org_id'];
 export const isParty = (kind: Kind) => kind === 'CP' || kind === 'ORG';
 export const requirementLabel = (value: Scalar | undefined) => value === true ? 'Требуется' : value === false ? 'Не требуется' : 'Не заполнено';
-export const missingRequirements = (row: RecordData) => requirements.filter(key => row[key] == null).map(key => labels[key]).join(', ');
+export const missingRequirements = (row: RecordData) => ['name', 'plate_category', ...requirements].filter(key => key === 'name' ? !row.name?.trim() : row[key] == null).map(key => labels[key]).join(', ');
 export function emptyRecord(kind: Kind | 'REP'): RecordData {
-  const keys = kind === 'REP' ? repFields : kind === 'TYPE' ? ['name', ...requirements] : kind === 'VEH' ? vehicleFields : partyFields;
+  const keys = kind === 'REP' ? repFields : kind === 'TYPE' ? ['name', 'plate_category', ...requirements] : kind === 'VEH' ? vehicleFields : partyFields;
   const row: RecordData = { id: '', version: 0, name: '' };
   keys.forEach(key => { if (key !== 'name') row[key] = null; });
   if (kind === 'TYPE') row.requires_sts = true;
@@ -32,7 +33,7 @@ export function emptyRecord(kind: Kind | 'REP'): RecordData {
 }
 export function payload(kind: Kind | 'REP', draft: RecordData, original: RecordData): Record<string, Scalar> {
   const editing = !!original.id;
-  const keys = kind === 'REP' ? repFields : kind === 'TYPE' ? ['name', ...requirements] : kind === 'VEH' ? vehicleFields : [...partyFields, ...(editing ? ['primary_signer_id'] : [])];
+  const keys = kind === 'REP' ? repFields : kind === 'TYPE' ? ['name', 'plate_category', ...requirements] : kind === 'VEH' ? vehicleFields : [...partyFields, ...(editing ? ['primary_signer_id'] : [])];
   const body: Record<string, Scalar> = { name: draft.name };
   if (editing) body.expected_version = original.version;
   keys.forEach(key => {

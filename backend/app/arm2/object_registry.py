@@ -202,6 +202,7 @@ class ObjectRegistry:
 
 
 TYPE_COMMAND_FIELDS = {
+    "plate_category": FieldSpec((str,), nullable=True),
     "name": FieldSpec((str,)),
     "requires_sts": FieldSpec((bool,), nullable=True),
     "requires_calibration": FieldSpec((bool,), nullable=True),

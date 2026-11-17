@@ -3,6 +3,7 @@ from sqlalchemy import create_engine, pool
 from alembic import context
 from app import models  # noqa: F401
 from app.arm2 import (
+    bulk_models,  # noqa: F401
     counterparty_models,  # noqa: F401
     history_models,  # noqa: F401
     organization_models,  # noqa: F401

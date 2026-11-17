@@ -1,0 +1,19 @@
+{
+  "result": "PASS",
+  "tables": 85,
+  "sequences": 36,
+  "head": "0066",
+  "snapshot_sha256": "47caf89207fd295aad75511bbf15489a534fb7adf50090f608e06c88a22f664d",
+  "rows": {
+    "arm2_bulk_cleanup": 0,
+    "arm2_bulk_receipts": 14,
+    "arm2_bulk_sessions": 13,
+    "arm2_counterparties": 1,
+    "arm2_document_kinds": 0,
+    "arm2_documents": 0,
+    "arm2_history_events": 124,
+    "arm2_organizations": 1,
+    "arm2_vehicle_types": 4,
+    "arm2_vehicles": 107
+  }
+}

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import ConfigDict, Field, StrictInt
+from pydantic import ConfigDict, Field, StrictBool, StrictInt
 
 from app.schemas import StrictModel
 
@@ -59,21 +59,24 @@ class DocumentKindResponse(StrictModel):
 
 
 class VehicleTypeCreate(StrictModel):
+    plate_category: Literal["Автомобильный", "Самоходная техника"] | None = None
     name: str
-    requires_sts: bool | None = True
-    requires_calibration: bool | None = None
-    requires_wialon: bool | None = None
+    requires_sts: StrictBool = True
+    requires_calibration: StrictBool | None = None
+    requires_wialon: StrictBool | None = None
 
 
 class VehicleTypeUpdate(StrictModel):
+    plate_category: Literal["Автомобильный", "Самоходная техника"] | None = None
     expected_version: PositiveVersion
     name: str
-    requires_sts: bool | None
-    requires_calibration: bool | None
-    requires_wialon: bool | None
+    requires_sts: StrictBool
+    requires_calibration: StrictBool | None
+    requires_wialon: StrictBool | None
 
 
 class VehicleTypeResponse(StrictModel):
+    plate_category: str | None
     model_config = ConfigDict(extra="forbid")
 
     id: str

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     max_update_mode: Literal["auto", "polling", "webhook"] = "auto"
     max_ca_bundle: str | None = None
     max_webhook_secret: str = ""
+    arm2_table_signing_key: str = ""
     max_download_hosts: str = "max.ru,max.com,okcdn.ru,mycdn.me,userapi.com"
     yandex_disk_token: str = ""
     yandex_disk_root: str = "MAX_PHOTOS"
