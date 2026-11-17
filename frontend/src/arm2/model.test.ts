@@ -19,7 +19,7 @@ it.each([
 describe('ARM2 write contracts', () => {
   it('preserves false versus null in TYPE and never sends server-only fields', () => {
     const original = {...emptyRecord('TYPE'), id: 'TYPE-1', version: 7, status: 'REVIEW'};
-    expect(payload('TYPE', {...original, requires_calibration: false}, original)).toEqual({name: '', expected_version: 7, requires_sts: true, requires_calibration: false, requires_wialon: null});
+    expect(payload('TYPE', {...original, requires_calibration: false}, original)).toEqual({name: '', expected_version: 7, plate_category: null, requires_sts: true, requires_calibration: false, requires_wialon: null});
     expect(requirementLabel(false)).toBe('Не требуется'); expect(requirementLabel(null)).toBe('Не заполнено');
   });
   it.each(['CP', 'ORG'] as const)('%s sends changed fields and explicit clears, preserving leading zeros', kind => {

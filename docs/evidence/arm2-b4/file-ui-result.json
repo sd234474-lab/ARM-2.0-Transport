@@ -1,0 +1,10 @@
+{
+  "result": "PASS",
+  "xlsxSelectedSheet": "Vehicles",
+  "manualColumnMapping": true,
+  "cellEditing": true,
+  "excludedRowNotCreated": true,
+  "xlsxVehicleId": "VEH-000108",
+  "csvVehicleId": "VEH-000109",
+  "finalProtocol": true
+}

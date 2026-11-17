@@ -167,11 +167,14 @@ def search_organizations(db: Db, user: CurrentUser, q: TextQuery = '', status: L
 
 
 @router.get('/types/search', response_model=TypePage)
-def search_types(db: Db, user: CurrentUser, q: TextQuery = '', limit: Limit = 100, offset: Offset = 0):
+def search_types(db: Db, user: CurrentUser, q: TextQuery = '', limit: Limit = 100, offset: Offset = 0,
+                 status: Literal['REVIEW', 'CONFIRMED'] | None = None):
     check_permission(user, Permission.ARM2_TYPE_VIEW)
     stmt = select(*[getattr(VehicleType, field).label(field) for field in VehicleTypeResponse.model_fields])
     if q.strip():
         stmt = stmt.where(_text_match(VehicleType.name, q.strip()))
+    if status:
+        stmt = stmt.where(VehicleType.status == status)
     return _page(db, stmt, VehicleType, VehicleType.name, 'asc', limit, offset)
 
 

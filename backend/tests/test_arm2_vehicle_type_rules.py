@@ -9,7 +9,8 @@ from app.arm2.vehicle_type_rules import (
 
 def test_fully_answered_type_is_confirmed_even_with_false_answers():
     assert normalize_type_requirements(True, False, False) == (True, False, False)
-    assert type_status("Самосвал", True, False, False) == "CONFIRMED"
+    assert type_status("Самосвал", True, False, False, "Автомобильный") == "CONFIRMED"
+    assert type_status("Самосвал", True, False, False) == "REVIEW"
 
 
 @pytest.mark.parametrize(
@@ -37,10 +38,12 @@ def test_type_name_is_trimmed_and_whitespace_only_is_rejected():
 def test_sts_defaults_to_true_and_false_is_rejected():
     assert normalize_type_requirements() == (True, None, None)
     assert type_status("Самосвал", None, True, True) == "REVIEW"
-    with pytest.raises(ValueError, match="requires_sts must be True"):
+    with pytest.raises(ValueError, match="СТС"):
         normalize_type_requirements(False, True, True)
-    with pytest.raises(ValueError, match="requires_sts must be True"):
+    with pytest.raises(ValueError, match="СТС"):
         type_status("Самосвал", False, True, True)
+    with pytest.raises(ValueError, match="СТС"):
+        normalize_type_requirements(None, True, True)
 
 
 @pytest.mark.parametrize(
@@ -60,8 +63,8 @@ def test_non_boolean_requirement_values_are_rejected(
         )
 
 
-def test_status_depends_on_completeness_not_vehicle_category():
-    assert type_status("Самосвал", True, True, True) == "CONFIRMED"
-    assert type_status("Легковой автомобиль", True, True, True) == "CONFIRMED"
+def test_status_requires_explicit_category_without_inferring_it_from_name():
+    assert type_status("Самосвал", True, True, True, "Автомобильный") == "CONFIRMED"
+    assert type_status("Легковой автомобиль", True, True, True) == "REVIEW"
     assert type_status("Самосвал", True, None, True) == "REVIEW"
-    assert type_status("Самосвал обновлённый", True, False, True) == "CONFIRMED"
+    assert type_status("Самосвал обновлённый", True, False, True, "Автомобильный") == "CONFIRMED"

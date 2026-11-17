@@ -1,9 +1,4 @@
-"""Pure rules for future ARM 2.0 vehicle types.
-
-These functions only normalize a name and the three approved requirements, then
-derive completeness. Name uniqueness, persistence, versioning, and permissions
-belong to later database and service layers.
-"""
+"""Approved TYPE completeness, STS and explicit plate category rules."""
 
 
 def normalize_type_name(name: str) -> str:
@@ -27,26 +22,33 @@ def normalize_type_requirements(
     requires_calibration: bool | None = None,
     requires_wialon: bool | None = None,
 ) -> tuple[bool | None, bool | None, bool | None]:
-    """Validate tri-state answers; False is forbidden only for the STS rule."""
+    """Commands require STS=True; calibration and Wialon remain tri-state."""
     sts = _tri_state(requires_sts, "requires_sts")
     calibration = _tri_state(requires_calibration, "requires_calibration")
     wialon = _tri_state(requires_wialon, "requires_wialon")
-    if sts is False:
-        raise ValueError("requires_sts must be True when it is specified")
+    if sts is not True:
+        raise ValueError("Требуется СТС: выберите «Требуется». Пустое значение и «Не требуется» запрещены")
     return sts, calibration, wialon
 
 
-def type_status(
-    name: str,
-    requires_sts: bool | None,
-    requires_calibration: bool | None,
-    requires_wialon: bool | None,
-) -> str:
-    """Return REVIEW or CONFIRMED from completeness, never from vehicle category."""
+def normalize_plate_category(value):
+    if value not in {None, "Автомобильный", "Самоходная техника"}:
+        raise ValueError("Неизвестный тип государственного номера")
+    return value
+
+
+def plate_compatible(plate, category):
+    from app.arm2.vehicle_store import _CAR, _SELF_PROPELLED
+    return bool((_CAR if category == "Автомобильный" else _SELF_PROPELLED).fullmatch(plate)) if category else False
+
+
+def type_status(name, requires_sts, requires_calibration, requires_wialon, plate_category=None):
     normalize_type_name(name)
-    requirements = normalize_type_requirements(
-        requires_sts,
-        requires_calibration,
-        requires_wialon,
-    )
-    return "CONFIRMED" if all(value is not None for value in requirements) else "REVIEW"
+    normalize_plate_category(plate_category)
+    for field, value in (("requires_sts", requires_sts), ("requires_calibration", requires_calibration),
+                         ("requires_wialon", requires_wialon)):
+        _tri_state(value, field)
+    if requires_sts is False:
+        raise ValueError("Требуется СТС: выберите «Требуется»")
+    return "CONFIRMED" if (requires_sts is True and requires_calibration is not None
+                           and requires_wialon is not None and plate_category is not None) else "REVIEW"
