@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -118,7 +120,7 @@ def test_type_category_migration_preserves_existing_links(isolated_arm2_database
     from app.config import settings
     monkeypatch.setenv("DATABASE_URL", isolated_arm2_database_url)
     settings.cache_clear()
-    config = Config("alembic.ini")
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     command.downgrade(config, "0064")
     engine = create_engine(isolated_arm2_database_url)
     with engine.begin() as conn:
