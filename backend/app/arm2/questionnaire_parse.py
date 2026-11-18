@@ -1,4 +1,4 @@
-"""Bounded ARM_IMPORT_V2 transport reader. Formulae/caches are hints, never commands."""
+"""Bounded V2/V3 transport reader. Formulae/caches are hints, never commands."""
 import base64
 import hashlib
 import hmac
@@ -11,6 +11,8 @@ import zipfile
 import zlib
 from datetime import date, datetime
 from pathlib import PurePosixPath
+from urllib.parse import urlsplit
+from xml.etree import ElementTree as ET
 
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
@@ -24,6 +26,10 @@ MAX_VEHICLES = 1000
 PASSPORT = 'Паспорт контрагента'
 VEHICLES = 'Техника'
 MANIFEST = '_ARM2_QUESTIONNAIRE'
+REPRESENTATIVES = 'Представители'
+EXPORT_VERSION = 'ARM_IMPORT_V3'
+SUPPORTED_VERSIONS = {'ARM_IMPORT_V2', EXPORT_VERSION}
+REP_COLUMNS = {'C': 'name', 'D': 'position', 'E': 'phone', 'F': 'email', 'G': 'authority_basis', 'H': 'state'}
 CP_CELLS = {5: 'legal_form', 8: 'last_name', 9: 'first_name', 10: 'middle_name', 11: 'full_name',
             12: 'short_name', 13: 'inn', 14: 'kpp', 15: 'ogrn', 16: 'legal_address', 17: 'postal_address',
             18: 'phone', 19: 'email', 23: 'bank_name', 24: 'bik', 25: 'settlement_account', 26: 'correspondent_account'}
@@ -81,6 +87,7 @@ def archive_entries(data, limit=MAX_ENTRIES, expanded_limit=MAX_EXPANDED):
 
 
 def safe_workbook(data, expanded_limit=MAX_EXPANDED):
+    stripped, hyperlink_sheets = {}, set()
     with archive_entries(data, 4096, expanded_limit) as archive:
         if 'xl/workbook.xml' not in archive.namelist():
             raise ValueError('Отсутствует книга XLSX')
@@ -96,7 +103,38 @@ def safe_workbook(data, expanded_limit=MAX_EXPANDED):
                 if b'<!doctype' in normalized_xml or b'<!entity' in normalized_xml:
                     raise ValueError('DTD/XXE запрещены')
                 if lower.endswith('.rels') and re.search(br'TargetMode\s*=\s*[\"\x27]External', content.replace(b'\x00', b''), re.I):
-                    raise ValueError('Внешние связи XLSX запрещены')
+                    try:
+                        relationships = ET.fromstring(content)
+                    except ET.ParseError:
+                        raise ValueError('Повреждённые связи XLSX') from None
+                    for rel in list(relationships):
+                        if rel.get('TargetMode', '').lower() != 'external':
+                            continue
+                        # Filled V2 samples contain ordinary email/web hyperlinks.
+                        # Discard them before openpyxl; never follow or persist targets.
+                        if (not lower.startswith('xl/worksheets/_rels/') or
+                                rel.get('Type') != 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink' or
+                                urlsplit(rel.get('Target', '')).scheme.lower() not in {'http', 'https', 'mailto'}):
+                            raise ValueError('Внешние связи XLSX запрещены')
+                        relationships.remove(rel)
+                    stripped[entry.filename] = ET.tostring(relationships, encoding='utf-8')
+                    hyperlink_sheets.add(entry.filename.replace('/_rels/', '/').removesuffix('.rels'))
+        if stripped:
+            output = io.BytesIO()
+            with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as sanitized:
+                for entry in archive.infolist():
+                    content = stripped.get(entry.filename, archive.read(entry))
+                    if entry.filename in hyperlink_sheets:
+                        try:
+                            sheet = ET.fromstring(content)
+                        except ET.ParseError:
+                            raise ValueError('Повреждённый лист XLSX') from None
+                        for links in list(sheet):
+                            if links.tag == '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}hyperlinks':
+                                sheet.remove(links)
+                        content = ET.tostring(sheet, encoding='utf-8')
+                    sanitized.writestr(entry.filename, content)
+            data = output.getvalue()
     try:
         return load_workbook(io.BytesIO(data), read_only=True, data_only=False, keep_links=False), \
             load_workbook(io.BytesIO(data), read_only=True, data_only=True, keep_links=False)
@@ -148,7 +186,13 @@ def _parse(data, filename):
             raise ValueError('В анкете больше 1000 строк техники')
         # Streaming each sheet once avoids quadratic reparsing of 1000 formula rows.
         grids, cached_grids = {}, {}
-        for sheet, start, end, first, last in [(passport, 3, 30, 2, 2), (vehicles, 5, max(5, vehicles.max_row), 2, 22)]:
+        sheets = [(passport, 3, 30, 2, 2), (vehicles, 5, max(5, vehicles.max_row), 2, 22)]
+        if REPRESENTATIVES in book.sheetnames:
+            reps = book[REPRESENTATIVES]
+            if reps.max_row > 1004:
+                raise ValueError('В анкете больше 1000 представителей')
+            sheets.append((reps, 5, max(5, reps.max_row), 2, 12))
+        for sheet, start, end, first, last in sheets:
             grids[sheet.title] = {f'{get_column_letter(col)}{row}': (cell.value, cell.data_type == 'f')
                 for row, cells in enumerate(sheet.iter_rows(min_row=start, max_row=end, min_col=first, max_col=last), start)
                 for col, cell in enumerate(cells, first)}
@@ -170,18 +214,25 @@ def _parse(data, filename):
             return value
 
         version = cell(passport, 'B3')
-        if version != 'ARM_IMPORT_V2':
-            raise ValueError('Поддерживается анкета ARM_IMPORT_V2')
+        if version not in SUPPORTED_VERSIONS:
+            raise ValueError('Поддерживаются анкеты ARM_IMPORT_V2 и ARM_IMPORT_V3')
         try:
-            date_value = passport['B4'].value if passport['B4'].data_type != 'f' else None
+            date_value = passport['B4'].value if passport['B4'].data_type != 'f' else cached[PASSPORT]['B4'].value
             completed = filled_date(date_value)
         except ValueError as error:
             completed = None
             warnings.append(str(error))
         cp = {field: cell(passport, f'B{row}') for row, field in CP_CELLS.items()}
+        cp_errors = {}
+        for coordinate, field in [('B25', 'settlement_account'), ('B26', 'correspondent_account')]:
+            value = passport[coordinate]
+            cached_value = cached[PASSPORT][coordinate]
+            if (value.data_type == 'n' and value.value is not None) or (
+                    value.data_type == 'f' and cached_value.data_type == 'n' and cached_value.value is not None):
+                cp_errors[field] = 'Счёт записан числом Excel: точность и нули не гарантированы. Уточните исходную текстовую запись'
         cp['name'] = cp['short_name'] or cp['full_name'] or ' '.join(cp[f] for f in ('last_name', 'first_name', 'middle_name') if cp[f])
         signer = {field: cell(passport, f'B{row}') for row, field in ((20, 'name'), (21, 'position'), (22, 'authority_basis'))}
-        result = {'schema': version, 'filled_date': completed, 'cp': cp, 'cp_hint': cell(passport, 'B6'),
+        result = {'schema': version, 'filled_date': completed, 'cp': cp, 'cp_errors': cp_errors, 'cp_hint': cell(passport, 'B6'),
                   'representatives': [signer] if signer['name'] else [], 'vehicles': [], 'warnings': warnings,
                   'company_file': cell(passport, 'B28'), 'company_declared': cell(passport, 'B27'),
                   'confirmation_hint': cell(passport, 'B29'), 'comment': cell(passport, 'B30'), 'manifest': None}
@@ -196,6 +247,8 @@ def _parse(data, filename):
             result['vehicles'].append({'key': f'v:{row}', 'row': row, 'id': identifier[0] if identifier else '',
                 'plate_number': values['I'] or values['E'], 'type_hint': values['H'] or values['D'],
                 'name': values['J'] or values['F'], 'model': values['K'] or values['G'], 'state_hint': values['C'],
+                'status_error': ('Выберите режим строки: ИЗ СПРАВОЧНИКА, НОВАЯ или ВЫБЫЛО'
+                    if version == EXPORT_VERSION and values['C'].upper() not in {'ИЗ СПРАВОЧНИКА', 'НОВАЯ', 'ВЫБЫЛО'} else None),
                 'volume_proposal': values['L'], 'calibration_declared': values['M'], 'calibration_file': values['N'],
                 'sts_declared': values['O'], 'sts_file': values['P'], 'owner_hint': values['S'],
                 'diagnostic_hint': ' · '.join(v for v in (values['Q'], values['R'], values['T'], values['U']) if v),
@@ -207,10 +260,48 @@ def _parse(data, filename):
             result['manifest'] = unseal(''.join(chunks))
             if not result['manifest']:
                 warnings.append('Служебный манифест не подтверждён; обратная привязка требует выбора оператора')
+        if version == EXPORT_VERSION:
+            if REPRESENTATIVES in book.sheetnames:
+                representative_rows(book[REPRESENTATIVES], cell, signer, result)
+            else:
+                result['representative_meta'] = [{'id': (result.get('manifest') or {}).get('primary_signer_id'),
+                    'row': None, 'signer_hint': True, 'conflicts': {}} for _ in result['representatives']]
         return result, blobs
     finally:
         book.close()
         cached.close()
+
+
+def representative_rows(sheet, cell, passport_signer, result):
+    """Two signer projections, one proposal; identity is never inferred from a name."""
+    representatives, metadata = [], []
+    for row in range(5, sheet.max_row + 1):
+        values = {field: cell(sheet, f'{col}{row}') for col, field in REP_COLUMNS.items()}
+        identifier = cell(sheet, f'B{row}')
+        if not identifier and not any(values.values()):
+            continue
+        representatives.append(values)
+        metadata.append({'id': identifier, 'row': row, 'signer_hint': cell(sheet, f'K{row}').upper() == 'ДА',
+                         'comment': cell(sheet, f'L{row}'), 'conflicts': {}})
+    manifest = result.get('manifest') or {}
+    signer_id = manifest.get('primary_signer_id')
+    matches = [i for i, meta in enumerate(metadata) if (meta['id'] == signer_id if signer_id else meta['signer_hint'])]
+    if any(passport_signer.values()):
+        if len(matches) == 1:
+            index = matches[0]
+            for field, value in passport_signer.items():
+                listed = representatives[index].get(field)
+                if value and listed and value != listed:
+                    metadata[index]['conflicts'][field] = {'passport': value, 'list': listed}
+                elif value and not listed:
+                    representatives[index][field] = value
+        else:
+            # Missing/ambiguous linkage is a separate proposal for explicit matching,
+            # not an automatic name-based merge or deletion of another contact.
+            representatives.append(passport_signer)
+            metadata.append({'id': signer_id or '', 'row': None, 'signer_hint': True, 'conflicts': {}})
+            result['warnings'].append('Подписант паспорта не связан с единственной строкой: явно сопоставьте его с представителем')
+    result['representatives'], result['representative_meta'] = representatives, metadata
 
 
 def encoded(data):

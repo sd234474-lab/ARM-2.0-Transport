@@ -47,8 +47,9 @@ class Command(BaseModel):
 
 class RepresentativeChoice(Command):
     target: str | None = None
-    fields: list[str] = Field(default_factory=list, max_length=3)
+    fields: list[str] = Field(default_factory=list, max_length=6)
     signer: StrictBool = False
+    sources: dict[str, Literal['passport', 'list']] = Field(default_factory=dict, max_length=3)
 
 
 class VehicleChoice(Command):
@@ -71,7 +72,7 @@ class DocumentChoice(Command):
 class Choices(Command):
     cp_target: str | None = None
     cp_fields: list[str] = Field(default_factory=list, max_length=24)
-    representatives: dict[str, RepresentativeChoice] = Field(default_factory=dict, max_length=100)
+    representatives: dict[str, RepresentativeChoice] = Field(default_factory=dict, max_length=1000)
     vehicles: dict[str, VehicleChoice] = Field(default_factory=dict, max_length=1000)
     documents: dict[str, DocumentChoice] = Field(default_factory=dict, max_length=512)
 

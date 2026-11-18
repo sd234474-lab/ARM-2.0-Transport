@@ -32,6 +32,14 @@ beforeEach(()=>{
       draft.comparison!.cp.id=draft.choices?.cp_target==='CP-000001'?'CP-000001':null;
       draft.comparison!.cp.error=draft.choices?.cp_target?null:'Choose CP';
       for(const [field,value] of Object.entries(draft.comparison!.cp.fields))value.selected=!!draft.choices?.cp_fields?.includes(field);
+      for(const value of draft.comparison!.representatives){
+        const choice=draft.choices?.representatives?.[value.key];value.sources=choice?.sources||{};value.target=choice?.target||null;
+        for(const [field,f] of Object.entries(value.fields)){
+          f.selected=!!choice?.fields?.includes(field);
+          const source=choice?.sources?.[field],alternatives=value.conflicts?.[field];
+          if(alternatives&&source){f.proposed=alternatives[source];f.error=null;f.equal=f.proposed===f.current;}
+        }
+      }
       return clone(draft);
     }
     if(path.endsWith('/apply')){
@@ -51,6 +59,26 @@ async function mount(path='/arm2/questionnaires',child?:React.ReactNode){await a
 async function click(text:string){await act(async()=>{const button=[...host.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent===text);if(!button)throw new Error('Missing '+text);button.click();await tick();});}
 async function selectCP(){await act(async()=>{const select=host.querySelector<HTMLSelectElement>('select[aria-label="Решение о контрагенте"]')!;select.value='CP-000001';select.dispatchEvent(new Event('change',{bubbles:true}));await tick();});}
 async function acceptPhone(){await act(async()=>{host.querySelector<HTMLInputElement>('input[aria-label="Принять Официальный телефон"]')!.click();await tick();});}
+
+it('V3 signer conflict needs an explicit source and a separate field approval; no access controls',async()=>{
+  draft.comparison!.representatives=[{key:'0',id:'CPREP-000001',target:'CPREP-000001',version:1,error:null,signer:false,
+    source_id:'CPREP-000001',source_comment:'Synthetic review note',signer_hint:true,conflicts:{name:{passport:'Passport name',list:'List name'}},sources:{},
+    fields:{name:{current:'Current name',proposed:'List name',selected:false,equal:false,error:'Choose source'}},
+    candidates:[{id:'CPREP-000001',name:'Current name'}]}];
+  draft.choices!.representatives={'0':{target:'CPREP-000001',fields:[]}};
+  await mount('/arm2/questionnaires?draft='+draft.id);
+  expect(host.textContent).toContain('Паспорт: Passport name');
+  expect(host.textContent).toContain('Представители: List name');
+  expect(host.textContent).toContain('Пометка анкеты: Synthetic review note');
+  expect(host.querySelector<HTMLInputElement>('input[aria-label="Принять Рабочее имя"]')!.disabled).toBe(true);
+  await act(async()=>{const select=host.querySelector<HTMLSelectElement>('select[aria-label="Источник подписанта Рабочее имя"]')!;select.value='passport';select.dispatchEvent(new Event('change',{bubbles:true}));await tick();});
+  expect(draft.choices!.representatives!['0'].sources).toEqual({name:'passport'});
+  expect(draft.choices!.representatives!['0'].fields).toEqual([]);
+  await act(async()=>{host.querySelector<HTMLInputElement>('input[aria-label="Принять Рабочее имя"]')!.click();await tick();});
+  expect(draft.choices!.representatives!['0'].fields).toEqual(['name']);
+  expect(vi.mocked(api).mock.calls.some(([path])=>path.endsWith('/apply'))).toBe(false);
+  expect(host.querySelector('input[name="user_id"]')).toBeNull();
+});
 
 it('T01 opens comparison on file selection with no second upload confirmation and no domain save',async()=>{
   await mount();

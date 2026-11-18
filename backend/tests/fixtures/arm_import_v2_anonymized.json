@@ -1,0 +1,3536 @@
+{
+  "description": "Anonymized ARM_IMPORT_V2 structural fixture: all values replaced, no original attachments or metadata. Formulae from supplied legacy sample; synthetic caches.",
+  "hyperlinks": {"Паспорт контрагента": {"B19": "mailto:fixture@example.invalid"}},
+  "sheets": {
+    "Паспорт контрагента": {
+      "B3": {
+        "value": "ARM_IMPORT_V2",
+        "format": "General"
+      },
+      "B4": {
+        "value": "21 октября 2026г",
+        "format": "General"
+      },
+      "B5": {
+        "value": "ИП",
+        "format": "General"
+      },
+      "B6": {
+        "value": "Synthetic legacy CP",
+        "format": "General"
+      },
+      "B7": {
+        "value": "IGNORED LEGACY VALUE",
+        "format": "General"
+      },
+      "B8": {
+        "value": "Synthetic",
+        "format": "General"
+      },
+      "B9": {
+        "value": "Legacy",
+        "format": "General"
+      },
+      "B10": {
+        "value": "Fixture",
+        "format": "General"
+      },
+      "B12": {
+        "value": "Synthetic legacy CP",
+        "format": "General"
+      },
+      "B13": {
+        "value": 1234567890,
+        "format": "# ?/?"
+      },
+      "B15": {
+        "value": 123456789012345,
+        "format": "# ?/?"
+      },
+      "B16": {
+        "value": "Synthetic address",
+        "format": "General"
+      },
+      "B17": {
+        "value": "Synthetic postal",
+        "format": "General"
+      },
+      "B18": {
+        "value": "Synthetic phone",
+        "format": "General"
+      },
+      "B19": {
+        "value": "fixture@example.invalid",
+        "format": "General"
+      },
+      "B23": {
+        "value": "Synthetic bank",
+        "format": "General"
+      },
+      "B24": {
+        "value": 123456789,
+        "format": "General"
+      },
+      "B25": {
+        "value": 12345678901234500000,
+        "format": "# ?/?"
+      },
+      "B26": {
+        "value": 12345678901234500000,
+        "format": "# ?/?"
+      },
+      "B28": {
+        "value": "company.pdf",
+        "format": "General"
+      },
+      "B29": {
+        "value": "ДА",
+        "format": "General"
+      }
+    },
+    "Техника": {
+      "A5": {
+        "value": 1,
+        "format": "General"
+      },
+      "B5": {
+        "value": "Synthetic selector 1",
+        "format": "General"
+      },
+      "C5": {
+        "value": "ИЗ СПРАВОЧНИКА",
+        "format": "General"
+      },
+      "D5": {
+        "value": "=IF(OR(C5<>\"ИЗ СПРАВОЧНИКА\",B5=\"\"),\"\",IFERROR(VLOOKUP(B5,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E5": {
+        "value": "=IF(OR(C5<>\"ИЗ СПРАВОЧНИКА\",B5=\"\"),\"\",IFERROR(VLOOKUP(B5,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F5": {
+        "value": "=IF(OR(C5<>\"ИЗ СПРАВОЧНИКА\",B5=\"\"),\"\",IFERROR(VLOOKUP(B5,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G5": {
+        "value": "=IF(OR(C5<>\"ИЗ СПРАВОЧНИКА\",B5=\"\"),\"\",IFERROR(VLOOKUP(B5,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "L5": {
+        "value": 25,
+        "format": "0.00"
+      },
+      "M5": {
+        "value": "ДА",
+        "format": "General"
+      },
+      "N5": {
+        "value": "calibration-5.png",
+        "format": "General"
+      },
+      "O5": {
+        "value": "ДА",
+        "format": "General"
+      },
+      "P5": {
+        "value": "sts-5.pdf",
+        "format": "General"
+      },
+      "Q5": {
+        "value": "=IF(C5=\"\",\"\",IF(IF(C5=\"НОВАЯ\",I5,E5)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C5=\"НОВАЯ\",I5,E5))),LEN(IF(C5=\"НОВАЯ\",I5,E5))<8,LEN(IF(C5=\"НОВАЯ\",I5,E5))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C5=\"НОВАЯ\",I5,E5))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C5=\"НОВАЯ\",I5,E5),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C5=\"НОВАЯ\",I5,E5),2)),\"\"))),AND(LEN(IF(C5=\"НОВАЯ\",I5,E5))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C5=\"НОВАЯ\",I5,E5),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C5=\"НОВАЯ\",I5,E5),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R5": {
+        "value": "=IF(C5=\"\",\"\",IF(OR(O5<>\"ДА\",P5=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C5=\"НОВАЯ\",OR(H5=\"\",I5=\"\",J5=\"\",K5=\"\")),AND(C5=\"ИЗ СПРАВОЧНИКА\",B5=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C5=\"НОВАЯ\",H5,D5)=\"Самосвал\",IF(OR(L5=\"\",M5<>\"ДА\",N5=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S5": {
+        "value": "Synthetic legacy CP",
+        "format": "General"
+      },
+      "T5": {
+        "value": "НЕТ",
+        "format": "General"
+      },
+      "V5": {
+        "value": "=IF(OR(B5=\"\",C5<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B5,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "A6": {
+        "value": 2,
+        "format": "General"
+      },
+      "B6": {
+        "value": "Synthetic selector 2",
+        "format": "General"
+      },
+      "C6": {
+        "value": "ИЗ СПРАВОЧНИКА",
+        "format": "General"
+      },
+      "D6": {
+        "value": "=IF(OR(C6<>\"ИЗ СПРАВОЧНИКА\",B6=\"\"),\"\",IFERROR(VLOOKUP(B6,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E6": {
+        "value": "=IF(OR(C6<>\"ИЗ СПРАВОЧНИКА\",B6=\"\"),\"\",IFERROR(VLOOKUP(B6,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F6": {
+        "value": "=IF(OR(C6<>\"ИЗ СПРАВОЧНИКА\",B6=\"\"),\"\",IFERROR(VLOOKUP(B6,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G6": {
+        "value": "=IF(OR(C6<>\"ИЗ СПРАВОЧНИКА\",B6=\"\"),\"\",IFERROR(VLOOKUP(B6,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "L6": {
+        "value": 25,
+        "format": "0.00"
+      },
+      "M6": {
+        "value": "ДА",
+        "format": "General"
+      },
+      "N6": {
+        "value": "calibration-6.png",
+        "format": "General"
+      },
+      "O6": {
+        "value": "ДА",
+        "format": "General"
+      },
+      "P6": {
+        "value": "sts-6.pdf",
+        "format": "General"
+      },
+      "Q6": {
+        "value": "=IF(C6=\"\",\"\",IF(IF(C6=\"НОВАЯ\",I6,E6)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C6=\"НОВАЯ\",I6,E6))),LEN(IF(C6=\"НОВАЯ\",I6,E6))<8,LEN(IF(C6=\"НОВАЯ\",I6,E6))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C6=\"НОВАЯ\",I6,E6))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C6=\"НОВАЯ\",I6,E6),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C6=\"НОВАЯ\",I6,E6),2)),\"\"))),AND(LEN(IF(C6=\"НОВАЯ\",I6,E6))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C6=\"НОВАЯ\",I6,E6),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C6=\"НОВАЯ\",I6,E6),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R6": {
+        "value": "=IF(C6=\"\",\"\",IF(OR(O6<>\"ДА\",P6=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C6=\"НОВАЯ\",OR(H6=\"\",I6=\"\",J6=\"\",K6=\"\")),AND(C6=\"ИЗ СПРАВОЧНИКА\",B6=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C6=\"НОВАЯ\",H6,D6)=\"Самосвал\",IF(OR(L6=\"\",M6<>\"ДА\",N6=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S6": {
+        "value": "Synthetic legacy CP",
+        "format": "General"
+      },
+      "T6": {
+        "value": "НЕТ",
+        "format": "General"
+      },
+      "V6": {
+        "value": "=IF(OR(B6=\"\",C6<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B6,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "A7": {
+        "value": 3,
+        "format": "General"
+      },
+      "B7": {
+        "value": "Synthetic selector 3",
+        "format": "General"
+      },
+      "C7": {
+        "value": "ИЗ СПРАВОЧНИКА",
+        "format": "General"
+      },
+      "D7": {
+        "value": "=IF(OR(C7<>\"ИЗ СПРАВОЧНИКА\",B7=\"\"),\"\",IFERROR(VLOOKUP(B7,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E7": {
+        "value": "=IF(OR(C7<>\"ИЗ СПРАВОЧНИКА\",B7=\"\"),\"\",IFERROR(VLOOKUP(B7,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F7": {
+        "value": "=IF(OR(C7<>\"ИЗ СПРАВОЧНИКА\",B7=\"\"),\"\",IFERROR(VLOOKUP(B7,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G7": {
+        "value": "=IF(OR(C7<>\"ИЗ СПРАВОЧНИКА\",B7=\"\"),\"\",IFERROR(VLOOKUP(B7,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "L7": {
+        "value": 25,
+        "format": "0.00"
+      },
+      "M7": {
+        "value": "ДА",
+        "format": "General"
+      },
+      "N7": {
+        "value": "calibration-7.png",
+        "format": "General"
+      },
+      "O7": {
+        "value": "ДА",
+        "format": "General"
+      },
+      "P7": {
+        "value": "sts-7.pdf",
+        "format": "General"
+      },
+      "Q7": {
+        "value": "=IF(C7=\"\",\"\",IF(IF(C7=\"НОВАЯ\",I7,E7)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C7=\"НОВАЯ\",I7,E7))),LEN(IF(C7=\"НОВАЯ\",I7,E7))<8,LEN(IF(C7=\"НОВАЯ\",I7,E7))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C7=\"НОВАЯ\",I7,E7))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C7=\"НОВАЯ\",I7,E7),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C7=\"НОВАЯ\",I7,E7),2)),\"\"))),AND(LEN(IF(C7=\"НОВАЯ\",I7,E7))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C7=\"НОВАЯ\",I7,E7),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C7=\"НОВАЯ\",I7,E7),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R7": {
+        "value": "=IF(C7=\"\",\"\",IF(OR(O7<>\"ДА\",P7=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C7=\"НОВАЯ\",OR(H7=\"\",I7=\"\",J7=\"\",K7=\"\")),AND(C7=\"ИЗ СПРАВОЧНИКА\",B7=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C7=\"НОВАЯ\",H7,D7)=\"Самосвал\",IF(OR(L7=\"\",M7<>\"ДА\",N7=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S7": {
+        "value": "Synthetic legacy CP",
+        "format": "General"
+      },
+      "T7": {
+        "value": "НЕТ",
+        "format": "General"
+      },
+      "V7": {
+        "value": "=IF(OR(B7=\"\",C7<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B7,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "A8": {
+        "value": 4,
+        "format": "General"
+      },
+      "B8": {
+        "value": "Synthetic selector 4",
+        "format": "General"
+      },
+      "C8": {
+        "value": "ИЗ СПРАВОЧНИКА",
+        "format": "General"
+      },
+      "D8": {
+        "value": "=IF(OR(C8<>\"ИЗ СПРАВОЧНИКА\",B8=\"\"),\"\",IFERROR(VLOOKUP(B8,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E8": {
+        "value": "=IF(OR(C8<>\"ИЗ СПРАВОЧНИКА\",B8=\"\"),\"\",IFERROR(VLOOKUP(B8,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F8": {
+        "value": "=IF(OR(C8<>\"ИЗ СПРАВОЧНИКА\",B8=\"\"),\"\",IFERROR(VLOOKUP(B8,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G8": {
+        "value": "=IF(OR(C8<>\"ИЗ СПРАВОЧНИКА\",B8=\"\"),\"\",IFERROR(VLOOKUP(B8,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "L8": {
+        "value": 25,
+        "format": "0.00"
+      },
+      "M8": {
+        "value": "ДА",
+        "format": "General"
+      },
+      "N8": {
+        "value": "calibration-8.png",
+        "format": "General"
+      },
+      "O8": {
+        "value": "ДА",
+        "format": "General"
+      },
+      "P8": {
+        "value": "sts-8.pdf",
+        "format": "General"
+      },
+      "Q8": {
+        "value": "=IF(C8=\"\",\"\",IF(IF(C8=\"НОВАЯ\",I8,E8)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C8=\"НОВАЯ\",I8,E8))),LEN(IF(C8=\"НОВАЯ\",I8,E8))<8,LEN(IF(C8=\"НОВАЯ\",I8,E8))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C8=\"НОВАЯ\",I8,E8))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C8=\"НОВАЯ\",I8,E8),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C8=\"НОВАЯ\",I8,E8),2)),\"\"))),AND(LEN(IF(C8=\"НОВАЯ\",I8,E8))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C8=\"НОВАЯ\",I8,E8),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C8=\"НОВАЯ\",I8,E8),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R8": {
+        "value": "=IF(C8=\"\",\"\",IF(OR(O8<>\"ДА\",P8=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C8=\"НОВАЯ\",OR(H8=\"\",I8=\"\",J8=\"\",K8=\"\")),AND(C8=\"ИЗ СПРАВОЧНИКА\",B8=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C8=\"НОВАЯ\",H8,D8)=\"Самосвал\",IF(OR(L8=\"\",M8<>\"ДА\",N8=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S8": {
+        "value": "Synthetic legacy CP",
+        "format": "General"
+      },
+      "T8": {
+        "value": "НЕТ",
+        "format": "General"
+      },
+      "V8": {
+        "value": "=IF(OR(B8=\"\",C8<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B8,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "A9": {
+        "value": 5,
+        "format": "General"
+      },
+      "B9": {
+        "value": "Synthetic selector 5",
+        "format": "General"
+      },
+      "C9": {
+        "value": "ИЗ СПРАВОЧНИКА",
+        "format": "General"
+      },
+      "D9": {
+        "value": "=IF(OR(C9<>\"ИЗ СПРАВОЧНИКА\",B9=\"\"),\"\",IFERROR(VLOOKUP(B9,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E9": {
+        "value": "=IF(OR(C9<>\"ИЗ СПРАВОЧНИКА\",B9=\"\"),\"\",IFERROR(VLOOKUP(B9,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F9": {
+        "value": "=IF(OR(C9<>\"ИЗ СПРАВОЧНИКА\",B9=\"\"),\"\",IFERROR(VLOOKUP(B9,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G9": {
+        "value": "=IF(OR(C9<>\"ИЗ СПРАВОЧНИКА\",B9=\"\"),\"\",IFERROR(VLOOKUP(B9,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "L9": {
+        "value": 25,
+        "format": "0.00"
+      },
+      "M9": {
+        "value": "ДА",
+        "format": "General"
+      },
+      "N9": {
+        "value": "calibration-9.png",
+        "format": "General"
+      },
+      "O9": {
+        "value": "ДА",
+        "format": "General"
+      },
+      "P9": {
+        "value": "sts-9.pdf",
+        "format": "General"
+      },
+      "Q9": {
+        "value": "=IF(C9=\"\",\"\",IF(IF(C9=\"НОВАЯ\",I9,E9)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C9=\"НОВАЯ\",I9,E9))),LEN(IF(C9=\"НОВАЯ\",I9,E9))<8,LEN(IF(C9=\"НОВАЯ\",I9,E9))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C9=\"НОВАЯ\",I9,E9))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C9=\"НОВАЯ\",I9,E9),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C9=\"НОВАЯ\",I9,E9),2)),\"\"))),AND(LEN(IF(C9=\"НОВАЯ\",I9,E9))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C9=\"НОВАЯ\",I9,E9),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C9=\"НОВАЯ\",I9,E9),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R9": {
+        "value": "=IF(C9=\"\",\"\",IF(OR(O9<>\"ДА\",P9=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C9=\"НОВАЯ\",OR(H9=\"\",I9=\"\",J9=\"\",K9=\"\")),AND(C9=\"ИЗ СПРАВОЧНИКА\",B9=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C9=\"НОВАЯ\",H9,D9)=\"Самосвал\",IF(OR(L9=\"\",M9<>\"ДА\",N9=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S9": {
+        "value": "Synthetic legacy CP",
+        "format": "General"
+      },
+      "T9": {
+        "value": "НЕТ",
+        "format": "General"
+      },
+      "V9": {
+        "value": "=IF(OR(B9=\"\",C9<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B9,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "A10": {
+        "value": 6,
+        "format": "General"
+      },
+      "B10": {
+        "value": "Synthetic selector 6",
+        "format": "General"
+      },
+      "C10": {
+        "value": "ИЗ СПРАВОЧНИКА",
+        "format": "General"
+      },
+      "D10": {
+        "value": "=IF(OR(C10<>\"ИЗ СПРАВОЧНИКА\",B10=\"\"),\"\",IFERROR(VLOOKUP(B10,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E10": {
+        "value": "=IF(OR(C10<>\"ИЗ СПРАВОЧНИКА\",B10=\"\"),\"\",IFERROR(VLOOKUP(B10,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F10": {
+        "value": "=IF(OR(C10<>\"ИЗ СПРАВОЧНИКА\",B10=\"\"),\"\",IFERROR(VLOOKUP(B10,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G10": {
+        "value": "=IF(OR(C10<>\"ИЗ СПРАВОЧНИКА\",B10=\"\"),\"\",IFERROR(VLOOKUP(B10,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "L10": {
+        "value": 25,
+        "format": "0.00"
+      },
+      "M10": {
+        "value": "ДА",
+        "format": "General"
+      },
+      "N10": {
+        "value": "calibration-10.png",
+        "format": "General"
+      },
+      "O10": {
+        "value": "ДА",
+        "format": "General"
+      },
+      "P10": {
+        "value": "sts-10.pdf",
+        "format": "General"
+      },
+      "Q10": {
+        "value": "=IF(C10=\"\",\"\",IF(IF(C10=\"НОВАЯ\",I10,E10)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C10=\"НОВАЯ\",I10,E10))),LEN(IF(C10=\"НОВАЯ\",I10,E10))<8,LEN(IF(C10=\"НОВАЯ\",I10,E10))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C10=\"НОВАЯ\",I10,E10))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C10=\"НОВАЯ\",I10,E10),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C10=\"НОВАЯ\",I10,E10),2)),\"\"))),AND(LEN(IF(C10=\"НОВАЯ\",I10,E10))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C10=\"НОВАЯ\",I10,E10),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C10=\"НОВАЯ\",I10,E10),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R10": {
+        "value": "=IF(C10=\"\",\"\",IF(OR(O10<>\"ДА\",P10=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C10=\"НОВАЯ\",OR(H10=\"\",I10=\"\",J10=\"\",K10=\"\")),AND(C10=\"ИЗ СПРАВОЧНИКА\",B10=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C10=\"НОВАЯ\",H10,D10)=\"Самосвал\",IF(OR(L10=\"\",M10<>\"ДА\",N10=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S10": {
+        "value": "Synthetic legacy CP",
+        "format": "General"
+      },
+      "T10": {
+        "value": "НЕТ",
+        "format": "General"
+      },
+      "V10": {
+        "value": "=IF(OR(B10=\"\",C10<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B10,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "A11": {
+        "value": 7,
+        "format": "General"
+      },
+      "B11": {
+        "value": "Synthetic selector 7",
+        "format": "General"
+      },
+      "C11": {
+        "value": "ИЗ СПРАВОЧНИКА",
+        "format": "General"
+      },
+      "D11": {
+        "value": "=IF(OR(C11<>\"ИЗ СПРАВОЧНИКА\",B11=\"\"),\"\",IFERROR(VLOOKUP(B11,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E11": {
+        "value": "=IF(OR(C11<>\"ИЗ СПРАВОЧНИКА\",B11=\"\"),\"\",IFERROR(VLOOKUP(B11,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F11": {
+        "value": "=IF(OR(C11<>\"ИЗ СПРАВОЧНИКА\",B11=\"\"),\"\",IFERROR(VLOOKUP(B11,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G11": {
+        "value": "=IF(OR(C11<>\"ИЗ СПРАВОЧНИКА\",B11=\"\"),\"\",IFERROR(VLOOKUP(B11,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "L11": {
+        "value": 25,
+        "format": "0.00"
+      },
+      "M11": {
+        "value": "ДА",
+        "format": "General"
+      },
+      "N11": {
+        "value": "calibration-11.png",
+        "format": "General"
+      },
+      "O11": {
+        "value": "ДА",
+        "format": "General"
+      },
+      "P11": {
+        "value": "sts-11.pdf",
+        "format": "General"
+      },
+      "Q11": {
+        "value": "=IF(C11=\"\",\"\",IF(IF(C11=\"НОВАЯ\",I11,E11)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C11=\"НОВАЯ\",I11,E11))),LEN(IF(C11=\"НОВАЯ\",I11,E11))<8,LEN(IF(C11=\"НОВАЯ\",I11,E11))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C11=\"НОВАЯ\",I11,E11))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C11=\"НОВАЯ\",I11,E11),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C11=\"НОВАЯ\",I11,E11),2)),\"\"))),AND(LEN(IF(C11=\"НОВАЯ\",I11,E11))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C11=\"НОВАЯ\",I11,E11),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C11=\"НОВАЯ\",I11,E11),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R11": {
+        "value": "=IF(C11=\"\",\"\",IF(OR(O11<>\"ДА\",P11=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C11=\"НОВАЯ\",OR(H11=\"\",I11=\"\",J11=\"\",K11=\"\")),AND(C11=\"ИЗ СПРАВОЧНИКА\",B11=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C11=\"НОВАЯ\",H11,D11)=\"Самосвал\",IF(OR(L11=\"\",M11<>\"ДА\",N11=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S11": {
+        "value": "Synthetic legacy CP",
+        "format": "General"
+      },
+      "T11": {
+        "value": "НЕТ",
+        "format": "General"
+      },
+      "V11": {
+        "value": "=IF(OR(B11=\"\",C11<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B11,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "A12": {
+        "value": 8,
+        "format": "General"
+      },
+      "B12": {
+        "value": "Synthetic selector 8",
+        "format": "General"
+      },
+      "C12": {
+        "value": "ИЗ СПРАВОЧНИКА",
+        "format": "General"
+      },
+      "D12": {
+        "value": "=IF(OR(C12<>\"ИЗ СПРАВОЧНИКА\",B12=\"\"),\"\",IFERROR(VLOOKUP(B12,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E12": {
+        "value": "=IF(OR(C12<>\"ИЗ СПРАВОЧНИКА\",B12=\"\"),\"\",IFERROR(VLOOKUP(B12,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F12": {
+        "value": "=IF(OR(C12<>\"ИЗ СПРАВОЧНИКА\",B12=\"\"),\"\",IFERROR(VLOOKUP(B12,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G12": {
+        "value": "=IF(OR(C12<>\"ИЗ СПРАВОЧНИКА\",B12=\"\"),\"\",IFERROR(VLOOKUP(B12,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "O12": {
+        "value": "ДА",
+        "format": "General"
+      },
+      "P12": {
+        "value": "sts-12.pdf",
+        "format": "General"
+      },
+      "Q12": {
+        "value": "=IF(C12=\"\",\"\",IF(IF(C12=\"НОВАЯ\",I12,E12)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C12=\"НОВАЯ\",I12,E12))),LEN(IF(C12=\"НОВАЯ\",I12,E12))<8,LEN(IF(C12=\"НОВАЯ\",I12,E12))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C12=\"НОВАЯ\",I12,E12))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C12=\"НОВАЯ\",I12,E12),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C12=\"НОВАЯ\",I12,E12),2)),\"\"))),AND(LEN(IF(C12=\"НОВАЯ\",I12,E12))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C12=\"НОВАЯ\",I12,E12),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C12=\"НОВАЯ\",I12,E12),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R12": {
+        "value": "=IF(C12=\"\",\"\",IF(OR(O12<>\"ДА\",P12=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C12=\"НОВАЯ\",OR(H12=\"\",I12=\"\",J12=\"\",K12=\"\")),AND(C12=\"ИЗ СПРАВОЧНИКА\",B12=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C12=\"НОВАЯ\",H12,D12)=\"Самосвал\",IF(OR(L12=\"\",M12<>\"ДА\",N12=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S12": {
+        "value": "Synthetic legacy CP",
+        "format": "General"
+      },
+      "T12": {
+        "value": "НЕТ",
+        "format": "General"
+      },
+      "V12": {
+        "value": "=IF(OR(B12=\"\",C12<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B12,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "A13": {
+        "value": 9,
+        "format": "General"
+      },
+      "B13": {
+        "value": "Synthetic selector 9",
+        "format": "General"
+      },
+      "C13": {
+        "value": "ИЗ СПРАВОЧНИКА",
+        "format": "General"
+      },
+      "D13": {
+        "value": "=IF(OR(C13<>\"ИЗ СПРАВОЧНИКА\",B13=\"\"),\"\",IFERROR(VLOOKUP(B13,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E13": {
+        "value": "=IF(OR(C13<>\"ИЗ СПРАВОЧНИКА\",B13=\"\"),\"\",IFERROR(VLOOKUP(B13,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F13": {
+        "value": "=IF(OR(C13<>\"ИЗ СПРАВОЧНИКА\",B13=\"\"),\"\",IFERROR(VLOOKUP(B13,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G13": {
+        "value": "=IF(OR(C13<>\"ИЗ СПРАВОЧНИКА\",B13=\"\"),\"\",IFERROR(VLOOKUP(B13,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "O13": {
+        "value": "ДА",
+        "format": "General"
+      },
+      "P13": {
+        "value": "sts-13.pdf",
+        "format": "General"
+      },
+      "Q13": {
+        "value": "=IF(C13=\"\",\"\",IF(IF(C13=\"НОВАЯ\",I13,E13)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C13=\"НОВАЯ\",I13,E13))),LEN(IF(C13=\"НОВАЯ\",I13,E13))<8,LEN(IF(C13=\"НОВАЯ\",I13,E13))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C13=\"НОВАЯ\",I13,E13))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C13=\"НОВАЯ\",I13,E13),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C13=\"НОВАЯ\",I13,E13),2)),\"\"))),AND(LEN(IF(C13=\"НОВАЯ\",I13,E13))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C13=\"НОВАЯ\",I13,E13),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C13=\"НОВАЯ\",I13,E13),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R13": {
+        "value": "=IF(C13=\"\",\"\",IF(OR(O13<>\"ДА\",P13=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C13=\"НОВАЯ\",OR(H13=\"\",I13=\"\",J13=\"\",K13=\"\")),AND(C13=\"ИЗ СПРАВОЧНИКА\",B13=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C13=\"НОВАЯ\",H13,D13)=\"Самосвал\",IF(OR(L13=\"\",M13<>\"ДА\",N13=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S13": {
+        "value": "Synthetic legacy CP",
+        "format": "General"
+      },
+      "T13": {
+        "value": "НЕТ",
+        "format": "General"
+      },
+      "V13": {
+        "value": "=IF(OR(B13=\"\",C13<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B13,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "A14": {
+        "value": 10,
+        "format": "General"
+      },
+      "B14": {
+        "value": "Synthetic selector 10",
+        "format": "General"
+      },
+      "C14": {
+        "value": "ИЗ СПРАВОЧНИКА",
+        "format": "General"
+      },
+      "D14": {
+        "value": "=IF(OR(C14<>\"ИЗ СПРАВОЧНИКА\",B14=\"\"),\"\",IFERROR(VLOOKUP(B14,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E14": {
+        "value": "=IF(OR(C14<>\"ИЗ СПРАВОЧНИКА\",B14=\"\"),\"\",IFERROR(VLOOKUP(B14,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F14": {
+        "value": "=IF(OR(C14<>\"ИЗ СПРАВОЧНИКА\",B14=\"\"),\"\",IFERROR(VLOOKUP(B14,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G14": {
+        "value": "=IF(OR(C14<>\"ИЗ СПРАВОЧНИКА\",B14=\"\"),\"\",IFERROR(VLOOKUP(B14,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "O14": {
+        "value": "ДА",
+        "format": "General"
+      },
+      "P14": {
+        "value": "sts-14.pdf",
+        "format": "General"
+      },
+      "Q14": {
+        "value": "=IF(C14=\"\",\"\",IF(IF(C14=\"НОВАЯ\",I14,E14)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C14=\"НОВАЯ\",I14,E14))),LEN(IF(C14=\"НОВАЯ\",I14,E14))<8,LEN(IF(C14=\"НОВАЯ\",I14,E14))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C14=\"НОВАЯ\",I14,E14))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C14=\"НОВАЯ\",I14,E14),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C14=\"НОВАЯ\",I14,E14),2)),\"\"))),AND(LEN(IF(C14=\"НОВАЯ\",I14,E14))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C14=\"НОВАЯ\",I14,E14),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C14=\"НОВАЯ\",I14,E14),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R14": {
+        "value": "=IF(C14=\"\",\"\",IF(OR(O14<>\"ДА\",P14=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C14=\"НОВАЯ\",OR(H14=\"\",I14=\"\",J14=\"\",K14=\"\")),AND(C14=\"ИЗ СПРАВОЧНИКА\",B14=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C14=\"НОВАЯ\",H14,D14)=\"Самосвал\",IF(OR(L14=\"\",M14<>\"ДА\",N14=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S14": {
+        "value": "Synthetic legacy CP",
+        "format": "General"
+      },
+      "T14": {
+        "value": "НЕТ",
+        "format": "General"
+      },
+      "V14": {
+        "value": "=IF(OR(B14=\"\",C14<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B14,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "A15": {
+        "value": 11,
+        "format": "General"
+      },
+      "B15": {
+        "value": "Synthetic selector 11",
+        "format": "General"
+      },
+      "C15": {
+        "value": "ИЗ СПРАВОЧНИКА",
+        "format": "General"
+      },
+      "D15": {
+        "value": "=IF(OR(C15<>\"ИЗ СПРАВОЧНИКА\",B15=\"\"),\"\",IFERROR(VLOOKUP(B15,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E15": {
+        "value": "=IF(OR(C15<>\"ИЗ СПРАВОЧНИКА\",B15=\"\"),\"\",IFERROR(VLOOKUP(B15,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F15": {
+        "value": "=IF(OR(C15<>\"ИЗ СПРАВОЧНИКА\",B15=\"\"),\"\",IFERROR(VLOOKUP(B15,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G15": {
+        "value": "=IF(OR(C15<>\"ИЗ СПРАВОЧНИКА\",B15=\"\"),\"\",IFERROR(VLOOKUP(B15,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "O15": {
+        "value": "ДА",
+        "format": "General"
+      },
+      "P15": {
+        "value": "sts-15.pdf",
+        "format": "General"
+      },
+      "Q15": {
+        "value": "=IF(C15=\"\",\"\",IF(IF(C15=\"НОВАЯ\",I15,E15)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C15=\"НОВАЯ\",I15,E15))),LEN(IF(C15=\"НОВАЯ\",I15,E15))<8,LEN(IF(C15=\"НОВАЯ\",I15,E15))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C15=\"НОВАЯ\",I15,E15))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C15=\"НОВАЯ\",I15,E15),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C15=\"НОВАЯ\",I15,E15),2)),\"\"))),AND(LEN(IF(C15=\"НОВАЯ\",I15,E15))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C15=\"НОВАЯ\",I15,E15),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C15=\"НОВАЯ\",I15,E15),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R15": {
+        "value": "=IF(C15=\"\",\"\",IF(OR(O15<>\"ДА\",P15=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C15=\"НОВАЯ\",OR(H15=\"\",I15=\"\",J15=\"\",K15=\"\")),AND(C15=\"ИЗ СПРАВОЧНИКА\",B15=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C15=\"НОВАЯ\",H15,D15)=\"Самосвал\",IF(OR(L15=\"\",M15<>\"ДА\",N15=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S15": {
+        "value": "Synthetic legacy CP",
+        "format": "General"
+      },
+      "T15": {
+        "value": "НЕТ",
+        "format": "General"
+      },
+      "V15": {
+        "value": "=IF(OR(B15=\"\",C15<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B15,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "A16": {
+        "value": 12,
+        "format": "General"
+      },
+      "B16": {
+        "value": "Synthetic selector 12",
+        "format": "General"
+      },
+      "C16": {
+        "value": "ИЗ СПРАВОЧНИКА",
+        "format": "General"
+      },
+      "D16": {
+        "value": "=IF(OR(C16<>\"ИЗ СПРАВОЧНИКА\",B16=\"\"),\"\",IFERROR(VLOOKUP(B16,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E16": {
+        "value": "=IF(OR(C16<>\"ИЗ СПРАВОЧНИКА\",B16=\"\"),\"\",IFERROR(VLOOKUP(B16,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F16": {
+        "value": "=IF(OR(C16<>\"ИЗ СПРАВОЧНИКА\",B16=\"\"),\"\",IFERROR(VLOOKUP(B16,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G16": {
+        "value": "=IF(OR(C16<>\"ИЗ СПРАВОЧНИКА\",B16=\"\"),\"\",IFERROR(VLOOKUP(B16,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "O16": {
+        "value": "ДА",
+        "format": "General"
+      },
+      "P16": {
+        "value": "sts-16.pdf",
+        "format": "General"
+      },
+      "Q16": {
+        "value": "=IF(C16=\"\",\"\",IF(IF(C16=\"НОВАЯ\",I16,E16)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C16=\"НОВАЯ\",I16,E16))),LEN(IF(C16=\"НОВАЯ\",I16,E16))<8,LEN(IF(C16=\"НОВАЯ\",I16,E16))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C16=\"НОВАЯ\",I16,E16))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C16=\"НОВАЯ\",I16,E16),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C16=\"НОВАЯ\",I16,E16),2)),\"\"))),AND(LEN(IF(C16=\"НОВАЯ\",I16,E16))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C16=\"НОВАЯ\",I16,E16),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C16=\"НОВАЯ\",I16,E16),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R16": {
+        "value": "=IF(C16=\"\",\"\",IF(OR(O16<>\"ДА\",P16=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C16=\"НОВАЯ\",OR(H16=\"\",I16=\"\",J16=\"\",K16=\"\")),AND(C16=\"ИЗ СПРАВОЧНИКА\",B16=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C16=\"НОВАЯ\",H16,D16)=\"Самосвал\",IF(OR(L16=\"\",M16<>\"ДА\",N16=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S16": {
+        "value": "Synthetic legacy CP",
+        "format": "General"
+      },
+      "T16": {
+        "value": "НЕТ",
+        "format": "General"
+      },
+      "V16": {
+        "value": "=IF(OR(B16=\"\",C16<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B16,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D17": {
+        "value": "=IF(OR(C17<>\"ИЗ СПРАВОЧНИКА\",B17=\"\"),\"\",IFERROR(VLOOKUP(B17,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E17": {
+        "value": "=IF(OR(C17<>\"ИЗ СПРАВОЧНИКА\",B17=\"\"),\"\",IFERROR(VLOOKUP(B17,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F17": {
+        "value": "=IF(OR(C17<>\"ИЗ СПРАВОЧНИКА\",B17=\"\"),\"\",IFERROR(VLOOKUP(B17,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G17": {
+        "value": "=IF(OR(C17<>\"ИЗ СПРАВОЧНИКА\",B17=\"\"),\"\",IFERROR(VLOOKUP(B17,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q17": {
+        "value": "=IF(C17=\"\",\"\",IF(IF(C17=\"НОВАЯ\",I17,E17)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C17=\"НОВАЯ\",I17,E17))),LEN(IF(C17=\"НОВАЯ\",I17,E17))<8,LEN(IF(C17=\"НОВАЯ\",I17,E17))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C17=\"НОВАЯ\",I17,E17))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C17=\"НОВАЯ\",I17,E17),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C17=\"НОВАЯ\",I17,E17),2)),\"\"))),AND(LEN(IF(C17=\"НОВАЯ\",I17,E17))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C17=\"НОВАЯ\",I17,E17),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C17=\"НОВАЯ\",I17,E17),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R17": {
+        "value": "=IF(C17=\"\",\"\",IF(OR(O17<>\"ДА\",P17=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C17=\"НОВАЯ\",OR(H17=\"\",I17=\"\",J17=\"\",K17=\"\")),AND(C17=\"ИЗ СПРАВОЧНИКА\",B17=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C17=\"НОВАЯ\",H17,D17)=\"Самосвал\",IF(OR(L17=\"\",M17<>\"ДА\",N17=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "V17": {
+        "value": "=IF(OR(B17=\"\",C17<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B17,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D18": {
+        "value": "=IF(OR(C18<>\"ИЗ СПРАВОЧНИКА\",B18=\"\"),\"\",IFERROR(VLOOKUP(B18,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E18": {
+        "value": "=IF(OR(C18<>\"ИЗ СПРАВОЧНИКА\",B18=\"\"),\"\",IFERROR(VLOOKUP(B18,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F18": {
+        "value": "=IF(OR(C18<>\"ИЗ СПРАВОЧНИКА\",B18=\"\"),\"\",IFERROR(VLOOKUP(B18,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G18": {
+        "value": "=IF(OR(C18<>\"ИЗ СПРАВОЧНИКА\",B18=\"\"),\"\",IFERROR(VLOOKUP(B18,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q18": {
+        "value": "=IF(C18=\"\",\"\",IF(IF(C18=\"НОВАЯ\",I18,E18)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C18=\"НОВАЯ\",I18,E18))),LEN(IF(C18=\"НОВАЯ\",I18,E18))<8,LEN(IF(C18=\"НОВАЯ\",I18,E18))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C18=\"НОВАЯ\",I18,E18))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C18=\"НОВАЯ\",I18,E18),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C18=\"НОВАЯ\",I18,E18),2)),\"\"))),AND(LEN(IF(C18=\"НОВАЯ\",I18,E18))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C18=\"НОВАЯ\",I18,E18),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C18=\"НОВАЯ\",I18,E18),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R18": {
+        "value": "=IF(C18=\"\",\"\",IF(OR(O18<>\"ДА\",P18=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C18=\"НОВАЯ\",OR(H18=\"\",I18=\"\",J18=\"\",K18=\"\")),AND(C18=\"ИЗ СПРАВОЧНИКА\",B18=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C18=\"НОВАЯ\",H18,D18)=\"Самосвал\",IF(OR(L18=\"\",M18<>\"ДА\",N18=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "V18": {
+        "value": "=IF(OR(B18=\"\",C18<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B18,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D19": {
+        "value": "=IF(OR(C19<>\"ИЗ СПРАВОЧНИКА\",B19=\"\"),\"\",IFERROR(VLOOKUP(B19,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E19": {
+        "value": "=IF(OR(C19<>\"ИЗ СПРАВОЧНИКА\",B19=\"\"),\"\",IFERROR(VLOOKUP(B19,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F19": {
+        "value": "=IF(OR(C19<>\"ИЗ СПРАВОЧНИКА\",B19=\"\"),\"\",IFERROR(VLOOKUP(B19,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G19": {
+        "value": "=IF(OR(C19<>\"ИЗ СПРАВОЧНИКА\",B19=\"\"),\"\",IFERROR(VLOOKUP(B19,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q19": {
+        "value": "=IF(C19=\"\",\"\",IF(IF(C19=\"НОВАЯ\",I19,E19)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C19=\"НОВАЯ\",I19,E19))),LEN(IF(C19=\"НОВАЯ\",I19,E19))<8,LEN(IF(C19=\"НОВАЯ\",I19,E19))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C19=\"НОВАЯ\",I19,E19))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C19=\"НОВАЯ\",I19,E19),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C19=\"НОВАЯ\",I19,E19),2)),\"\"))),AND(LEN(IF(C19=\"НОВАЯ\",I19,E19))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C19=\"НОВАЯ\",I19,E19),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C19=\"НОВАЯ\",I19,E19),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R19": {
+        "value": "=IF(C19=\"\",\"\",IF(OR(O19<>\"ДА\",P19=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C19=\"НОВАЯ\",OR(H19=\"\",I19=\"\",J19=\"\",K19=\"\")),AND(C19=\"ИЗ СПРАВОЧНИКА\",B19=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C19=\"НОВАЯ\",H19,D19)=\"Самосвал\",IF(OR(L19=\"\",M19<>\"ДА\",N19=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S19": {
+        "value": "=IF(C19=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V19": {
+        "value": "=IF(OR(B19=\"\",C19<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B19,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D20": {
+        "value": "=IF(OR(C20<>\"ИЗ СПРАВОЧНИКА\",B20=\"\"),\"\",IFERROR(VLOOKUP(B20,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E20": {
+        "value": "=IF(OR(C20<>\"ИЗ СПРАВОЧНИКА\",B20=\"\"),\"\",IFERROR(VLOOKUP(B20,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F20": {
+        "value": "=IF(OR(C20<>\"ИЗ СПРАВОЧНИКА\",B20=\"\"),\"\",IFERROR(VLOOKUP(B20,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G20": {
+        "value": "=IF(OR(C20<>\"ИЗ СПРАВОЧНИКА\",B20=\"\"),\"\",IFERROR(VLOOKUP(B20,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q20": {
+        "value": "=IF(C20=\"\",\"\",IF(IF(C20=\"НОВАЯ\",I20,E20)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C20=\"НОВАЯ\",I20,E20))),LEN(IF(C20=\"НОВАЯ\",I20,E20))<8,LEN(IF(C20=\"НОВАЯ\",I20,E20))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C20=\"НОВАЯ\",I20,E20))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C20=\"НОВАЯ\",I20,E20),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C20=\"НОВАЯ\",I20,E20),2)),\"\"))),AND(LEN(IF(C20=\"НОВАЯ\",I20,E20))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C20=\"НОВАЯ\",I20,E20),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C20=\"НОВАЯ\",I20,E20),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R20": {
+        "value": "=IF(C20=\"\",\"\",IF(OR(O20<>\"ДА\",P20=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C20=\"НОВАЯ\",OR(H20=\"\",I20=\"\",J20=\"\",K20=\"\")),AND(C20=\"ИЗ СПРАВОЧНИКА\",B20=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C20=\"НОВАЯ\",H20,D20)=\"Самосвал\",IF(OR(L20=\"\",M20<>\"ДА\",N20=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S20": {
+        "value": "=IF(C20=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V20": {
+        "value": "=IF(OR(B20=\"\",C20<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B20,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D21": {
+        "value": "=IF(OR(C21<>\"ИЗ СПРАВОЧНИКА\",B21=\"\"),\"\",IFERROR(VLOOKUP(B21,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E21": {
+        "value": "=IF(OR(C21<>\"ИЗ СПРАВОЧНИКА\",B21=\"\"),\"\",IFERROR(VLOOKUP(B21,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F21": {
+        "value": "=IF(OR(C21<>\"ИЗ СПРАВОЧНИКА\",B21=\"\"),\"\",IFERROR(VLOOKUP(B21,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G21": {
+        "value": "=IF(OR(C21<>\"ИЗ СПРАВОЧНИКА\",B21=\"\"),\"\",IFERROR(VLOOKUP(B21,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q21": {
+        "value": "=IF(C21=\"\",\"\",IF(IF(C21=\"НОВАЯ\",I21,E21)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C21=\"НОВАЯ\",I21,E21))),LEN(IF(C21=\"НОВАЯ\",I21,E21))<8,LEN(IF(C21=\"НОВАЯ\",I21,E21))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C21=\"НОВАЯ\",I21,E21))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C21=\"НОВАЯ\",I21,E21),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C21=\"НОВАЯ\",I21,E21),2)),\"\"))),AND(LEN(IF(C21=\"НОВАЯ\",I21,E21))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C21=\"НОВАЯ\",I21,E21),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C21=\"НОВАЯ\",I21,E21),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R21": {
+        "value": "=IF(C21=\"\",\"\",IF(OR(O21<>\"ДА\",P21=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C21=\"НОВАЯ\",OR(H21=\"\",I21=\"\",J21=\"\",K21=\"\")),AND(C21=\"ИЗ СПРАВОЧНИКА\",B21=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C21=\"НОВАЯ\",H21,D21)=\"Самосвал\",IF(OR(L21=\"\",M21<>\"ДА\",N21=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S21": {
+        "value": "=IF(C21=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V21": {
+        "value": "=IF(OR(B21=\"\",C21<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B21,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D22": {
+        "value": "=IF(OR(C22<>\"ИЗ СПРАВОЧНИКА\",B22=\"\"),\"\",IFERROR(VLOOKUP(B22,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E22": {
+        "value": "=IF(OR(C22<>\"ИЗ СПРАВОЧНИКА\",B22=\"\"),\"\",IFERROR(VLOOKUP(B22,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F22": {
+        "value": "=IF(OR(C22<>\"ИЗ СПРАВОЧНИКА\",B22=\"\"),\"\",IFERROR(VLOOKUP(B22,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G22": {
+        "value": "=IF(OR(C22<>\"ИЗ СПРАВОЧНИКА\",B22=\"\"),\"\",IFERROR(VLOOKUP(B22,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q22": {
+        "value": "=IF(C22=\"\",\"\",IF(IF(C22=\"НОВАЯ\",I22,E22)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C22=\"НОВАЯ\",I22,E22))),LEN(IF(C22=\"НОВАЯ\",I22,E22))<8,LEN(IF(C22=\"НОВАЯ\",I22,E22))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C22=\"НОВАЯ\",I22,E22))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C22=\"НОВАЯ\",I22,E22),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C22=\"НОВАЯ\",I22,E22),2)),\"\"))),AND(LEN(IF(C22=\"НОВАЯ\",I22,E22))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C22=\"НОВАЯ\",I22,E22),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C22=\"НОВАЯ\",I22,E22),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R22": {
+        "value": "=IF(C22=\"\",\"\",IF(OR(O22<>\"ДА\",P22=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C22=\"НОВАЯ\",OR(H22=\"\",I22=\"\",J22=\"\",K22=\"\")),AND(C22=\"ИЗ СПРАВОЧНИКА\",B22=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C22=\"НОВАЯ\",H22,D22)=\"Самосвал\",IF(OR(L22=\"\",M22<>\"ДА\",N22=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S22": {
+        "value": "=IF(C22=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V22": {
+        "value": "=IF(OR(B22=\"\",C22<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B22,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D23": {
+        "value": "=IF(OR(C23<>\"ИЗ СПРАВОЧНИКА\",B23=\"\"),\"\",IFERROR(VLOOKUP(B23,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E23": {
+        "value": "=IF(OR(C23<>\"ИЗ СПРАВОЧНИКА\",B23=\"\"),\"\",IFERROR(VLOOKUP(B23,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F23": {
+        "value": "=IF(OR(C23<>\"ИЗ СПРАВОЧНИКА\",B23=\"\"),\"\",IFERROR(VLOOKUP(B23,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G23": {
+        "value": "=IF(OR(C23<>\"ИЗ СПРАВОЧНИКА\",B23=\"\"),\"\",IFERROR(VLOOKUP(B23,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q23": {
+        "value": "=IF(C23=\"\",\"\",IF(IF(C23=\"НОВАЯ\",I23,E23)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C23=\"НОВАЯ\",I23,E23))),LEN(IF(C23=\"НОВАЯ\",I23,E23))<8,LEN(IF(C23=\"НОВАЯ\",I23,E23))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C23=\"НОВАЯ\",I23,E23))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C23=\"НОВАЯ\",I23,E23),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C23=\"НОВАЯ\",I23,E23),2)),\"\"))),AND(LEN(IF(C23=\"НОВАЯ\",I23,E23))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C23=\"НОВАЯ\",I23,E23),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C23=\"НОВАЯ\",I23,E23),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R23": {
+        "value": "=IF(C23=\"\",\"\",IF(OR(O23<>\"ДА\",P23=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C23=\"НОВАЯ\",OR(H23=\"\",I23=\"\",J23=\"\",K23=\"\")),AND(C23=\"ИЗ СПРАВОЧНИКА\",B23=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C23=\"НОВАЯ\",H23,D23)=\"Самосвал\",IF(OR(L23=\"\",M23<>\"ДА\",N23=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S23": {
+        "value": "=IF(C23=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V23": {
+        "value": "=IF(OR(B23=\"\",C23<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B23,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D24": {
+        "value": "=IF(OR(C24<>\"ИЗ СПРАВОЧНИКА\",B24=\"\"),\"\",IFERROR(VLOOKUP(B24,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E24": {
+        "value": "=IF(OR(C24<>\"ИЗ СПРАВОЧНИКА\",B24=\"\"),\"\",IFERROR(VLOOKUP(B24,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F24": {
+        "value": "=IF(OR(C24<>\"ИЗ СПРАВОЧНИКА\",B24=\"\"),\"\",IFERROR(VLOOKUP(B24,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G24": {
+        "value": "=IF(OR(C24<>\"ИЗ СПРАВОЧНИКА\",B24=\"\"),\"\",IFERROR(VLOOKUP(B24,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q24": {
+        "value": "=IF(C24=\"\",\"\",IF(IF(C24=\"НОВАЯ\",I24,E24)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C24=\"НОВАЯ\",I24,E24))),LEN(IF(C24=\"НОВАЯ\",I24,E24))<8,LEN(IF(C24=\"НОВАЯ\",I24,E24))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C24=\"НОВАЯ\",I24,E24))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C24=\"НОВАЯ\",I24,E24),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C24=\"НОВАЯ\",I24,E24),2)),\"\"))),AND(LEN(IF(C24=\"НОВАЯ\",I24,E24))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C24=\"НОВАЯ\",I24,E24),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C24=\"НОВАЯ\",I24,E24),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R24": {
+        "value": "=IF(C24=\"\",\"\",IF(OR(O24<>\"ДА\",P24=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C24=\"НОВАЯ\",OR(H24=\"\",I24=\"\",J24=\"\",K24=\"\")),AND(C24=\"ИЗ СПРАВОЧНИКА\",B24=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C24=\"НОВАЯ\",H24,D24)=\"Самосвал\",IF(OR(L24=\"\",M24<>\"ДА\",N24=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S24": {
+        "value": "=IF(C24=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V24": {
+        "value": "=IF(OR(B24=\"\",C24<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B24,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D25": {
+        "value": "=IF(OR(C25<>\"ИЗ СПРАВОЧНИКА\",B25=\"\"),\"\",IFERROR(VLOOKUP(B25,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E25": {
+        "value": "=IF(OR(C25<>\"ИЗ СПРАВОЧНИКА\",B25=\"\"),\"\",IFERROR(VLOOKUP(B25,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F25": {
+        "value": "=IF(OR(C25<>\"ИЗ СПРАВОЧНИКА\",B25=\"\"),\"\",IFERROR(VLOOKUP(B25,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G25": {
+        "value": "=IF(OR(C25<>\"ИЗ СПРАВОЧНИКА\",B25=\"\"),\"\",IFERROR(VLOOKUP(B25,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q25": {
+        "value": "=IF(C25=\"\",\"\",IF(IF(C25=\"НОВАЯ\",I25,E25)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C25=\"НОВАЯ\",I25,E25))),LEN(IF(C25=\"НОВАЯ\",I25,E25))<8,LEN(IF(C25=\"НОВАЯ\",I25,E25))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C25=\"НОВАЯ\",I25,E25))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C25=\"НОВАЯ\",I25,E25),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C25=\"НОВАЯ\",I25,E25),2)),\"\"))),AND(LEN(IF(C25=\"НОВАЯ\",I25,E25))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C25=\"НОВАЯ\",I25,E25),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C25=\"НОВАЯ\",I25,E25),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R25": {
+        "value": "=IF(C25=\"\",\"\",IF(OR(O25<>\"ДА\",P25=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C25=\"НОВАЯ\",OR(H25=\"\",I25=\"\",J25=\"\",K25=\"\")),AND(C25=\"ИЗ СПРАВОЧНИКА\",B25=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C25=\"НОВАЯ\",H25,D25)=\"Самосвал\",IF(OR(L25=\"\",M25<>\"ДА\",N25=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S25": {
+        "value": "=IF(C25=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V25": {
+        "value": "=IF(OR(B25=\"\",C25<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B25,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D26": {
+        "value": "=IF(OR(C26<>\"ИЗ СПРАВОЧНИКА\",B26=\"\"),\"\",IFERROR(VLOOKUP(B26,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E26": {
+        "value": "=IF(OR(C26<>\"ИЗ СПРАВОЧНИКА\",B26=\"\"),\"\",IFERROR(VLOOKUP(B26,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F26": {
+        "value": "=IF(OR(C26<>\"ИЗ СПРАВОЧНИКА\",B26=\"\"),\"\",IFERROR(VLOOKUP(B26,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G26": {
+        "value": "=IF(OR(C26<>\"ИЗ СПРАВОЧНИКА\",B26=\"\"),\"\",IFERROR(VLOOKUP(B26,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q26": {
+        "value": "=IF(C26=\"\",\"\",IF(IF(C26=\"НОВАЯ\",I26,E26)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C26=\"НОВАЯ\",I26,E26))),LEN(IF(C26=\"НОВАЯ\",I26,E26))<8,LEN(IF(C26=\"НОВАЯ\",I26,E26))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C26=\"НОВАЯ\",I26,E26))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C26=\"НОВАЯ\",I26,E26),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C26=\"НОВАЯ\",I26,E26),2)),\"\"))),AND(LEN(IF(C26=\"НОВАЯ\",I26,E26))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C26=\"НОВАЯ\",I26,E26),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C26=\"НОВАЯ\",I26,E26),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R26": {
+        "value": "=IF(C26=\"\",\"\",IF(OR(O26<>\"ДА\",P26=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C26=\"НОВАЯ\",OR(H26=\"\",I26=\"\",J26=\"\",K26=\"\")),AND(C26=\"ИЗ СПРАВОЧНИКА\",B26=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C26=\"НОВАЯ\",H26,D26)=\"Самосвал\",IF(OR(L26=\"\",M26<>\"ДА\",N26=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S26": {
+        "value": "=IF(C26=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V26": {
+        "value": "=IF(OR(B26=\"\",C26<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B26,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D27": {
+        "value": "=IF(OR(C27<>\"ИЗ СПРАВОЧНИКА\",B27=\"\"),\"\",IFERROR(VLOOKUP(B27,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E27": {
+        "value": "=IF(OR(C27<>\"ИЗ СПРАВОЧНИКА\",B27=\"\"),\"\",IFERROR(VLOOKUP(B27,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F27": {
+        "value": "=IF(OR(C27<>\"ИЗ СПРАВОЧНИКА\",B27=\"\"),\"\",IFERROR(VLOOKUP(B27,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G27": {
+        "value": "=IF(OR(C27<>\"ИЗ СПРАВОЧНИКА\",B27=\"\"),\"\",IFERROR(VLOOKUP(B27,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q27": {
+        "value": "=IF(C27=\"\",\"\",IF(IF(C27=\"НОВАЯ\",I27,E27)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C27=\"НОВАЯ\",I27,E27))),LEN(IF(C27=\"НОВАЯ\",I27,E27))<8,LEN(IF(C27=\"НОВАЯ\",I27,E27))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C27=\"НОВАЯ\",I27,E27))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C27=\"НОВАЯ\",I27,E27),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C27=\"НОВАЯ\",I27,E27),2)),\"\"))),AND(LEN(IF(C27=\"НОВАЯ\",I27,E27))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C27=\"НОВАЯ\",I27,E27),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C27=\"НОВАЯ\",I27,E27),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R27": {
+        "value": "=IF(C27=\"\",\"\",IF(OR(O27<>\"ДА\",P27=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C27=\"НОВАЯ\",OR(H27=\"\",I27=\"\",J27=\"\",K27=\"\")),AND(C27=\"ИЗ СПРАВОЧНИКА\",B27=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C27=\"НОВАЯ\",H27,D27)=\"Самосвал\",IF(OR(L27=\"\",M27<>\"ДА\",N27=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S27": {
+        "value": "=IF(C27=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V27": {
+        "value": "=IF(OR(B27=\"\",C27<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B27,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D28": {
+        "value": "=IF(OR(C28<>\"ИЗ СПРАВОЧНИКА\",B28=\"\"),\"\",IFERROR(VLOOKUP(B28,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E28": {
+        "value": "=IF(OR(C28<>\"ИЗ СПРАВОЧНИКА\",B28=\"\"),\"\",IFERROR(VLOOKUP(B28,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F28": {
+        "value": "=IF(OR(C28<>\"ИЗ СПРАВОЧНИКА\",B28=\"\"),\"\",IFERROR(VLOOKUP(B28,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G28": {
+        "value": "=IF(OR(C28<>\"ИЗ СПРАВОЧНИКА\",B28=\"\"),\"\",IFERROR(VLOOKUP(B28,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q28": {
+        "value": "=IF(C28=\"\",\"\",IF(IF(C28=\"НОВАЯ\",I28,E28)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C28=\"НОВАЯ\",I28,E28))),LEN(IF(C28=\"НОВАЯ\",I28,E28))<8,LEN(IF(C28=\"НОВАЯ\",I28,E28))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C28=\"НОВАЯ\",I28,E28))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C28=\"НОВАЯ\",I28,E28),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C28=\"НОВАЯ\",I28,E28),2)),\"\"))),AND(LEN(IF(C28=\"НОВАЯ\",I28,E28))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C28=\"НОВАЯ\",I28,E28),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C28=\"НОВАЯ\",I28,E28),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R28": {
+        "value": "=IF(C28=\"\",\"\",IF(OR(O28<>\"ДА\",P28=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C28=\"НОВАЯ\",OR(H28=\"\",I28=\"\",J28=\"\",K28=\"\")),AND(C28=\"ИЗ СПРАВОЧНИКА\",B28=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C28=\"НОВАЯ\",H28,D28)=\"Самосвал\",IF(OR(L28=\"\",M28<>\"ДА\",N28=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S28": {
+        "value": "=IF(C28=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V28": {
+        "value": "=IF(OR(B28=\"\",C28<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B28,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D29": {
+        "value": "=IF(OR(C29<>\"ИЗ СПРАВОЧНИКА\",B29=\"\"),\"\",IFERROR(VLOOKUP(B29,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E29": {
+        "value": "=IF(OR(C29<>\"ИЗ СПРАВОЧНИКА\",B29=\"\"),\"\",IFERROR(VLOOKUP(B29,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F29": {
+        "value": "=IF(OR(C29<>\"ИЗ СПРАВОЧНИКА\",B29=\"\"),\"\",IFERROR(VLOOKUP(B29,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G29": {
+        "value": "=IF(OR(C29<>\"ИЗ СПРАВОЧНИКА\",B29=\"\"),\"\",IFERROR(VLOOKUP(B29,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q29": {
+        "value": "=IF(C29=\"\",\"\",IF(IF(C29=\"НОВАЯ\",I29,E29)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C29=\"НОВАЯ\",I29,E29))),LEN(IF(C29=\"НОВАЯ\",I29,E29))<8,LEN(IF(C29=\"НОВАЯ\",I29,E29))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C29=\"НОВАЯ\",I29,E29))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C29=\"НОВАЯ\",I29,E29),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C29=\"НОВАЯ\",I29,E29),2)),\"\"))),AND(LEN(IF(C29=\"НОВАЯ\",I29,E29))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C29=\"НОВАЯ\",I29,E29),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C29=\"НОВАЯ\",I29,E29),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R29": {
+        "value": "=IF(C29=\"\",\"\",IF(OR(O29<>\"ДА\",P29=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C29=\"НОВАЯ\",OR(H29=\"\",I29=\"\",J29=\"\",K29=\"\")),AND(C29=\"ИЗ СПРАВОЧНИКА\",B29=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C29=\"НОВАЯ\",H29,D29)=\"Самосвал\",IF(OR(L29=\"\",M29<>\"ДА\",N29=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S29": {
+        "value": "=IF(C29=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V29": {
+        "value": "=IF(OR(B29=\"\",C29<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B29,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D30": {
+        "value": "=IF(OR(C30<>\"ИЗ СПРАВОЧНИКА\",B30=\"\"),\"\",IFERROR(VLOOKUP(B30,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E30": {
+        "value": "=IF(OR(C30<>\"ИЗ СПРАВОЧНИКА\",B30=\"\"),\"\",IFERROR(VLOOKUP(B30,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F30": {
+        "value": "=IF(OR(C30<>\"ИЗ СПРАВОЧНИКА\",B30=\"\"),\"\",IFERROR(VLOOKUP(B30,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G30": {
+        "value": "=IF(OR(C30<>\"ИЗ СПРАВОЧНИКА\",B30=\"\"),\"\",IFERROR(VLOOKUP(B30,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q30": {
+        "value": "=IF(C30=\"\",\"\",IF(IF(C30=\"НОВАЯ\",I30,E30)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C30=\"НОВАЯ\",I30,E30))),LEN(IF(C30=\"НОВАЯ\",I30,E30))<8,LEN(IF(C30=\"НОВАЯ\",I30,E30))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C30=\"НОВАЯ\",I30,E30))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C30=\"НОВАЯ\",I30,E30),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C30=\"НОВАЯ\",I30,E30),2)),\"\"))),AND(LEN(IF(C30=\"НОВАЯ\",I30,E30))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C30=\"НОВАЯ\",I30,E30),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C30=\"НОВАЯ\",I30,E30),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R30": {
+        "value": "=IF(C30=\"\",\"\",IF(OR(O30<>\"ДА\",P30=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C30=\"НОВАЯ\",OR(H30=\"\",I30=\"\",J30=\"\",K30=\"\")),AND(C30=\"ИЗ СПРАВОЧНИКА\",B30=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C30=\"НОВАЯ\",H30,D30)=\"Самосвал\",IF(OR(L30=\"\",M30<>\"ДА\",N30=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S30": {
+        "value": "=IF(C30=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V30": {
+        "value": "=IF(OR(B30=\"\",C30<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B30,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D31": {
+        "value": "=IF(OR(C31<>\"ИЗ СПРАВОЧНИКА\",B31=\"\"),\"\",IFERROR(VLOOKUP(B31,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E31": {
+        "value": "=IF(OR(C31<>\"ИЗ СПРАВОЧНИКА\",B31=\"\"),\"\",IFERROR(VLOOKUP(B31,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F31": {
+        "value": "=IF(OR(C31<>\"ИЗ СПРАВОЧНИКА\",B31=\"\"),\"\",IFERROR(VLOOKUP(B31,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G31": {
+        "value": "=IF(OR(C31<>\"ИЗ СПРАВОЧНИКА\",B31=\"\"),\"\",IFERROR(VLOOKUP(B31,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q31": {
+        "value": "=IF(C31=\"\",\"\",IF(IF(C31=\"НОВАЯ\",I31,E31)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C31=\"НОВАЯ\",I31,E31))),LEN(IF(C31=\"НОВАЯ\",I31,E31))<8,LEN(IF(C31=\"НОВАЯ\",I31,E31))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C31=\"НОВАЯ\",I31,E31))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C31=\"НОВАЯ\",I31,E31),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C31=\"НОВАЯ\",I31,E31),2)),\"\"))),AND(LEN(IF(C31=\"НОВАЯ\",I31,E31))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C31=\"НОВАЯ\",I31,E31),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C31=\"НОВАЯ\",I31,E31),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R31": {
+        "value": "=IF(C31=\"\",\"\",IF(OR(O31<>\"ДА\",P31=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C31=\"НОВАЯ\",OR(H31=\"\",I31=\"\",J31=\"\",K31=\"\")),AND(C31=\"ИЗ СПРАВОЧНИКА\",B31=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C31=\"НОВАЯ\",H31,D31)=\"Самосвал\",IF(OR(L31=\"\",M31<>\"ДА\",N31=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S31": {
+        "value": "=IF(C31=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V31": {
+        "value": "=IF(OR(B31=\"\",C31<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B31,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D32": {
+        "value": "=IF(OR(C32<>\"ИЗ СПРАВОЧНИКА\",B32=\"\"),\"\",IFERROR(VLOOKUP(B32,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E32": {
+        "value": "=IF(OR(C32<>\"ИЗ СПРАВОЧНИКА\",B32=\"\"),\"\",IFERROR(VLOOKUP(B32,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F32": {
+        "value": "=IF(OR(C32<>\"ИЗ СПРАВОЧНИКА\",B32=\"\"),\"\",IFERROR(VLOOKUP(B32,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G32": {
+        "value": "=IF(OR(C32<>\"ИЗ СПРАВОЧНИКА\",B32=\"\"),\"\",IFERROR(VLOOKUP(B32,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q32": {
+        "value": "=IF(C32=\"\",\"\",IF(IF(C32=\"НОВАЯ\",I32,E32)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C32=\"НОВАЯ\",I32,E32))),LEN(IF(C32=\"НОВАЯ\",I32,E32))<8,LEN(IF(C32=\"НОВАЯ\",I32,E32))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C32=\"НОВАЯ\",I32,E32))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C32=\"НОВАЯ\",I32,E32),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C32=\"НОВАЯ\",I32,E32),2)),\"\"))),AND(LEN(IF(C32=\"НОВАЯ\",I32,E32))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C32=\"НОВАЯ\",I32,E32),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C32=\"НОВАЯ\",I32,E32),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R32": {
+        "value": "=IF(C32=\"\",\"\",IF(OR(O32<>\"ДА\",P32=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C32=\"НОВАЯ\",OR(H32=\"\",I32=\"\",J32=\"\",K32=\"\")),AND(C32=\"ИЗ СПРАВОЧНИКА\",B32=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C32=\"НОВАЯ\",H32,D32)=\"Самосвал\",IF(OR(L32=\"\",M32<>\"ДА\",N32=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S32": {
+        "value": "=IF(C32=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V32": {
+        "value": "=IF(OR(B32=\"\",C32<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B32,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D33": {
+        "value": "=IF(OR(C33<>\"ИЗ СПРАВОЧНИКА\",B33=\"\"),\"\",IFERROR(VLOOKUP(B33,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E33": {
+        "value": "=IF(OR(C33<>\"ИЗ СПРАВОЧНИКА\",B33=\"\"),\"\",IFERROR(VLOOKUP(B33,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F33": {
+        "value": "=IF(OR(C33<>\"ИЗ СПРАВОЧНИКА\",B33=\"\"),\"\",IFERROR(VLOOKUP(B33,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G33": {
+        "value": "=IF(OR(C33<>\"ИЗ СПРАВОЧНИКА\",B33=\"\"),\"\",IFERROR(VLOOKUP(B33,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q33": {
+        "value": "=IF(C33=\"\",\"\",IF(IF(C33=\"НОВАЯ\",I33,E33)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C33=\"НОВАЯ\",I33,E33))),LEN(IF(C33=\"НОВАЯ\",I33,E33))<8,LEN(IF(C33=\"НОВАЯ\",I33,E33))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C33=\"НОВАЯ\",I33,E33))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C33=\"НОВАЯ\",I33,E33),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C33=\"НОВАЯ\",I33,E33),2)),\"\"))),AND(LEN(IF(C33=\"НОВАЯ\",I33,E33))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C33=\"НОВАЯ\",I33,E33),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C33=\"НОВАЯ\",I33,E33),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R33": {
+        "value": "=IF(C33=\"\",\"\",IF(OR(O33<>\"ДА\",P33=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C33=\"НОВАЯ\",OR(H33=\"\",I33=\"\",J33=\"\",K33=\"\")),AND(C33=\"ИЗ СПРАВОЧНИКА\",B33=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C33=\"НОВАЯ\",H33,D33)=\"Самосвал\",IF(OR(L33=\"\",M33<>\"ДА\",N33=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S33": {
+        "value": "=IF(C33=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V33": {
+        "value": "=IF(OR(B33=\"\",C33<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B33,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D34": {
+        "value": "=IF(OR(C34<>\"ИЗ СПРАВОЧНИКА\",B34=\"\"),\"\",IFERROR(VLOOKUP(B34,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E34": {
+        "value": "=IF(OR(C34<>\"ИЗ СПРАВОЧНИКА\",B34=\"\"),\"\",IFERROR(VLOOKUP(B34,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F34": {
+        "value": "=IF(OR(C34<>\"ИЗ СПРАВОЧНИКА\",B34=\"\"),\"\",IFERROR(VLOOKUP(B34,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G34": {
+        "value": "=IF(OR(C34<>\"ИЗ СПРАВОЧНИКА\",B34=\"\"),\"\",IFERROR(VLOOKUP(B34,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q34": {
+        "value": "=IF(C34=\"\",\"\",IF(IF(C34=\"НОВАЯ\",I34,E34)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C34=\"НОВАЯ\",I34,E34))),LEN(IF(C34=\"НОВАЯ\",I34,E34))<8,LEN(IF(C34=\"НОВАЯ\",I34,E34))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C34=\"НОВАЯ\",I34,E34))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C34=\"НОВАЯ\",I34,E34),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C34=\"НОВАЯ\",I34,E34),2)),\"\"))),AND(LEN(IF(C34=\"НОВАЯ\",I34,E34))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C34=\"НОВАЯ\",I34,E34),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C34=\"НОВАЯ\",I34,E34),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R34": {
+        "value": "=IF(C34=\"\",\"\",IF(OR(O34<>\"ДА\",P34=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C34=\"НОВАЯ\",OR(H34=\"\",I34=\"\",J34=\"\",K34=\"\")),AND(C34=\"ИЗ СПРАВОЧНИКА\",B34=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C34=\"НОВАЯ\",H34,D34)=\"Самосвал\",IF(OR(L34=\"\",M34<>\"ДА\",N34=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S34": {
+        "value": "=IF(C34=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V34": {
+        "value": "=IF(OR(B34=\"\",C34<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B34,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D35": {
+        "value": "=IF(OR(C35<>\"ИЗ СПРАВОЧНИКА\",B35=\"\"),\"\",IFERROR(VLOOKUP(B35,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E35": {
+        "value": "=IF(OR(C35<>\"ИЗ СПРАВОЧНИКА\",B35=\"\"),\"\",IFERROR(VLOOKUP(B35,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F35": {
+        "value": "=IF(OR(C35<>\"ИЗ СПРАВОЧНИКА\",B35=\"\"),\"\",IFERROR(VLOOKUP(B35,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G35": {
+        "value": "=IF(OR(C35<>\"ИЗ СПРАВОЧНИКА\",B35=\"\"),\"\",IFERROR(VLOOKUP(B35,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q35": {
+        "value": "=IF(C35=\"\",\"\",IF(IF(C35=\"НОВАЯ\",I35,E35)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C35=\"НОВАЯ\",I35,E35))),LEN(IF(C35=\"НОВАЯ\",I35,E35))<8,LEN(IF(C35=\"НОВАЯ\",I35,E35))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C35=\"НОВАЯ\",I35,E35))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C35=\"НОВАЯ\",I35,E35),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C35=\"НОВАЯ\",I35,E35),2)),\"\"))),AND(LEN(IF(C35=\"НОВАЯ\",I35,E35))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C35=\"НОВАЯ\",I35,E35),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C35=\"НОВАЯ\",I35,E35),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R35": {
+        "value": "=IF(C35=\"\",\"\",IF(OR(O35<>\"ДА\",P35=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C35=\"НОВАЯ\",OR(H35=\"\",I35=\"\",J35=\"\",K35=\"\")),AND(C35=\"ИЗ СПРАВОЧНИКА\",B35=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C35=\"НОВАЯ\",H35,D35)=\"Самосвал\",IF(OR(L35=\"\",M35<>\"ДА\",N35=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S35": {
+        "value": "=IF(C35=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V35": {
+        "value": "=IF(OR(B35=\"\",C35<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B35,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D36": {
+        "value": "=IF(OR(C36<>\"ИЗ СПРАВОЧНИКА\",B36=\"\"),\"\",IFERROR(VLOOKUP(B36,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E36": {
+        "value": "=IF(OR(C36<>\"ИЗ СПРАВОЧНИКА\",B36=\"\"),\"\",IFERROR(VLOOKUP(B36,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F36": {
+        "value": "=IF(OR(C36<>\"ИЗ СПРАВОЧНИКА\",B36=\"\"),\"\",IFERROR(VLOOKUP(B36,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G36": {
+        "value": "=IF(OR(C36<>\"ИЗ СПРАВОЧНИКА\",B36=\"\"),\"\",IFERROR(VLOOKUP(B36,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q36": {
+        "value": "=IF(C36=\"\",\"\",IF(IF(C36=\"НОВАЯ\",I36,E36)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C36=\"НОВАЯ\",I36,E36))),LEN(IF(C36=\"НОВАЯ\",I36,E36))<8,LEN(IF(C36=\"НОВАЯ\",I36,E36))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C36=\"НОВАЯ\",I36,E36))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C36=\"НОВАЯ\",I36,E36),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C36=\"НОВАЯ\",I36,E36),2)),\"\"))),AND(LEN(IF(C36=\"НОВАЯ\",I36,E36))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C36=\"НОВАЯ\",I36,E36),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C36=\"НОВАЯ\",I36,E36),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R36": {
+        "value": "=IF(C36=\"\",\"\",IF(OR(O36<>\"ДА\",P36=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C36=\"НОВАЯ\",OR(H36=\"\",I36=\"\",J36=\"\",K36=\"\")),AND(C36=\"ИЗ СПРАВОЧНИКА\",B36=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C36=\"НОВАЯ\",H36,D36)=\"Самосвал\",IF(OR(L36=\"\",M36<>\"ДА\",N36=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S36": {
+        "value": "=IF(C36=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V36": {
+        "value": "=IF(OR(B36=\"\",C36<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B36,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D37": {
+        "value": "=IF(OR(C37<>\"ИЗ СПРАВОЧНИКА\",B37=\"\"),\"\",IFERROR(VLOOKUP(B37,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E37": {
+        "value": "=IF(OR(C37<>\"ИЗ СПРАВОЧНИКА\",B37=\"\"),\"\",IFERROR(VLOOKUP(B37,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F37": {
+        "value": "=IF(OR(C37<>\"ИЗ СПРАВОЧНИКА\",B37=\"\"),\"\",IFERROR(VLOOKUP(B37,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G37": {
+        "value": "=IF(OR(C37<>\"ИЗ СПРАВОЧНИКА\",B37=\"\"),\"\",IFERROR(VLOOKUP(B37,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q37": {
+        "value": "=IF(C37=\"\",\"\",IF(IF(C37=\"НОВАЯ\",I37,E37)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C37=\"НОВАЯ\",I37,E37))),LEN(IF(C37=\"НОВАЯ\",I37,E37))<8,LEN(IF(C37=\"НОВАЯ\",I37,E37))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C37=\"НОВАЯ\",I37,E37))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C37=\"НОВАЯ\",I37,E37),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C37=\"НОВАЯ\",I37,E37),2)),\"\"))),AND(LEN(IF(C37=\"НОВАЯ\",I37,E37))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C37=\"НОВАЯ\",I37,E37),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C37=\"НОВАЯ\",I37,E37),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R37": {
+        "value": "=IF(C37=\"\",\"\",IF(OR(O37<>\"ДА\",P37=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C37=\"НОВАЯ\",OR(H37=\"\",I37=\"\",J37=\"\",K37=\"\")),AND(C37=\"ИЗ СПРАВОЧНИКА\",B37=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C37=\"НОВАЯ\",H37,D37)=\"Самосвал\",IF(OR(L37=\"\",M37<>\"ДА\",N37=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S37": {
+        "value": "=IF(C37=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V37": {
+        "value": "=IF(OR(B37=\"\",C37<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B37,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D38": {
+        "value": "=IF(OR(C38<>\"ИЗ СПРАВОЧНИКА\",B38=\"\"),\"\",IFERROR(VLOOKUP(B38,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E38": {
+        "value": "=IF(OR(C38<>\"ИЗ СПРАВОЧНИКА\",B38=\"\"),\"\",IFERROR(VLOOKUP(B38,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F38": {
+        "value": "=IF(OR(C38<>\"ИЗ СПРАВОЧНИКА\",B38=\"\"),\"\",IFERROR(VLOOKUP(B38,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G38": {
+        "value": "=IF(OR(C38<>\"ИЗ СПРАВОЧНИКА\",B38=\"\"),\"\",IFERROR(VLOOKUP(B38,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q38": {
+        "value": "=IF(C38=\"\",\"\",IF(IF(C38=\"НОВАЯ\",I38,E38)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C38=\"НОВАЯ\",I38,E38))),LEN(IF(C38=\"НОВАЯ\",I38,E38))<8,LEN(IF(C38=\"НОВАЯ\",I38,E38))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C38=\"НОВАЯ\",I38,E38))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C38=\"НОВАЯ\",I38,E38),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C38=\"НОВАЯ\",I38,E38),2)),\"\"))),AND(LEN(IF(C38=\"НОВАЯ\",I38,E38))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C38=\"НОВАЯ\",I38,E38),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C38=\"НОВАЯ\",I38,E38),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R38": {
+        "value": "=IF(C38=\"\",\"\",IF(OR(O38<>\"ДА\",P38=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C38=\"НОВАЯ\",OR(H38=\"\",I38=\"\",J38=\"\",K38=\"\")),AND(C38=\"ИЗ СПРАВОЧНИКА\",B38=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C38=\"НОВАЯ\",H38,D38)=\"Самосвал\",IF(OR(L38=\"\",M38<>\"ДА\",N38=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S38": {
+        "value": "=IF(C38=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V38": {
+        "value": "=IF(OR(B38=\"\",C38<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B38,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D39": {
+        "value": "=IF(OR(C39<>\"ИЗ СПРАВОЧНИКА\",B39=\"\"),\"\",IFERROR(VLOOKUP(B39,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E39": {
+        "value": "=IF(OR(C39<>\"ИЗ СПРАВОЧНИКА\",B39=\"\"),\"\",IFERROR(VLOOKUP(B39,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F39": {
+        "value": "=IF(OR(C39<>\"ИЗ СПРАВОЧНИКА\",B39=\"\"),\"\",IFERROR(VLOOKUP(B39,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G39": {
+        "value": "=IF(OR(C39<>\"ИЗ СПРАВОЧНИКА\",B39=\"\"),\"\",IFERROR(VLOOKUP(B39,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q39": {
+        "value": "=IF(C39=\"\",\"\",IF(IF(C39=\"НОВАЯ\",I39,E39)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C39=\"НОВАЯ\",I39,E39))),LEN(IF(C39=\"НОВАЯ\",I39,E39))<8,LEN(IF(C39=\"НОВАЯ\",I39,E39))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C39=\"НОВАЯ\",I39,E39))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C39=\"НОВАЯ\",I39,E39),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C39=\"НОВАЯ\",I39,E39),2)),\"\"))),AND(LEN(IF(C39=\"НОВАЯ\",I39,E39))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C39=\"НОВАЯ\",I39,E39),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C39=\"НОВАЯ\",I39,E39),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R39": {
+        "value": "=IF(C39=\"\",\"\",IF(OR(O39<>\"ДА\",P39=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C39=\"НОВАЯ\",OR(H39=\"\",I39=\"\",J39=\"\",K39=\"\")),AND(C39=\"ИЗ СПРАВОЧНИКА\",B39=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C39=\"НОВАЯ\",H39,D39)=\"Самосвал\",IF(OR(L39=\"\",M39<>\"ДА\",N39=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S39": {
+        "value": "=IF(C39=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V39": {
+        "value": "=IF(OR(B39=\"\",C39<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B39,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D40": {
+        "value": "=IF(OR(C40<>\"ИЗ СПРАВОЧНИКА\",B40=\"\"),\"\",IFERROR(VLOOKUP(B40,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E40": {
+        "value": "=IF(OR(C40<>\"ИЗ СПРАВОЧНИКА\",B40=\"\"),\"\",IFERROR(VLOOKUP(B40,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F40": {
+        "value": "=IF(OR(C40<>\"ИЗ СПРАВОЧНИКА\",B40=\"\"),\"\",IFERROR(VLOOKUP(B40,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G40": {
+        "value": "=IF(OR(C40<>\"ИЗ СПРАВОЧНИКА\",B40=\"\"),\"\",IFERROR(VLOOKUP(B40,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q40": {
+        "value": "=IF(C40=\"\",\"\",IF(IF(C40=\"НОВАЯ\",I40,E40)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C40=\"НОВАЯ\",I40,E40))),LEN(IF(C40=\"НОВАЯ\",I40,E40))<8,LEN(IF(C40=\"НОВАЯ\",I40,E40))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C40=\"НОВАЯ\",I40,E40))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C40=\"НОВАЯ\",I40,E40),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C40=\"НОВАЯ\",I40,E40),2)),\"\"))),AND(LEN(IF(C40=\"НОВАЯ\",I40,E40))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C40=\"НОВАЯ\",I40,E40),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C40=\"НОВАЯ\",I40,E40),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R40": {
+        "value": "=IF(C40=\"\",\"\",IF(OR(O40<>\"ДА\",P40=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C40=\"НОВАЯ\",OR(H40=\"\",I40=\"\",J40=\"\",K40=\"\")),AND(C40=\"ИЗ СПРАВОЧНИКА\",B40=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C40=\"НОВАЯ\",H40,D40)=\"Самосвал\",IF(OR(L40=\"\",M40<>\"ДА\",N40=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S40": {
+        "value": "=IF(C40=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V40": {
+        "value": "=IF(OR(B40=\"\",C40<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B40,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D41": {
+        "value": "=IF(OR(C41<>\"ИЗ СПРАВОЧНИКА\",B41=\"\"),\"\",IFERROR(VLOOKUP(B41,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E41": {
+        "value": "=IF(OR(C41<>\"ИЗ СПРАВОЧНИКА\",B41=\"\"),\"\",IFERROR(VLOOKUP(B41,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F41": {
+        "value": "=IF(OR(C41<>\"ИЗ СПРАВОЧНИКА\",B41=\"\"),\"\",IFERROR(VLOOKUP(B41,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G41": {
+        "value": "=IF(OR(C41<>\"ИЗ СПРАВОЧНИКА\",B41=\"\"),\"\",IFERROR(VLOOKUP(B41,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q41": {
+        "value": "=IF(C41=\"\",\"\",IF(IF(C41=\"НОВАЯ\",I41,E41)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C41=\"НОВАЯ\",I41,E41))),LEN(IF(C41=\"НОВАЯ\",I41,E41))<8,LEN(IF(C41=\"НОВАЯ\",I41,E41))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C41=\"НОВАЯ\",I41,E41))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C41=\"НОВАЯ\",I41,E41),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C41=\"НОВАЯ\",I41,E41),2)),\"\"))),AND(LEN(IF(C41=\"НОВАЯ\",I41,E41))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C41=\"НОВАЯ\",I41,E41),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C41=\"НОВАЯ\",I41,E41),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R41": {
+        "value": "=IF(C41=\"\",\"\",IF(OR(O41<>\"ДА\",P41=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C41=\"НОВАЯ\",OR(H41=\"\",I41=\"\",J41=\"\",K41=\"\")),AND(C41=\"ИЗ СПРАВОЧНИКА\",B41=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C41=\"НОВАЯ\",H41,D41)=\"Самосвал\",IF(OR(L41=\"\",M41<>\"ДА\",N41=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S41": {
+        "value": "=IF(C41=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V41": {
+        "value": "=IF(OR(B41=\"\",C41<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B41,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D42": {
+        "value": "=IF(OR(C42<>\"ИЗ СПРАВОЧНИКА\",B42=\"\"),\"\",IFERROR(VLOOKUP(B42,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E42": {
+        "value": "=IF(OR(C42<>\"ИЗ СПРАВОЧНИКА\",B42=\"\"),\"\",IFERROR(VLOOKUP(B42,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F42": {
+        "value": "=IF(OR(C42<>\"ИЗ СПРАВОЧНИКА\",B42=\"\"),\"\",IFERROR(VLOOKUP(B42,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G42": {
+        "value": "=IF(OR(C42<>\"ИЗ СПРАВОЧНИКА\",B42=\"\"),\"\",IFERROR(VLOOKUP(B42,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q42": {
+        "value": "=IF(C42=\"\",\"\",IF(IF(C42=\"НОВАЯ\",I42,E42)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C42=\"НОВАЯ\",I42,E42))),LEN(IF(C42=\"НОВАЯ\",I42,E42))<8,LEN(IF(C42=\"НОВАЯ\",I42,E42))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C42=\"НОВАЯ\",I42,E42))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C42=\"НОВАЯ\",I42,E42),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C42=\"НОВАЯ\",I42,E42),2)),\"\"))),AND(LEN(IF(C42=\"НОВАЯ\",I42,E42))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C42=\"НОВАЯ\",I42,E42),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C42=\"НОВАЯ\",I42,E42),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R42": {
+        "value": "=IF(C42=\"\",\"\",IF(OR(O42<>\"ДА\",P42=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C42=\"НОВАЯ\",OR(H42=\"\",I42=\"\",J42=\"\",K42=\"\")),AND(C42=\"ИЗ СПРАВОЧНИКА\",B42=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C42=\"НОВАЯ\",H42,D42)=\"Самосвал\",IF(OR(L42=\"\",M42<>\"ДА\",N42=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S42": {
+        "value": "=IF(C42=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V42": {
+        "value": "=IF(OR(B42=\"\",C42<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B42,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D43": {
+        "value": "=IF(OR(C43<>\"ИЗ СПРАВОЧНИКА\",B43=\"\"),\"\",IFERROR(VLOOKUP(B43,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E43": {
+        "value": "=IF(OR(C43<>\"ИЗ СПРАВОЧНИКА\",B43=\"\"),\"\",IFERROR(VLOOKUP(B43,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F43": {
+        "value": "=IF(OR(C43<>\"ИЗ СПРАВОЧНИКА\",B43=\"\"),\"\",IFERROR(VLOOKUP(B43,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G43": {
+        "value": "=IF(OR(C43<>\"ИЗ СПРАВОЧНИКА\",B43=\"\"),\"\",IFERROR(VLOOKUP(B43,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q43": {
+        "value": "=IF(C43=\"\",\"\",IF(IF(C43=\"НОВАЯ\",I43,E43)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C43=\"НОВАЯ\",I43,E43))),LEN(IF(C43=\"НОВАЯ\",I43,E43))<8,LEN(IF(C43=\"НОВАЯ\",I43,E43))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C43=\"НОВАЯ\",I43,E43))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C43=\"НОВАЯ\",I43,E43),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C43=\"НОВАЯ\",I43,E43),2)),\"\"))),AND(LEN(IF(C43=\"НОВАЯ\",I43,E43))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C43=\"НОВАЯ\",I43,E43),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C43=\"НОВАЯ\",I43,E43),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R43": {
+        "value": "=IF(C43=\"\",\"\",IF(OR(O43<>\"ДА\",P43=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C43=\"НОВАЯ\",OR(H43=\"\",I43=\"\",J43=\"\",K43=\"\")),AND(C43=\"ИЗ СПРАВОЧНИКА\",B43=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C43=\"НОВАЯ\",H43,D43)=\"Самосвал\",IF(OR(L43=\"\",M43<>\"ДА\",N43=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S43": {
+        "value": "=IF(C43=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V43": {
+        "value": "=IF(OR(B43=\"\",C43<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B43,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D44": {
+        "value": "=IF(OR(C44<>\"ИЗ СПРАВОЧНИКА\",B44=\"\"),\"\",IFERROR(VLOOKUP(B44,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E44": {
+        "value": "=IF(OR(C44<>\"ИЗ СПРАВОЧНИКА\",B44=\"\"),\"\",IFERROR(VLOOKUP(B44,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F44": {
+        "value": "=IF(OR(C44<>\"ИЗ СПРАВОЧНИКА\",B44=\"\"),\"\",IFERROR(VLOOKUP(B44,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G44": {
+        "value": "=IF(OR(C44<>\"ИЗ СПРАВОЧНИКА\",B44=\"\"),\"\",IFERROR(VLOOKUP(B44,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q44": {
+        "value": "=IF(C44=\"\",\"\",IF(IF(C44=\"НОВАЯ\",I44,E44)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C44=\"НОВАЯ\",I44,E44))),LEN(IF(C44=\"НОВАЯ\",I44,E44))<8,LEN(IF(C44=\"НОВАЯ\",I44,E44))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C44=\"НОВАЯ\",I44,E44))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C44=\"НОВАЯ\",I44,E44),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C44=\"НОВАЯ\",I44,E44),2)),\"\"))),AND(LEN(IF(C44=\"НОВАЯ\",I44,E44))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C44=\"НОВАЯ\",I44,E44),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C44=\"НОВАЯ\",I44,E44),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R44": {
+        "value": "=IF(C44=\"\",\"\",IF(OR(O44<>\"ДА\",P44=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C44=\"НОВАЯ\",OR(H44=\"\",I44=\"\",J44=\"\",K44=\"\")),AND(C44=\"ИЗ СПРАВОЧНИКА\",B44=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C44=\"НОВАЯ\",H44,D44)=\"Самосвал\",IF(OR(L44=\"\",M44<>\"ДА\",N44=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S44": {
+        "value": "=IF(C44=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V44": {
+        "value": "=IF(OR(B44=\"\",C44<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B44,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D45": {
+        "value": "=IF(OR(C45<>\"ИЗ СПРАВОЧНИКА\",B45=\"\"),\"\",IFERROR(VLOOKUP(B45,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E45": {
+        "value": "=IF(OR(C45<>\"ИЗ СПРАВОЧНИКА\",B45=\"\"),\"\",IFERROR(VLOOKUP(B45,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F45": {
+        "value": "=IF(OR(C45<>\"ИЗ СПРАВОЧНИКА\",B45=\"\"),\"\",IFERROR(VLOOKUP(B45,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G45": {
+        "value": "=IF(OR(C45<>\"ИЗ СПРАВОЧНИКА\",B45=\"\"),\"\",IFERROR(VLOOKUP(B45,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q45": {
+        "value": "=IF(C45=\"\",\"\",IF(IF(C45=\"НОВАЯ\",I45,E45)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C45=\"НОВАЯ\",I45,E45))),LEN(IF(C45=\"НОВАЯ\",I45,E45))<8,LEN(IF(C45=\"НОВАЯ\",I45,E45))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C45=\"НОВАЯ\",I45,E45))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C45=\"НОВАЯ\",I45,E45),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C45=\"НОВАЯ\",I45,E45),2)),\"\"))),AND(LEN(IF(C45=\"НОВАЯ\",I45,E45))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C45=\"НОВАЯ\",I45,E45),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C45=\"НОВАЯ\",I45,E45),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R45": {
+        "value": "=IF(C45=\"\",\"\",IF(OR(O45<>\"ДА\",P45=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C45=\"НОВАЯ\",OR(H45=\"\",I45=\"\",J45=\"\",K45=\"\")),AND(C45=\"ИЗ СПРАВОЧНИКА\",B45=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C45=\"НОВАЯ\",H45,D45)=\"Самосвал\",IF(OR(L45=\"\",M45<>\"ДА\",N45=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S45": {
+        "value": "=IF(C45=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V45": {
+        "value": "=IF(OR(B45=\"\",C45<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B45,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D46": {
+        "value": "=IF(OR(C46<>\"ИЗ СПРАВОЧНИКА\",B46=\"\"),\"\",IFERROR(VLOOKUP(B46,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E46": {
+        "value": "=IF(OR(C46<>\"ИЗ СПРАВОЧНИКА\",B46=\"\"),\"\",IFERROR(VLOOKUP(B46,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F46": {
+        "value": "=IF(OR(C46<>\"ИЗ СПРАВОЧНИКА\",B46=\"\"),\"\",IFERROR(VLOOKUP(B46,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G46": {
+        "value": "=IF(OR(C46<>\"ИЗ СПРАВОЧНИКА\",B46=\"\"),\"\",IFERROR(VLOOKUP(B46,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q46": {
+        "value": "=IF(C46=\"\",\"\",IF(IF(C46=\"НОВАЯ\",I46,E46)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C46=\"НОВАЯ\",I46,E46))),LEN(IF(C46=\"НОВАЯ\",I46,E46))<8,LEN(IF(C46=\"НОВАЯ\",I46,E46))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C46=\"НОВАЯ\",I46,E46))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C46=\"НОВАЯ\",I46,E46),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C46=\"НОВАЯ\",I46,E46),2)),\"\"))),AND(LEN(IF(C46=\"НОВАЯ\",I46,E46))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C46=\"НОВАЯ\",I46,E46),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C46=\"НОВАЯ\",I46,E46),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R46": {
+        "value": "=IF(C46=\"\",\"\",IF(OR(O46<>\"ДА\",P46=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C46=\"НОВАЯ\",OR(H46=\"\",I46=\"\",J46=\"\",K46=\"\")),AND(C46=\"ИЗ СПРАВОЧНИКА\",B46=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C46=\"НОВАЯ\",H46,D46)=\"Самосвал\",IF(OR(L46=\"\",M46<>\"ДА\",N46=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S46": {
+        "value": "=IF(C46=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V46": {
+        "value": "=IF(OR(B46=\"\",C46<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B46,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D47": {
+        "value": "=IF(OR(C47<>\"ИЗ СПРАВОЧНИКА\",B47=\"\"),\"\",IFERROR(VLOOKUP(B47,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E47": {
+        "value": "=IF(OR(C47<>\"ИЗ СПРАВОЧНИКА\",B47=\"\"),\"\",IFERROR(VLOOKUP(B47,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F47": {
+        "value": "=IF(OR(C47<>\"ИЗ СПРАВОЧНИКА\",B47=\"\"),\"\",IFERROR(VLOOKUP(B47,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G47": {
+        "value": "=IF(OR(C47<>\"ИЗ СПРАВОЧНИКА\",B47=\"\"),\"\",IFERROR(VLOOKUP(B47,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q47": {
+        "value": "=IF(C47=\"\",\"\",IF(IF(C47=\"НОВАЯ\",I47,E47)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C47=\"НОВАЯ\",I47,E47))),LEN(IF(C47=\"НОВАЯ\",I47,E47))<8,LEN(IF(C47=\"НОВАЯ\",I47,E47))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C47=\"НОВАЯ\",I47,E47))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C47=\"НОВАЯ\",I47,E47),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C47=\"НОВАЯ\",I47,E47),2)),\"\"))),AND(LEN(IF(C47=\"НОВАЯ\",I47,E47))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C47=\"НОВАЯ\",I47,E47),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C47=\"НОВАЯ\",I47,E47),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R47": {
+        "value": "=IF(C47=\"\",\"\",IF(OR(O47<>\"ДА\",P47=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C47=\"НОВАЯ\",OR(H47=\"\",I47=\"\",J47=\"\",K47=\"\")),AND(C47=\"ИЗ СПРАВОЧНИКА\",B47=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C47=\"НОВАЯ\",H47,D47)=\"Самосвал\",IF(OR(L47=\"\",M47<>\"ДА\",N47=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S47": {
+        "value": "=IF(C47=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V47": {
+        "value": "=IF(OR(B47=\"\",C47<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B47,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D48": {
+        "value": "=IF(OR(C48<>\"ИЗ СПРАВОЧНИКА\",B48=\"\"),\"\",IFERROR(VLOOKUP(B48,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E48": {
+        "value": "=IF(OR(C48<>\"ИЗ СПРАВОЧНИКА\",B48=\"\"),\"\",IFERROR(VLOOKUP(B48,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F48": {
+        "value": "=IF(OR(C48<>\"ИЗ СПРАВОЧНИКА\",B48=\"\"),\"\",IFERROR(VLOOKUP(B48,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G48": {
+        "value": "=IF(OR(C48<>\"ИЗ СПРАВОЧНИКА\",B48=\"\"),\"\",IFERROR(VLOOKUP(B48,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q48": {
+        "value": "=IF(C48=\"\",\"\",IF(IF(C48=\"НОВАЯ\",I48,E48)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C48=\"НОВАЯ\",I48,E48))),LEN(IF(C48=\"НОВАЯ\",I48,E48))<8,LEN(IF(C48=\"НОВАЯ\",I48,E48))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C48=\"НОВАЯ\",I48,E48))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C48=\"НОВАЯ\",I48,E48),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C48=\"НОВАЯ\",I48,E48),2)),\"\"))),AND(LEN(IF(C48=\"НОВАЯ\",I48,E48))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C48=\"НОВАЯ\",I48,E48),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C48=\"НОВАЯ\",I48,E48),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R48": {
+        "value": "=IF(C48=\"\",\"\",IF(OR(O48<>\"ДА\",P48=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C48=\"НОВАЯ\",OR(H48=\"\",I48=\"\",J48=\"\",K48=\"\")),AND(C48=\"ИЗ СПРАВОЧНИКА\",B48=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C48=\"НОВАЯ\",H48,D48)=\"Самосвал\",IF(OR(L48=\"\",M48<>\"ДА\",N48=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S48": {
+        "value": "=IF(C48=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V48": {
+        "value": "=IF(OR(B48=\"\",C48<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B48,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D49": {
+        "value": "=IF(OR(C49<>\"ИЗ СПРАВОЧНИКА\",B49=\"\"),\"\",IFERROR(VLOOKUP(B49,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E49": {
+        "value": "=IF(OR(C49<>\"ИЗ СПРАВОЧНИКА\",B49=\"\"),\"\",IFERROR(VLOOKUP(B49,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F49": {
+        "value": "=IF(OR(C49<>\"ИЗ СПРАВОЧНИКА\",B49=\"\"),\"\",IFERROR(VLOOKUP(B49,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G49": {
+        "value": "=IF(OR(C49<>\"ИЗ СПРАВОЧНИКА\",B49=\"\"),\"\",IFERROR(VLOOKUP(B49,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q49": {
+        "value": "=IF(C49=\"\",\"\",IF(IF(C49=\"НОВАЯ\",I49,E49)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C49=\"НОВАЯ\",I49,E49))),LEN(IF(C49=\"НОВАЯ\",I49,E49))<8,LEN(IF(C49=\"НОВАЯ\",I49,E49))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C49=\"НОВАЯ\",I49,E49))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C49=\"НОВАЯ\",I49,E49),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C49=\"НОВАЯ\",I49,E49),2)),\"\"))),AND(LEN(IF(C49=\"НОВАЯ\",I49,E49))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C49=\"НОВАЯ\",I49,E49),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C49=\"НОВАЯ\",I49,E49),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R49": {
+        "value": "=IF(C49=\"\",\"\",IF(OR(O49<>\"ДА\",P49=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C49=\"НОВАЯ\",OR(H49=\"\",I49=\"\",J49=\"\",K49=\"\")),AND(C49=\"ИЗ СПРАВОЧНИКА\",B49=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C49=\"НОВАЯ\",H49,D49)=\"Самосвал\",IF(OR(L49=\"\",M49<>\"ДА\",N49=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S49": {
+        "value": "=IF(C49=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V49": {
+        "value": "=IF(OR(B49=\"\",C49<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B49,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D50": {
+        "value": "=IF(OR(C50<>\"ИЗ СПРАВОЧНИКА\",B50=\"\"),\"\",IFERROR(VLOOKUP(B50,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E50": {
+        "value": "=IF(OR(C50<>\"ИЗ СПРАВОЧНИКА\",B50=\"\"),\"\",IFERROR(VLOOKUP(B50,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F50": {
+        "value": "=IF(OR(C50<>\"ИЗ СПРАВОЧНИКА\",B50=\"\"),\"\",IFERROR(VLOOKUP(B50,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G50": {
+        "value": "=IF(OR(C50<>\"ИЗ СПРАВОЧНИКА\",B50=\"\"),\"\",IFERROR(VLOOKUP(B50,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q50": {
+        "value": "=IF(C50=\"\",\"\",IF(IF(C50=\"НОВАЯ\",I50,E50)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C50=\"НОВАЯ\",I50,E50))),LEN(IF(C50=\"НОВАЯ\",I50,E50))<8,LEN(IF(C50=\"НОВАЯ\",I50,E50))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C50=\"НОВАЯ\",I50,E50))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C50=\"НОВАЯ\",I50,E50),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C50=\"НОВАЯ\",I50,E50),2)),\"\"))),AND(LEN(IF(C50=\"НОВАЯ\",I50,E50))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C50=\"НОВАЯ\",I50,E50),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C50=\"НОВАЯ\",I50,E50),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R50": {
+        "value": "=IF(C50=\"\",\"\",IF(OR(O50<>\"ДА\",P50=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C50=\"НОВАЯ\",OR(H50=\"\",I50=\"\",J50=\"\",K50=\"\")),AND(C50=\"ИЗ СПРАВОЧНИКА\",B50=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C50=\"НОВАЯ\",H50,D50)=\"Самосвал\",IF(OR(L50=\"\",M50<>\"ДА\",N50=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S50": {
+        "value": "=IF(C50=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V50": {
+        "value": "=IF(OR(B50=\"\",C50<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B50,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D51": {
+        "value": "=IF(OR(C51<>\"ИЗ СПРАВОЧНИКА\",B51=\"\"),\"\",IFERROR(VLOOKUP(B51,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E51": {
+        "value": "=IF(OR(C51<>\"ИЗ СПРАВОЧНИКА\",B51=\"\"),\"\",IFERROR(VLOOKUP(B51,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F51": {
+        "value": "=IF(OR(C51<>\"ИЗ СПРАВОЧНИКА\",B51=\"\"),\"\",IFERROR(VLOOKUP(B51,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G51": {
+        "value": "=IF(OR(C51<>\"ИЗ СПРАВОЧНИКА\",B51=\"\"),\"\",IFERROR(VLOOKUP(B51,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q51": {
+        "value": "=IF(C51=\"\",\"\",IF(IF(C51=\"НОВАЯ\",I51,E51)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C51=\"НОВАЯ\",I51,E51))),LEN(IF(C51=\"НОВАЯ\",I51,E51))<8,LEN(IF(C51=\"НОВАЯ\",I51,E51))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C51=\"НОВАЯ\",I51,E51))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C51=\"НОВАЯ\",I51,E51),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C51=\"НОВАЯ\",I51,E51),2)),\"\"))),AND(LEN(IF(C51=\"НОВАЯ\",I51,E51))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C51=\"НОВАЯ\",I51,E51),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C51=\"НОВАЯ\",I51,E51),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R51": {
+        "value": "=IF(C51=\"\",\"\",IF(OR(O51<>\"ДА\",P51=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C51=\"НОВАЯ\",OR(H51=\"\",I51=\"\",J51=\"\",K51=\"\")),AND(C51=\"ИЗ СПРАВОЧНИКА\",B51=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C51=\"НОВАЯ\",H51,D51)=\"Самосвал\",IF(OR(L51=\"\",M51<>\"ДА\",N51=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S51": {
+        "value": "=IF(C51=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V51": {
+        "value": "=IF(OR(B51=\"\",C51<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B51,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D52": {
+        "value": "=IF(OR(C52<>\"ИЗ СПРАВОЧНИКА\",B52=\"\"),\"\",IFERROR(VLOOKUP(B52,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E52": {
+        "value": "=IF(OR(C52<>\"ИЗ СПРАВОЧНИКА\",B52=\"\"),\"\",IFERROR(VLOOKUP(B52,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F52": {
+        "value": "=IF(OR(C52<>\"ИЗ СПРАВОЧНИКА\",B52=\"\"),\"\",IFERROR(VLOOKUP(B52,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G52": {
+        "value": "=IF(OR(C52<>\"ИЗ СПРАВОЧНИКА\",B52=\"\"),\"\",IFERROR(VLOOKUP(B52,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q52": {
+        "value": "=IF(C52=\"\",\"\",IF(IF(C52=\"НОВАЯ\",I52,E52)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C52=\"НОВАЯ\",I52,E52))),LEN(IF(C52=\"НОВАЯ\",I52,E52))<8,LEN(IF(C52=\"НОВАЯ\",I52,E52))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C52=\"НОВАЯ\",I52,E52))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C52=\"НОВАЯ\",I52,E52),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C52=\"НОВАЯ\",I52,E52),2)),\"\"))),AND(LEN(IF(C52=\"НОВАЯ\",I52,E52))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C52=\"НОВАЯ\",I52,E52),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C52=\"НОВАЯ\",I52,E52),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R52": {
+        "value": "=IF(C52=\"\",\"\",IF(OR(O52<>\"ДА\",P52=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C52=\"НОВАЯ\",OR(H52=\"\",I52=\"\",J52=\"\",K52=\"\")),AND(C52=\"ИЗ СПРАВОЧНИКА\",B52=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C52=\"НОВАЯ\",H52,D52)=\"Самосвал\",IF(OR(L52=\"\",M52<>\"ДА\",N52=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S52": {
+        "value": "=IF(C52=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V52": {
+        "value": "=IF(OR(B52=\"\",C52<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B52,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D53": {
+        "value": "=IF(OR(C53<>\"ИЗ СПРАВОЧНИКА\",B53=\"\"),\"\",IFERROR(VLOOKUP(B53,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E53": {
+        "value": "=IF(OR(C53<>\"ИЗ СПРАВОЧНИКА\",B53=\"\"),\"\",IFERROR(VLOOKUP(B53,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F53": {
+        "value": "=IF(OR(C53<>\"ИЗ СПРАВОЧНИКА\",B53=\"\"),\"\",IFERROR(VLOOKUP(B53,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G53": {
+        "value": "=IF(OR(C53<>\"ИЗ СПРАВОЧНИКА\",B53=\"\"),\"\",IFERROR(VLOOKUP(B53,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q53": {
+        "value": "=IF(C53=\"\",\"\",IF(IF(C53=\"НОВАЯ\",I53,E53)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C53=\"НОВАЯ\",I53,E53))),LEN(IF(C53=\"НОВАЯ\",I53,E53))<8,LEN(IF(C53=\"НОВАЯ\",I53,E53))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C53=\"НОВАЯ\",I53,E53))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C53=\"НОВАЯ\",I53,E53),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C53=\"НОВАЯ\",I53,E53),2)),\"\"))),AND(LEN(IF(C53=\"НОВАЯ\",I53,E53))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C53=\"НОВАЯ\",I53,E53),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C53=\"НОВАЯ\",I53,E53),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R53": {
+        "value": "=IF(C53=\"\",\"\",IF(OR(O53<>\"ДА\",P53=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C53=\"НОВАЯ\",OR(H53=\"\",I53=\"\",J53=\"\",K53=\"\")),AND(C53=\"ИЗ СПРАВОЧНИКА\",B53=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C53=\"НОВАЯ\",H53,D53)=\"Самосвал\",IF(OR(L53=\"\",M53<>\"ДА\",N53=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S53": {
+        "value": "=IF(C53=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V53": {
+        "value": "=IF(OR(B53=\"\",C53<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B53,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      },
+      "D54": {
+        "value": "=IF(OR(C54<>\"ИЗ СПРАВОЧНИКА\",B54=\"\"),\"\",IFERROR(VLOOKUP(B54,Справочники!$E$2:$J$46,4,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "E54": {
+        "value": "=IF(OR(C54<>\"ИЗ СПРАВОЧНИКА\",B54=\"\"),\"\",IFERROR(VLOOKUP(B54,Справочники!$E$2:$J$46,3,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "F54": {
+        "value": "=IF(OR(C54<>\"ИЗ СПРАВОЧНИКА\",B54=\"\"),\"\",IFERROR(VLOOKUP(B54,Справочники!$E$2:$J$46,2,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "G54": {
+        "value": "=IF(OR(C54<>\"ИЗ СПРАВОЧНИКА\",B54=\"\"),\"\",IFERROR(VLOOKUP(B54,Справочники!$E$2:$J$46,5,FALSE),\"НЕ НАЙДЕНО\"))",
+        "format": "General"
+      },
+      "Q54": {
+        "value": "=IF(C54=\"\",\"\",IF(IF(C54=\"НОВАЯ\",I54,E54)=\"\",\"НЕТ ГОСНОМЕРА\",IF(OR(ISNUMBER(SEARCH(\" \",IF(C54=\"НОВАЯ\",I54,E54))),LEN(IF(C54=\"НОВАЯ\",I54,E54))<8,LEN(IF(C54=\"НОВАЯ\",I54,E54))>9),\"ПРОВЕРИТЬ ФОРМАТ\",IF(OR(AND(LEN(IF(C54=\"НОВАЯ\",I54,E54))=8,ISNUMBER(IFERROR(VALUE(LEFT(IF(C54=\"НОВАЯ\",I54,E54),4)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C54=\"НОВАЯ\",I54,E54),2)),\"\"))),AND(LEN(IF(C54=\"НОВАЯ\",I54,E54))=9,ISNUMBER(IFERROR(VALUE(MID(IF(C54=\"НОВАЯ\",I54,E54),2,3)),\"\")),ISNUMBER(IFERROR(VALUE(RIGHT(IF(C54=\"НОВАЯ\",I54,E54),3)),\"\")))),\"ПРОВЕРИТЬ БУКВЫ\",\"ПРОВЕРИТЬ ФОРМАТ\"))))",
+        "format": "General"
+      },
+      "R54": {
+        "value": "=IF(C54=\"\",\"\",IF(OR(O54<>\"ДА\",P54=\"\"),\"НЕТ СВИДЕТЕЛЬСТВА\",IF(OR(AND(C54=\"НОВАЯ\",OR(H54=\"\",I54=\"\",J54=\"\",K54=\"\")),AND(C54=\"ИЗ СПРАВОЧНИКА\",B54=\"\")),\"НЕПОЛНЫЕ ДАННЫЕ\",IF(IF(C54=\"НОВАЯ\",H54,D54)=\"Самосвал\",IF(OR(L54=\"\",M54<>\"ДА\",N54=\"\"),\"НЕТ ТАРИРОВКИ/СПРАВКИ\",\"ГОТОВО К ПРОВЕРКЕ\"),\"ГОТОВО К ПРОВЕРКЕ\"))))",
+        "format": "General"
+      },
+      "S54": {
+        "value": "=IF(C54=\"\",\"\",IF('Паспорт контрагента'!B6<>\"\",'Паспорт контрагента'!B6,'Паспорт контрагента'!B7))",
+        "format": "General"
+      },
+      "V54": {
+        "value": "=IF(OR(B54=\"\",C54<>\"ИЗ СПРАВОЧНИКА\"),\"\",IFERROR(VLOOKUP(B54,Справочники!$E$2:$G$46,3,FALSE),\"\"))",
+        "format": "General"
+      }
+    },
+    "Справочники": {
+      "E2": {
+        "value": "Synthetic selector 1",
+        "format": "@"
+      },
+      "F2": {
+        "value": "Synthetic vehicle 1",
+        "format": "@"
+      },
+      "G2": {
+        "value": "A001AA86",
+        "format": "@"
+      },
+      "H2": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I2": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J2": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E3": {
+        "value": "Synthetic selector 2",
+        "format": "@"
+      },
+      "F3": {
+        "value": "Synthetic vehicle 2",
+        "format": "@"
+      },
+      "G3": {
+        "value": "A002AA86",
+        "format": "@"
+      },
+      "H3": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I3": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J3": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E4": {
+        "value": "Synthetic selector 3",
+        "format": "@"
+      },
+      "F4": {
+        "value": "Synthetic vehicle 3",
+        "format": "@"
+      },
+      "G4": {
+        "value": "A003AA86",
+        "format": "@"
+      },
+      "H4": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I4": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J4": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E5": {
+        "value": "Synthetic selector 4",
+        "format": "@"
+      },
+      "F5": {
+        "value": "Synthetic vehicle 4",
+        "format": "@"
+      },
+      "G5": {
+        "value": "A004AA86",
+        "format": "@"
+      },
+      "H5": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I5": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J5": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E6": {
+        "value": "Synthetic selector 5",
+        "format": "@"
+      },
+      "F6": {
+        "value": "Synthetic vehicle 5",
+        "format": "@"
+      },
+      "G6": {
+        "value": "A005AA86",
+        "format": "@"
+      },
+      "H6": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I6": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J6": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E7": {
+        "value": "Synthetic selector 6",
+        "format": "@"
+      },
+      "F7": {
+        "value": "Synthetic vehicle 6",
+        "format": "@"
+      },
+      "G7": {
+        "value": "A006AA86",
+        "format": "@"
+      },
+      "H7": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I7": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J7": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E8": {
+        "value": "Synthetic selector 7",
+        "format": "@"
+      },
+      "F8": {
+        "value": "Synthetic vehicle 7",
+        "format": "@"
+      },
+      "G8": {
+        "value": "A007AA86",
+        "format": "@"
+      },
+      "H8": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I8": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J8": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E9": {
+        "value": "Synthetic selector 8",
+        "format": "@"
+      },
+      "F9": {
+        "value": "Synthetic vehicle 8",
+        "format": "@"
+      },
+      "G9": {
+        "value": "A008AA86",
+        "format": "@"
+      },
+      "H9": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I9": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J9": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E10": {
+        "value": "Synthetic selector 9",
+        "format": "@"
+      },
+      "F10": {
+        "value": "Synthetic vehicle 9",
+        "format": "@"
+      },
+      "G10": {
+        "value": "A009AA86",
+        "format": "@"
+      },
+      "H10": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I10": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J10": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E11": {
+        "value": "Synthetic selector 10",
+        "format": "@"
+      },
+      "F11": {
+        "value": "Synthetic vehicle 10",
+        "format": "@"
+      },
+      "G11": {
+        "value": "A010AA86",
+        "format": "@"
+      },
+      "H11": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I11": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J11": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E12": {
+        "value": "Synthetic selector 11",
+        "format": "@"
+      },
+      "F12": {
+        "value": "Synthetic vehicle 11",
+        "format": "@"
+      },
+      "G12": {
+        "value": "A011AA86",
+        "format": "@"
+      },
+      "H12": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I12": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J12": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E13": {
+        "value": "Synthetic selector 12",
+        "format": "@"
+      },
+      "F13": {
+        "value": "Synthetic vehicle 12",
+        "format": "@"
+      },
+      "G13": {
+        "value": "A012AA86",
+        "format": "@"
+      },
+      "H13": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I13": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J13": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E14": {
+        "value": "Synthetic selector 13",
+        "format": "@"
+      },
+      "F14": {
+        "value": "Synthetic vehicle 13",
+        "format": "@"
+      },
+      "G14": {
+        "value": "A013AA86",
+        "format": "@"
+      },
+      "H14": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I14": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J14": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E15": {
+        "value": "Synthetic selector 14",
+        "format": "@"
+      },
+      "F15": {
+        "value": "Synthetic vehicle 14",
+        "format": "@"
+      },
+      "G15": {
+        "value": "A014AA86",
+        "format": "@"
+      },
+      "H15": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I15": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J15": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E16": {
+        "value": "Synthetic selector 15",
+        "format": "@"
+      },
+      "F16": {
+        "value": "Synthetic vehicle 15",
+        "format": "@"
+      },
+      "G16": {
+        "value": "A015AA86",
+        "format": "@"
+      },
+      "H16": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I16": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J16": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E17": {
+        "value": "Synthetic selector 16",
+        "format": "@"
+      },
+      "F17": {
+        "value": "Synthetic vehicle 16",
+        "format": "@"
+      },
+      "G17": {
+        "value": "A016AA86",
+        "format": "@"
+      },
+      "H17": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I17": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J17": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E18": {
+        "value": "Synthetic selector 17",
+        "format": "@"
+      },
+      "F18": {
+        "value": "Synthetic vehicle 17",
+        "format": "@"
+      },
+      "G18": {
+        "value": "A017AA86",
+        "format": "@"
+      },
+      "H18": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I18": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J18": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E19": {
+        "value": "Synthetic selector 18",
+        "format": "@"
+      },
+      "F19": {
+        "value": "Synthetic vehicle 18",
+        "format": "@"
+      },
+      "G19": {
+        "value": "A018AA86",
+        "format": "@"
+      },
+      "H19": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I19": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J19": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E20": {
+        "value": "Synthetic selector 19",
+        "format": "@"
+      },
+      "F20": {
+        "value": "Synthetic vehicle 19",
+        "format": "@"
+      },
+      "G20": {
+        "value": "A019AA86",
+        "format": "@"
+      },
+      "H20": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I20": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J20": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E21": {
+        "value": "Synthetic selector 20",
+        "format": "@"
+      },
+      "F21": {
+        "value": "Synthetic vehicle 20",
+        "format": "@"
+      },
+      "G21": {
+        "value": "A020AA86",
+        "format": "@"
+      },
+      "H21": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I21": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J21": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E22": {
+        "value": "Synthetic selector 21",
+        "format": "@"
+      },
+      "F22": {
+        "value": "Synthetic vehicle 21",
+        "format": "@"
+      },
+      "G22": {
+        "value": "A021AA86",
+        "format": "@"
+      },
+      "H22": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I22": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J22": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E23": {
+        "value": "Synthetic selector 22",
+        "format": "@"
+      },
+      "F23": {
+        "value": "Synthetic vehicle 22",
+        "format": "@"
+      },
+      "G23": {
+        "value": "A022AA86",
+        "format": "@"
+      },
+      "H23": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I23": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J23": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E24": {
+        "value": "Synthetic selector 23",
+        "format": "@"
+      },
+      "F24": {
+        "value": "Synthetic vehicle 23",
+        "format": "@"
+      },
+      "G24": {
+        "value": "A023AA86",
+        "format": "@"
+      },
+      "H24": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I24": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J24": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E25": {
+        "value": "Synthetic selector 24",
+        "format": "@"
+      },
+      "F25": {
+        "value": "Synthetic vehicle 24",
+        "format": "@"
+      },
+      "G25": {
+        "value": "A024AA86",
+        "format": "@"
+      },
+      "H25": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I25": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J25": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E26": {
+        "value": "Synthetic selector 25",
+        "format": "@"
+      },
+      "F26": {
+        "value": "Synthetic vehicle 25",
+        "format": "@"
+      },
+      "G26": {
+        "value": "A025AA86",
+        "format": "@"
+      },
+      "H26": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I26": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J26": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E27": {
+        "value": "Synthetic selector 26",
+        "format": "@"
+      },
+      "F27": {
+        "value": "Synthetic vehicle 26",
+        "format": "@"
+      },
+      "G27": {
+        "value": "A026AA86",
+        "format": "@"
+      },
+      "H27": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I27": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J27": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E28": {
+        "value": "Synthetic selector 27",
+        "format": "@"
+      },
+      "F28": {
+        "value": "Synthetic vehicle 27",
+        "format": "@"
+      },
+      "G28": {
+        "value": "A027AA86",
+        "format": "@"
+      },
+      "H28": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I28": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J28": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E29": {
+        "value": "Synthetic selector 28",
+        "format": "@"
+      },
+      "F29": {
+        "value": "Synthetic vehicle 28",
+        "format": "@"
+      },
+      "G29": {
+        "value": "A028AA86",
+        "format": "@"
+      },
+      "H29": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I29": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J29": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E30": {
+        "value": "Synthetic selector 29",
+        "format": "@"
+      },
+      "F30": {
+        "value": "Synthetic vehicle 29",
+        "format": "@"
+      },
+      "G30": {
+        "value": "A029AA86",
+        "format": "@"
+      },
+      "H30": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I30": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J30": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E31": {
+        "value": "Synthetic selector 30",
+        "format": "@"
+      },
+      "F31": {
+        "value": "Synthetic vehicle 30",
+        "format": "@"
+      },
+      "G31": {
+        "value": "A030AA86",
+        "format": "@"
+      },
+      "H31": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I31": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J31": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E32": {
+        "value": "Synthetic selector 31",
+        "format": "@"
+      },
+      "F32": {
+        "value": "Synthetic vehicle 31",
+        "format": "@"
+      },
+      "G32": {
+        "value": "A031AA86",
+        "format": "@"
+      },
+      "H32": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I32": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J32": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E33": {
+        "value": "Synthetic selector 32",
+        "format": "@"
+      },
+      "F33": {
+        "value": "Synthetic vehicle 32",
+        "format": "@"
+      },
+      "G33": {
+        "value": "A032AA86",
+        "format": "@"
+      },
+      "H33": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I33": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J33": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E34": {
+        "value": "Synthetic selector 33",
+        "format": "@"
+      },
+      "F34": {
+        "value": "Synthetic vehicle 33",
+        "format": "@"
+      },
+      "G34": {
+        "value": "A033AA86",
+        "format": "@"
+      },
+      "H34": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I34": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J34": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E35": {
+        "value": "Synthetic selector 34",
+        "format": "@"
+      },
+      "F35": {
+        "value": "Synthetic vehicle 34",
+        "format": "@"
+      },
+      "G35": {
+        "value": "A034AA86",
+        "format": "@"
+      },
+      "H35": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I35": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J35": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E36": {
+        "value": "Synthetic selector 35",
+        "format": "@"
+      },
+      "F36": {
+        "value": "Synthetic vehicle 35",
+        "format": "@"
+      },
+      "G36": {
+        "value": "A035AA86",
+        "format": "@"
+      },
+      "H36": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I36": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J36": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E37": {
+        "value": "Synthetic selector 36",
+        "format": "@"
+      },
+      "F37": {
+        "value": "Synthetic vehicle 36",
+        "format": "@"
+      },
+      "G37": {
+        "value": "A036AA86",
+        "format": "@"
+      },
+      "H37": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I37": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J37": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E38": {
+        "value": "Synthetic selector 37",
+        "format": "@"
+      },
+      "F38": {
+        "value": "Synthetic vehicle 37",
+        "format": "@"
+      },
+      "G38": {
+        "value": "A037AA86",
+        "format": "@"
+      },
+      "H38": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I38": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J38": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E39": {
+        "value": "Synthetic selector 38",
+        "format": "@"
+      },
+      "F39": {
+        "value": "Synthetic vehicle 38",
+        "format": "@"
+      },
+      "G39": {
+        "value": "A038AA86",
+        "format": "@"
+      },
+      "H39": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I39": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J39": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E40": {
+        "value": "Synthetic selector 39",
+        "format": "@"
+      },
+      "F40": {
+        "value": "Synthetic vehicle 39",
+        "format": "@"
+      },
+      "G40": {
+        "value": "A039AA86",
+        "format": "@"
+      },
+      "H40": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I40": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J40": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E41": {
+        "value": "Synthetic selector 40",
+        "format": "@"
+      },
+      "F41": {
+        "value": "Synthetic vehicle 40",
+        "format": "@"
+      },
+      "G41": {
+        "value": "A040AA86",
+        "format": "@"
+      },
+      "H41": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I41": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J41": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E42": {
+        "value": "Synthetic selector 41",
+        "format": "@"
+      },
+      "F42": {
+        "value": "Synthetic vehicle 41",
+        "format": "@"
+      },
+      "G42": {
+        "value": "A041AA86",
+        "format": "@"
+      },
+      "H42": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I42": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J42": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E43": {
+        "value": "Synthetic selector 42",
+        "format": "@"
+      },
+      "F43": {
+        "value": "Synthetic vehicle 42",
+        "format": "@"
+      },
+      "G43": {
+        "value": "A042AA86",
+        "format": "@"
+      },
+      "H43": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I43": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J43": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E44": {
+        "value": "Synthetic selector 43",
+        "format": "@"
+      },
+      "F44": {
+        "value": "Synthetic vehicle 43",
+        "format": "@"
+      },
+      "G44": {
+        "value": "A043AA86",
+        "format": "@"
+      },
+      "H44": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I44": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J44": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E45": {
+        "value": "Synthetic selector 44",
+        "format": "@"
+      },
+      "F45": {
+        "value": "Synthetic vehicle 44",
+        "format": "@"
+      },
+      "G45": {
+        "value": "A044AA86",
+        "format": "@"
+      },
+      "H45": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I45": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J45": {
+        "value": "Действующая",
+        "format": "@"
+      },
+      "E46": {
+        "value": "Synthetic selector 45",
+        "format": "@"
+      },
+      "F46": {
+        "value": "Synthetic vehicle 45",
+        "format": "@"
+      },
+      "G46": {
+        "value": "A045AA86",
+        "format": "@"
+      },
+      "H46": {
+        "value": "Synthetic type",
+        "format": "@"
+      },
+      "I46": {
+        "value": "Synthetic model",
+        "format": "@"
+      },
+      "J46": {
+        "value": "Действующая",
+        "format": "@"
+      }
+    },
+    "Инструкция": {
+      "A1": {
+        "value": "Synthetic legacy fixture only",
+        "format": "@"
+      }
+    }
+  },
+  "caches": {
+    "Техника": {
+      "D5": "Synthetic type",
+      "E5": "A001AA86",
+      "F5": "Synthetic vehicle 1",
+      "G5": "Synthetic model",
+      "Q5": "ПРОВЕРИТЬ БУКВЫ",
+      "R5": "ГОТОВО К ПРОВЕРКЕ",
+      "V5": "V3-001",
+      "D6": "Synthetic type",
+      "E6": "A002AA86",
+      "F6": "Synthetic vehicle 2",
+      "G6": "Synthetic model",
+      "Q6": "ПРОВЕРИТЬ БУКВЫ",
+      "R6": "ГОТОВО К ПРОВЕРКЕ",
+      "V6": "V3-002",
+      "D7": "Synthetic type",
+      "E7": "A003AA86",
+      "F7": "Synthetic vehicle 3",
+      "G7": "Synthetic model",
+      "Q7": "ПРОВЕРИТЬ БУКВЫ",
+      "R7": "ГОТОВО К ПРОВЕРКЕ",
+      "V7": "V3-003",
+      "D8": "Synthetic type",
+      "E8": "A004AA86",
+      "F8": "Synthetic vehicle 4",
+      "G8": "Synthetic model",
+      "Q8": "ПРОВЕРИТЬ БУКВЫ",
+      "R8": "ГОТОВО К ПРОВЕРКЕ",
+      "V8": "V3-004",
+      "D9": "Synthetic type",
+      "E9": "A005AA86",
+      "F9": "Synthetic vehicle 5",
+      "G9": "Synthetic model",
+      "Q9": "ПРОВЕРИТЬ БУКВЫ",
+      "R9": "ГОТОВО К ПРОВЕРКЕ",
+      "V9": "V3-005",
+      "D10": "Synthetic type",
+      "E10": "A006AA86",
+      "F10": "Synthetic vehicle 6",
+      "G10": "Synthetic model",
+      "Q10": "ПРОВЕРИТЬ БУКВЫ",
+      "R10": "ГОТОВО К ПРОВЕРКЕ",
+      "V10": "V3-006",
+      "D11": "Synthetic type",
+      "E11": "A007AA86",
+      "F11": "Synthetic vehicle 7",
+      "G11": "Synthetic model",
+      "Q11": "ПРОВЕРИТЬ БУКВЫ",
+      "R11": "ГОТОВО К ПРОВЕРКЕ",
+      "V11": "V3-007",
+      "D12": "Synthetic type",
+      "E12": "A008AA86",
+      "F12": "Synthetic vehicle 8",
+      "G12": "Synthetic model",
+      "Q12": "ПРОВЕРИТЬ БУКВЫ",
+      "R12": "ГОТОВО К ПРОВЕРКЕ",
+      "V12": "V3-008",
+      "D13": "Synthetic type",
+      "E13": "A009AA86",
+      "F13": "Synthetic vehicle 9",
+      "G13": "Synthetic model",
+      "Q13": "ПРОВЕРИТЬ БУКВЫ",
+      "R13": "ГОТОВО К ПРОВЕРКЕ",
+      "V13": "V3-009",
+      "D14": "Synthetic type",
+      "E14": "A010AA86",
+      "F14": "Synthetic vehicle 10",
+      "G14": "Synthetic model",
+      "Q14": "ПРОВЕРИТЬ БУКВЫ",
+      "R14": "ГОТОВО К ПРОВЕРКЕ",
+      "V14": "V3-010",
+      "D15": "Synthetic type",
+      "E15": "A011AA86",
+      "F15": "Synthetic vehicle 11",
+      "G15": "Synthetic model",
+      "Q15": "ПРОВЕРИТЬ БУКВЫ",
+      "R15": "ГОТОВО К ПРОВЕРКЕ",
+      "V15": "V3-011",
+      "D16": "Synthetic type",
+      "E16": "A012AA86",
+      "F16": "Synthetic vehicle 12",
+      "G16": "Synthetic model",
+      "Q16": "ПРОВЕРИТЬ БУКВЫ",
+      "R16": "ГОТОВО К ПРОВЕРКЕ",
+      "V16": "V3-012",
+      "D17": "",
+      "E17": "",
+      "F17": "",
+      "G17": "",
+      "Q17": "",
+      "R17": "",
+      "V17": "",
+      "D18": "",
+      "E18": "",
+      "F18": "",
+      "G18": "",
+      "Q18": "",
+      "R18": "",
+      "V18": "",
+      "D19": "",
+      "E19": "",
+      "F19": "",
+      "G19": "",
+      "Q19": "",
+      "R19": "",
+      "S19": "",
+      "V19": "",
+      "D20": "",
+      "E20": "",
+      "F20": "",
+      "G20": "",
+      "Q20": "",
+      "R20": "",
+      "S20": "",
+      "V20": "",
+      "D21": "",
+      "E21": "",
+      "F21": "",
+      "G21": "",
+      "Q21": "",
+      "R21": "",
+      "S21": "",
+      "V21": "",
+      "D22": "",
+      "E22": "",
+      "F22": "",
+      "G22": "",
+      "Q22": "",
+      "R22": "",
+      "S22": "",
+      "V22": "",
+      "D23": "",
+      "E23": "",
+      "F23": "",
+      "G23": "",
+      "Q23": "",
+      "R23": "",
+      "S23": "",
+      "V23": "",
+      "D24": "",
+      "E24": "",
+      "F24": "",
+      "G24": "",
+      "Q24": "",
+      "R24": "",
+      "S24": "",
+      "V24": "",
+      "D25": "",
+      "E25": "",
+      "F25": "",
+      "G25": "",
+      "Q25": "",
+      "R25": "",
+      "S25": "",
+      "V25": "",
+      "D26": "",
+      "E26": "",
+      "F26": "",
+      "G26": "",
+      "Q26": "",
+      "R26": "",
+      "S26": "",
+      "V26": "",
+      "D27": "",
+      "E27": "",
+      "F27": "",
+      "G27": "",
+      "Q27": "",
+      "R27": "",
+      "S27": "",
+      "V27": "",
+      "D28": "",
+      "E28": "",
+      "F28": "",
+      "G28": "",
+      "Q28": "",
+      "R28": "",
+      "S28": "",
+      "V28": "",
+      "D29": "",
+      "E29": "",
+      "F29": "",
+      "G29": "",
+      "Q29": "",
+      "R29": "",
+      "S29": "",
+      "V29": "",
+      "D30": "",
+      "E30": "",
+      "F30": "",
+      "G30": "",
+      "Q30": "",
+      "R30": "",
+      "S30": "",
+      "V30": "",
+      "D31": "",
+      "E31": "",
+      "F31": "",
+      "G31": "",
+      "Q31": "",
+      "R31": "",
+      "S31": "",
+      "V31": "",
+      "D32": "",
+      "E32": "",
+      "F32": "",
+      "G32": "",
+      "Q32": "",
+      "R32": "",
+      "S32": "",
+      "V32": "",
+      "D33": "",
+      "E33": "",
+      "F33": "",
+      "G33": "",
+      "Q33": "",
+      "R33": "",
+      "S33": "",
+      "V33": "",
+      "D34": "",
+      "E34": "",
+      "F34": "",
+      "G34": "",
+      "Q34": "",
+      "R34": "",
+      "S34": "",
+      "V34": "",
+      "D35": "",
+      "E35": "",
+      "F35": "",
+      "G35": "",
+      "Q35": "",
+      "R35": "",
+      "S35": "",
+      "V35": "",
+      "D36": "",
+      "E36": "",
+      "F36": "",
+      "G36": "",
+      "Q36": "",
+      "R36": "",
+      "S36": "",
+      "V36": "",
+      "D37": "",
+      "E37": "",
+      "F37": "",
+      "G37": "",
+      "Q37": "",
+      "R37": "",
+      "S37": "",
+      "V37": "",
+      "D38": "",
+      "E38": "",
+      "F38": "",
+      "G38": "",
+      "Q38": "",
+      "R38": "",
+      "S38": "",
+      "V38": "",
+      "D39": "",
+      "E39": "",
+      "F39": "",
+      "G39": "",
+      "Q39": "",
+      "R39": "",
+      "S39": "",
+      "V39": "",
+      "D40": "",
+      "E40": "",
+      "F40": "",
+      "G40": "",
+      "Q40": "",
+      "R40": "",
+      "S40": "",
+      "V40": "",
+      "D41": "",
+      "E41": "",
+      "F41": "",
+      "G41": "",
+      "Q41": "",
+      "R41": "",
+      "S41": "",
+      "V41": "",
+      "D42": "",
+      "E42": "",
+      "F42": "",
+      "G42": "",
+      "Q42": "",
+      "R42": "",
+      "S42": "",
+      "V42": "",
+      "D43": "",
+      "E43": "",
+      "F43": "",
+      "G43": "",
+      "Q43": "",
+      "R43": "",
+      "S43": "",
+      "V43": "",
+      "D44": "",
+      "E44": "",
+      "F44": "",
+      "G44": "",
+      "Q44": "",
+      "R44": "",
+      "S44": "",
+      "V44": "",
+      "D45": "",
+      "E45": "",
+      "F45": "",
+      "G45": "",
+      "Q45": "",
+      "R45": "",
+      "S45": "",
+      "V45": "",
+      "D46": "",
+      "E46": "",
+      "F46": "",
+      "G46": "",
+      "Q46": "",
+      "R46": "",
+      "S46": "",
+      "V46": "",
+      "D47": "",
+      "E47": "",
+      "F47": "",
+      "G47": "",
+      "Q47": "",
+      "R47": "",
+      "S47": "",
+      "V47": "",
+      "D48": "",
+      "E48": "",
+      "F48": "",
+      "G48": "",
+      "Q48": "",
+      "R48": "",
+      "S48": "",
+      "V48": "",
+      "D49": "",
+      "E49": "",
+      "F49": "",
+      "G49": "",
+      "Q49": "",
+      "R49": "",
+      "S49": "",
+      "V49": "",
+      "D50": "",
+      "E50": "",
+      "F50": "",
+      "G50": "",
+      "Q50": "",
+      "R50": "",
+      "S50": "",
+      "V50": "",
+      "D51": "",
+      "E51": "",
+      "F51": "",
+      "G51": "",
+      "Q51": "",
+      "R51": "",
+      "S51": "",
+      "V51": "",
+      "D52": "",
+      "E52": "",
+      "F52": "",
+      "G52": "",
+      "Q52": "",
+      "R52": "",
+      "S52": "",
+      "V52": "",
+      "D53": "",
+      "E53": "",
+      "F53": "",
+      "G53": "",
+      "Q53": "",
+      "R53": "",
+      "S53": "",
+      "V53": "",
+      "D54": "",
+      "E54": "",
+      "F54": "",
+      "G54": "",
+      "Q54": "",
+      "R54": "",
+      "S54": "",
+      "V54": ""
+    }
+  }
+}

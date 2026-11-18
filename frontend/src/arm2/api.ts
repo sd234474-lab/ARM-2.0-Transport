@@ -23,7 +23,7 @@ export async function previewBytes(path: string, maximum: number): Promise<Blob>
 export type Kind = 'TYPE' | 'VEH' | 'CP' | 'ORG';
 export type QuestionnaireField = {current: unknown; proposed: unknown; selected: boolean; equal: boolean; error: string | null};
 export type QuestionnaireChoices = {cp_target?: string | null; cp_fields?: string[];
-  representatives?: Record<string,{target?: string | null; fields?: string[]; signer?: boolean}>;
+  representatives?: Record<string,{target?: string | null; fields?: string[]; signer?: boolean; sources?: Record<string,'passport'|'list'>}>;
   vehicles?: Record<string,{fields?: string[]; include?: boolean; type_id?: string | null; without_type?: boolean; confirm_owner?: boolean}>;
   documents?: Record<string,{parent_key?: string | null; kind_id?: string | null; document_id?: string | null; replace_file_id?: string | null; append?: boolean; accept?: boolean}>};
 export type QuestionnaireReceipt = {command_id: string; draft_id: string; cp_id: string | null; filled_date: string | null; uploaded_at: string; accepted_at: string; correlation_id: string; no_op: boolean; event_ids: number[]; objects: {kind: string; id?: string; document_id?: string; version: number}[]};
@@ -31,7 +31,7 @@ export type QuestionnaireRow = {key: string; row: number; id: string | null; pla
 export type QuestionnaireDocument = {key: string; upload_id?: string; name: string; parent_key: string | null; role: string; parent_type?: 'CP'|'VEH'; parent_id?: string; document_id?: string | null; kind_id?: string | null; version?: number; revision_id?: string; replace_file_id?: string | null; selected: boolean; equal?: boolean; error?: string | null; sha256?: string; media_type?: string; candidates?: {id:string; name:string; kind_id:string}[]; current_files?: {id:string; name:string; sha256:string}[]};
 export type QuestionnaireDraft = {id:string; revision:number; status:'OPEN'|'ACCEPTED'|'CANCELLED'; approval_reset?:boolean; filename?:string; choices?:QuestionnaireChoices; preview_id?:string; receipt?:QuestionnaireReceipt;
   comparison?:{cp:{key:string;id:string|null;target:string|null;version:number|null;error:string|null;hint:string;candidates:{id:string;name:string;inn:string|null}[];fields:Record<string,QuestionnaireField>};
-    representatives:{key:string;id:string|null;target:string|null;version:number|null;error:string|null;signer:boolean;fields:Record<string,QuestionnaireField>;candidates:{id:string;name:string}[]}[];
+    representatives:{key:string;id:string|null;target:string|null;version:number|null;error:string|null;signer:boolean;source_id?:string|null;source_row?:number|null;source_comment?:string|null;signer_hint?:boolean;conflicts?:Record<string,{passport:string;list:string}>;sources?:Record<string,'passport'|'list'>;fields:Record<string,QuestionnaireField>;candidates:{id:string;name:string}[]}[];
     vehicles:QuestionnaireRow[];documents:QuestionnaireDocument[];types:{id:string;name:string;plate_category:string}[];document_kinds:{id:string;name:string;parents:string[]}[];
     warnings:string[];filled_date:string|null;uploaded_at:string}};
 export const questionnaireApi = {

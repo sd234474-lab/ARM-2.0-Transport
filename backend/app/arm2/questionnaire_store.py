@@ -6,11 +6,7 @@ import zipfile
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from uuid import uuid4
-from xml.etree import ElementTree as ET
 
-from openpyxl import Workbook
-from openpyxl.workbook.defined_name import DefinedName
-from openpyxl.worksheet.datavalidation import DataValidation
 from sqlalchemy import select
 
 from app.arm2 import document_file_storage as files
@@ -33,6 +29,7 @@ from app.arm2.object_save import (
     update_object,
 )
 from app.arm2.questionnaire_diff import CP_FIELDS, REP_FIELDS, VEH_FIELDS, authorized, build
+from app.arm2.questionnaire_excel import build_workbook
 from app.arm2.questionnaire_models import (
     QuestionnaireDraft,
     QuestionnaireExport,
@@ -40,23 +37,19 @@ from app.arm2.questionnaire_models import (
     QuestionnaireUpload,
 )
 from app.arm2.questionnaire_parse import (
-    CP_CELLS,
-    MANIFEST,
+    EXPORT_VERSION,
     MAX_COMPRESSED,
     MAX_ENTRIES,
     MAX_EXPANDED,
-    PASSPORT,
-    VEHICLES,
     fingerprint,
     parse,
-    seal,
 )
 from app.arm2.representative_models import CounterpartyRepresentative
 from app.arm2.representative_store import create_representative
 from app.arm2.vehicle_models import Vehicle
 from app.arm2.vehicle_store import create_vehicle, set_operational_owner
 from app.arm2.vehicle_type_models import VehicleType
-from app.models import LoginSession
+from app.models import LoginSession, User
 from app.permissions import Permission, has_permission
 
 
@@ -155,7 +148,9 @@ def validate_choices(choices):
     if set(choices.get('cp_fields', [])) - set(CP_FIELDS):
         raise ValueError('Неизвестный реквизит CP')
     for rep in choices.get('representatives', {}).values():
-        if set(rep) - {'target', 'fields', 'signer'} or set(rep.get('fields', [])) - set(REP_FIELDS):
+        if (set(rep) - {'target', 'fields', 'signer', 'sources'} or set(rep.get('fields', [])) - set(REP_FIELDS)
+                or set(rep.get('sources', {})) - {'name', 'position', 'authority_basis'}
+                or set(rep.get('sources', {}).values()) - {'passport', 'list'}):
             raise ValueError('Решение представителя содержит запрещённые реквизиты')
     for row in choices.get('vehicles', {}).values():
         if set(row) - {'fields', 'type_id', 'without_type', 'confirm_owner', 'include'} or set(row.get('fields', [])) - set(VEH_FIELDS):
@@ -178,6 +173,15 @@ def edit(db, user, identifier, revision, choices):
                 'representatives': {k: {**v, 'target': None, 'fields': [], 'signer': False} for k, v in choices.get('representatives', {}).items()},
                 'vehicles': {k: {**v, 'fields': [f for f in v.get('fields', []) if f != 'owner'], 'confirm_owner': False} for k, v in choices.get('vehicles', {}).items()},
                 'documents': {k: {**v, 'accept': False} for k, v in choices.get('documents', {}).items()}}
+        # A different signer projection is a different proposed value: an earlier
+        # approval must not silently carry over when its source is changed.
+        representatives = {}
+        for key, decision in choices.get('representatives', {}).items():
+            previous = draft.choices.get('representatives', {}).get(key, {}).get('sources', {})
+            sources = decision.get('sources', {})
+            changed = {field for field in set(previous) | set(sources) if previous.get(field) != sources.get(field)}
+            representatives[key] = {**decision, 'fields': [field for field in decision.get('fields', []) if field not in changed]}
+        choices = {**choices, 'representatives': representatives}
         draft.choices = choices
         draft.revision += 1
         draft.staging = {}
@@ -209,6 +213,11 @@ def selected(comparison, choices):
             raise ValueError('Выбранный реквизит представителя некорректен')
         if rep['target'] == 'new' and not rep['fields'].get('name', {}).get('selected'):
             raise ValueError('Для нового представителя явно примите имя')
+    if len([r for r in reps if r['signer']]) > 1:
+        raise ValueError('Выберите только одного основного подписанта')
+    existing_rep_ids = [r['id'] for r in reps if r['target'] != 'new']
+    if len(existing_rep_ids) != len(set(existing_rep_ids)):
+        raise ValueError('Один REP выбран для нескольких строк; устраните повтор')
     for row in rows:
         if row['errors']:
             raise ValueError('; '.join(row['errors']))
@@ -549,116 +558,29 @@ def export(db, user, cp_id, *, with_files=False, incomplete_reason=None):
     if missing and not (incomplete_reason and incomplete_reason.strip()):
         return {'confirmation_required': True, 'missing': missing,
                 'message': 'Исправьте доступность файлов или явно выдайте неполный ZIP с причиной'}
-    book = Workbook()
-    passport = book.active
-    passport.title = PASSPORT
-    passport['B3'] = 'ARM_IMPORT_V2'
-    passport['B6'] = cp.id
+    representatives = list(db.scalars(select(CounterpartyRepresentative).where(
+        CounterpartyRepresentative.parent_id == cp.id).order_by(CounterpartyRepresentative.id)))
+    if len(representatives) > 1000:
+        raise ValueError('The questionnaire supports up to 1000 representatives; no records were omitted')
+    linked_users = {rep.user_id: db.get(User, rep.user_id) for rep in representatives if rep.user_id is not None}
+    type_view = has_permission(user, Permission.ARM2_TYPE_VIEW)
+    types = {t.id: t for t in db.scalars(select(VehicleType).order_by(VehicleType.id))} if type_view else {}
+    kinds = {item['document_id']: db.get(DocumentKind, db.get(Document, item['document_id']).kind_ref).name for item in mapping}
     last_filled = db.scalar(select(QuestionnaireReceipt.result['filled_date'].astext).where(
         QuestionnaireReceipt.result['cp_id'].astext == cp.id).order_by(QuestionnaireReceipt.accepted_at.desc()).limit(1))
-    if last_filled:
-        passport['B4'] = last_filled
-    for row, field in CP_CELLS.items():
-        passport[f'A{row}'] = field
-        passport[f'B{row}'] = getattr(cp, field) or ''
-    signer = None
-    if cp.primary_signer_id:
-        signer = db.get(CounterpartyRepresentative, cp.primary_signer_id)
-        for row, field in ((20, 'name'), (21, 'position'), (22, 'authority_basis')):
-            passport[f'B{row}'] = getattr(signer, field) or ''
-    sheet = book.create_sheet(VEHICLES)
-    headers = ['Выбор VEH-ID', 'Статус строки', 'Тип текущий', 'Госномер текущий', 'Имя текущее', 'Модель текущая',
-               'Тип предложенный', 'Госномер предложенный', 'Имя предложенное', 'Модель предложенная',
-               'Объём — только сверка', 'Справка', 'Файл справки', 'СТС', 'Файл СТС', 'Диагностика', 'Подсказка',
-               'CP-кандидат', 'Расхождение', 'Описание', 'Legacy reference']
-    for column, name in enumerate(headers, 2):
-        sheet.cell(4, column, name)
-    type_view = has_permission(user, Permission.ARM2_TYPE_VIEW)
-    for index, vehicle in enumerate(owned_vehicles, 5):
-        typ = db.get(VehicleType, vehicle.type_id) if vehicle.type_id and type_view else None
-        for column, value in {2: vehicle.id, 3: 'ЗАЯВЛЕНО', 4: typ.id if typ else '', 5: vehicle.plate_number,
-                              6: vehicle.name, 7: vehicle.model or '', 19: cp.id}.items():
-            sheet.cell(index, column, value)
-        for item in mapping:
-            if item['parent_id'] != vehicle.id:
-                continue
-            doc = db.get(Document, item['document_id'])
-            kind_name = db.get(DocumentKind, doc.kind_ref).name
-            if kind_name in ('СТС', 'Тарировка'):
-                sheet.cell(index, 16 if kind_name == 'СТС' else 14, item['name'])
-    cp_files = [f for f in mapping if f['parent_type'] == 'CP']
-    if len(cp_files) == 1:
-        passport['B27'], passport['B28'] = 'Да', cp_files[0]['name']
-    catalog = book.create_sheet('_ARM2_VEH')
-    catalog.append(['VEH-ID', 'Госномер', 'TYPE-ID', 'Тип', 'Имя', 'Модель', 'Учётное состояние'])
-    for vehicle in vehicles:
-        typ = db.get(VehicleType, vehicle.type_id) if vehicle.type_id and type_view else None
-        catalog.append([vehicle.id, vehicle.plate_number, typ.id if typ else '', typ.name if typ else '',
-                        vehicle.name, vehicle.model or '', vehicle.accounting_state])
-    catalog.sheet_state = 'veryHidden'
-    book.defined_names.add(DefinedName('ARM2_VEH_IDS', attr_text=f"'_ARM2_VEH'!$A$2:$A${max(2,len(vehicles)+1)}"))
-    validation = DataValidation(type='list', formula1='ARM2_VEH_IDS')
-    sheet.add_data_validation(validation)
-    validation.add('B5:B1004')
-    cached_formula_values = {}
-    for row in range(5, 1005):
-        current = owned_vehicles[row-5] if row-5 < len(owned_vehicles) else None
-        typ = db.get(VehicleType, current.type_id) if current and current.type_id and type_view else None
-        for col, index, cached_value in [('D', 3, typ.id if typ else ''),
-                ('E', 2, current.plate_number if current else ''), ('F', 5, current.name if current else ''),
-                ('G', 6, current.model or '' if current else '')]:
-            coordinate = f'{col}{row}'
-            sheet[coordinate] = f'=IFERROR(VLOOKUP($B{row},\'_ARM2_VEH\'!$A$2:$G${max(2,len(vehicles)+1)},{index},FALSE),"")'
-            cached_formula_values[coordinate] = cached_value
-    book.create_sheet('Инструкция')['A1'] = 'Пустые значения не стирают ARM. Вложения — отдельные PDF/JPG/JPEG/PNG. Изменения принимает оператор.'
-    book.create_sheet('Справочники')['A1'] = 'Источник выбора техники — скрытый полный каталог ARM2 с постоянными ID.'
-    manifest = seal({'schema': 'ARM2_QUESTIONNAIRE_1', 'cp_id': cp.id, 'files': mapping,
-        'representatives': [{'index': 0, 'id': signer.id, 'parent_id': cp.id, 'version': signer.version}] if signer else [],
-        'incomplete': {'author_id': user.id, 'reason': incomplete_reason, 'missing': missing} if missing else None})
-    service = book.create_sheet(MANIFEST)
-    for offset in range(0, len(manifest), 20000):
-        service.append([manifest[offset:offset+20000]])
-    service.sheet_state = 'veryHidden'
-    for ws in book:
-        for row in ws:
-            for cell in row:
-                if isinstance(cell.value, str) and not (ws is sheet and cell.coordinate in cached_formula_values):
-                    cell.data_type = 's'
-                    cell.number_format = '@'
-        ws.column_dimensions['A'].width = 35
-        ws.column_dimensions['B'].width = 48
-    out = io.BytesIO()
-    book.save(out)
-    book.close()
-    # Keep server-verified caches for current rows without executing input formulae.
-    # Excel recalculates the lookup when the recipient chooses a different VEH-ID.
-    with zipfile.ZipFile(io.BytesIO(out.getvalue())) as generated:
-        cached_out = io.BytesIO()
-        with zipfile.ZipFile(cached_out, 'w', zipfile.ZIP_DEFLATED) as target:
-            for entry in generated.infolist():
-                content = generated.read(entry)
-                if entry.filename == 'xl/worksheets/sheet2.xml':
-                    xml = ET.fromstring(content)
-                    ns = '{http://schemas.openxmlformats.org/spreadsheetml/2006/main}'
-                    for cell in xml.iter(ns + 'c'):
-                        if cell.get('r') in cached_formula_values:
-                            cell.set('t', 'str')
-                            formula = cell.find(ns + 'f')
-                            if formula is None:
-                                inline = cell.find(ns + 'is')
-                                if inline is not None:
-                                    cell.remove(inline)
-                                formula = ET.SubElement(cell, ns + 'f')
-                                formula.text = f'IFERROR(VLOOKUP($B{cell.get("r")[1:]},\'_ARM2_VEH\'!$A$2:$G${max(2,len(vehicles)+1)},' + str({'D':3,'E':2,'F':5,'G':6}[cell.get('r')[0]]) + ',FALSE),"")'
-                            value = cell.find(ns + 'v')
-                            if value is None:
-                                value = ET.SubElement(cell, ns + 'v')
-                            value.text = cached_formula_values[cell.get('r')]
-                    content = ET.tostring(xml, encoding='utf-8')
-                target.writestr(entry.filename, content)
-    data, media, suffix = cached_out.getvalue(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'xlsx'
+    manifest = {'schema': 'ARM2_QUESTIONNAIRE_1', 'transport_version': EXPORT_VERSION,
+        'cp_id': cp.id, 'primary_signer_id': cp.primary_signer_id, 'files': mapping,
+        'representatives': [{'index': i, 'id': rep.id, 'parent_id': cp.id, 'version': rep.version}
+                            for i, rep in enumerate(representatives)],
+        'incomplete': {'author_id': user.id, 'reason': incomplete_reason, 'missing': missing} if missing else None}
+    data = build_workbook(cp, representatives, linked_users, vehicles, owned_vehicles, types, mapping, kinds, last_filled, manifest)
+    media, suffix = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'xlsx'
+    with zipfile.ZipFile(io.BytesIO(data)) as workbook_archive:
+        workbook_expanded = sum(entry.file_size for entry in workbook_archive.infolist())
+    if workbook_expanded > MAX_EXPANDED:
+        raise ValueError('Анкета превышает предел распакованного XLSX; строки каталога не пропущены')
     if with_files:
-        if len(originals) + 1 > MAX_ENTRIES or sum(len(v) for v in originals.values()) + len(data) > MAX_EXPANDED:
+        if len(originals) + 1 > MAX_ENTRIES or sum(len(v) for v in originals.values()) + workbook_expanded > MAX_EXPANDED:
             raise ValueError('Полная выгрузка превышает транспортные пределы ZIP; файлы не пропущены')
         zipped = io.BytesIO()
         with zipfile.ZipFile(zipped, 'w', zipfile.ZIP_DEFLATED) as archive:

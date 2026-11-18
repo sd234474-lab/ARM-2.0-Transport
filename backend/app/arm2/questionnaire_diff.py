@@ -21,7 +21,7 @@ from app.models import User
 from app.permissions import Permission, has_permission
 
 CP_FIELDS = (*PARTY_FIELDS[:-1], 'last_name', 'first_name', 'middle_name')
-REP_FIELDS = ('name', 'position', 'authority_basis')
+REP_FIELDS = ('name', 'position', 'authority_basis', 'phone', 'email', 'state')
 VEH_FIELDS = ('name', 'model', 'type_id', 'accounting_state', 'owner')
 
 
@@ -53,11 +53,13 @@ def build(db, principal, draft):
     cp = db.get(Counterparty, target, populate_existing=True) if target and target != 'new' else None
     cp_error = None if target == 'new' or cp is not None else 'Выберите существующего или нового контрагента'
     candidates = []
-    if cp_values.get('inn') or cp_values.get('name'):
+    cp_hint = payload.get('cp_hint')
+    if cp_values.get('inn') or cp_values.get('name') or cp_hint:
         candidates = [{'id': r.id, 'name': r.name, 'inn': r.inn} for r in db.scalars(select(Counterparty).where(or_(
             Counterparty.inn == cp_values.get('inn') if cp_values.get('inn') else False,
-            Counterparty.name == cp_values.get('name'))).order_by(Counterparty.id).limit(100))]
-    cp_errors, normalized = {}, {}
+            Counterparty.name == cp_values.get('name'), Counterparty.id == cp_hint,
+            Counterparty.name == cp_hint)).order_by(Counterparty.id).limit(100))]
+    cp_errors, normalized = dict(payload.get('cp_errors', {})), {}
     base = {f: getattr(cp, f) if cp else None for f in (*PARTY_FIELDS, 'last_name', 'first_name', 'middle_name')}
     base['name'] = base['name'] or cp_values.get('name') or 'Анкета'
     for field in CP_FIELDS:
@@ -77,28 +79,49 @@ def build(db, principal, draft):
     reps = []
     for index, proposed in enumerate(payload.get('representatives', [])):
         choice = choices.get('representatives', {}).get(str(index), {})
+        meta = (payload.get('representative_meta') or [{}] * len(payload.get('representatives', [])))[index]
         rep_id = choice.get('target')
         signed_rep = next((r for r in (payload.get('manifest') or {}).get('representatives', [])
                            if r['index'] == index and cp and r['parent_id'] == cp.id), None)
-        lookup_id = rep_id if rep_id and rep_id != 'new' else signed_rep['id'] if not rep_id and signed_rep else None
+        hint = meta.get('id') if 'representative_meta' in payload else signed_rep['id'] if signed_rep else None
+        lookup_id = rep_id if rep_id and rep_id != 'new' else hint if cp else None
         rep = db.get(CounterpartyRepresentative, lookup_id, populate_existing=True) if lookup_id else None
+        error = None
+        if hint and cp and (not re.fullmatch(r'CPREP-\d{6,}', hint) or
+                db.scalar(select(CounterpartyRepresentative.id).where(CounterpartyRepresentative.id == hint,
+                    CounterpartyRepresentative.parent_id == cp.id)) is None):
+            error = 'REP-ID не принадлежит выбранному CP или отсутствует; сопоставьте исходные данные'
+        if hint and rep_id == 'new':
+            error = 'Строка уже содержит REP-ID; выберите существующую запись, не создавайте дубль'
+        if hint and sum(m.get('id') == hint for m in payload.get('representative_meta', [])) > 1:
+            error = 'Повтор REP-ID в листе представителей'
         if not rep_id and rep and (cp is None or rep.parent_id != cp.id):
             rep = None
-        error = None
         if rep_id and rep_id != 'new' and (rep is None or cp is None or rep.parent_id != cp.id):
             error = 'Представитель не принадлежит выбранному CP'
         rep_values, rep_errors = {}, {}
         base_rep = representative_values(cp.id if cp else '$CP', rep.name if rep else proposed.get('name') or 'Представитель',
             **{f: getattr(rep, f) for f in ('position', 'authority_basis', 'phone', 'email', 'state', 'user_id', 'last_name', 'first_name', 'middle_name')} if rep else {})
-        for field, value in proposed.items():
+        conflicts = meta.get('conflicts', {})
+        resolved = {**proposed, **{field: alternatives[choice.get('sources', {}).get(field)]
+            for field, alternatives in conflicts.items() if choice.get('sources', {}).get(field) in alternatives}}
+        for field, value in resolved.items():
+            if field not in REP_FIELDS:
+                continue
             if not value:
                 continue
             try:
                 rep_values[field] = CPREP_ADAPTER.normalize({**base_rep, field: value})[field]
             except ValueError as failure:
                 rep_values[field], rep_errors[field] = value, str(failure)
+        for field in conflicts:
+            if choice.get('sources', {}).get(field) not in {'passport', 'list'}:
+                rep_errors[field] = 'Паспорт и список различаются: явно выберите источник значения'
         reps.append({'key': str(index), 'id': rep.id if rep else None, 'target': rep_id,
             'version': rep.version if rep else None, 'error': error, 'signer': bool(choice.get('signer')),
+            'source_id': hint, 'source_row': meta.get('row'), 'signer_hint': bool(meta.get('signer_hint')),
+            'source_comment': meta.get('comment'),
+            'conflicts': conflicts, 'sources': choice.get('sources', {}),
             'fields': changes(rep_values, rep, choice.get('fields', []), rep_errors),
             'candidates': [{'id': r.id, 'name': r.name} for r in db.scalars(select(CounterpartyRepresentative).where(
                 CounterpartyRepresentative.parent_id == cp.id).order_by(CounterpartyRepresentative.id))] if cp else []})
@@ -107,7 +130,7 @@ def build(db, principal, draft):
     veh_view = has_permission(user, Permission.ARM2_VEH_VIEW)
     for raw in payload.get('vehicles', []):
         choice = choices.get('vehicles', {}).get(raw['key'], {})
-        errors = []
+        errors = [raw['status_error']] if raw.get('status_error') else []
         current, plate = None, None
         try:
             if not veh_view:

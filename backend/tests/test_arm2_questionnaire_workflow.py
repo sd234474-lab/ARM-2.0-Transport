@@ -486,7 +486,7 @@ def test_t26_export_contains_all_vehicle_ids_without_other_cp_requisites(b5):
     db.commit()
     data = exported(c, parents['cp'], 'xlsx')
     book = load_workbook(io.BytesIO(data))
-    catalog = book['_ARM2_VEH']
+    catalog = book['Справочники']
     assert catalog.max_row == 152 and catalog.sheet_state == 'veryHidden'
     all_cells = ' '.join(str(cell.value) for ws in book for row in ws for cell in row)
     assert 'VEH-000250' in all_cells and 'DO_NOT_LEAK_OTHER_CP' not in all_cells and '1111111111' not in all_cells
