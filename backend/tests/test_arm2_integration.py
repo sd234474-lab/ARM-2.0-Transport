@@ -195,4 +195,3 @@ def test_i07_two_authenticated_sessions_permissions_versions_and_no_duplicates(q
         admin.commit()
     assert c.get(f"/api/arm2/bulk/sessions/{w['id']}").status_code == 403
     assert command(c, fresh, ("ORG", parents['org']), confirm=True).status_code == 403
-
