@@ -1,0 +1,12 @@
+{
+  "classification": "AUTHOR-RUN, synthetic QA",
+  "result": "PASS",
+  "nativeLogin": true,
+  "restoredBulkReceiptVisible": true,
+  "restoredVehicleModelVisible": true,
+  "b2OwnerVisible": true,
+  "b3DocumentsVisible": true,
+  "historicalFileDownloadSha256": "a0d9ce58ef6138f58034bbbccce26c6f9a15b71e50ab586cabd27f11ff40366d",
+  "typeCategoryVisible": true,
+  "pageErrors": []
+}

@@ -119,7 +119,7 @@ def test_shared_save_uses_current_database_permissions_and_real_history_author(
                     True,
                     False,
                     False,
-                    principal=principal,
+                    plate_category="Автомобильный", principal=principal,
                     context=save_context(principal),
                 )
 
@@ -130,7 +130,7 @@ def test_shared_save_uses_current_database_permissions_and_real_history_author(
                 True,
                 False,
                 False,
-                principal=None,
+                plate_category="Автомобильный", principal=None,
                 context=SaveContext("HUMAN", "1", "integration-test"),
             )
         missing = User(
@@ -149,7 +149,7 @@ def test_shared_save_uses_current_database_permissions_and_real_history_author(
                 True,
                 False,
                 False,
-                principal=missing,
+                plate_category="Автомобильный", principal=missing,
                 context=save_context(missing),
             )
 
@@ -169,7 +169,7 @@ def test_shared_save_uses_current_database_permissions_and_real_history_author(
                 True,
                 False,
                 False,
-                principal=forged,
+                plate_category="Автомобильный", principal=forged,
                 context=save_context(forged),
             )
 
@@ -180,7 +180,7 @@ def test_shared_save_uses_current_database_permissions_and_real_history_author(
                 True,
                 False,
                 False,
-                principal=type_editor,
+                plate_category="Автомобильный", principal=type_editor,
                 context=SaveContext("HUMAN", str(admin.id), "integration-test"),
             )
         with pytest.raises(ObjectAuthorizationError, match="does not match"):
@@ -190,7 +190,7 @@ def test_shared_save_uses_current_database_permissions_and_real_history_author(
                 True,
                 False,
                 False,
-                principal=admin,
+                plate_category="Автомобильный", principal=admin,
                 context=SaveContext("SYSTEM", str(admin.id), "integration-test"),
             )
 
@@ -200,7 +200,7 @@ def test_shared_save_uses_current_database_permissions_and_real_history_author(
             True,
             False,
             False,
-            principal=type_editor,
+            plate_category="Автомобильный", principal=type_editor,
             context=save_context(type_editor),
         )
         admin_created = create_vehicle_type(
@@ -209,7 +209,7 @@ def test_shared_save_uses_current_database_permissions_and_real_history_author(
             True,
             False,
             False,
-            principal=admin,
+            plate_category="Автомобильный", principal=admin,
             context=save_context(admin),
         )
         for principal in (type_editor, vehicle_viewer):
@@ -254,7 +254,7 @@ def test_shared_save_uses_current_database_permissions_and_real_history_author(
                     True,
                     False,
                     False,
-                    principal=type_editor,
+                    plate_category="Автомобильный", principal=type_editor,
                     context=save_context(type_editor),
                 )
         db.refresh(created)
@@ -274,7 +274,7 @@ def test_shared_save_uses_current_database_permissions_and_real_history_author(
             True,
             False,
             False,
-            principal=type_editor,
+            plate_category="Автомобильный", principal=type_editor,
             context=save_context(type_editor),
         )
         assert unchanged.version == 1
@@ -287,7 +287,7 @@ def test_shared_save_uses_current_database_permissions_and_real_history_author(
                 True,
                 False,
                 False,
-                principal=type_editor,
+                plate_category="Автомобильный", principal=type_editor,
                 context=save_context(type_editor),
             )
         db.rollback()
@@ -305,7 +305,7 @@ def test_type_uses_common_save_with_mandatory_atomic_history(isolated_arm2_datab
             True,
             None,
             False,
-            principal=principal,
+            plate_category="Автомобильный", principal=principal,
             context=save_context(principal),
         )
         db.commit()
@@ -326,7 +326,7 @@ def test_type_uses_common_save_with_mandatory_atomic_history(isolated_arm2_datab
             True,
             False,
             False,
-            principal=principal,
+            plate_category="Автомобильный", principal=principal,
             context=save_context(principal),
         )
         db.commit()
@@ -354,7 +354,7 @@ def test_type_uses_common_save_with_mandatory_atomic_history(isolated_arm2_datab
             True,
             False,
             False,
-            principal=principal,
+            plate_category="Автомобильный", principal=principal,
             context=save_context(principal),
         )
         db.commit()
@@ -373,6 +373,7 @@ def test_type_uses_common_save_with_mandatory_atomic_history(isolated_arm2_datab
                 values={
                     "name": "Без истории",
                     "requires_sts": True,
+                    "plate_category": "Автомобильный",
                     "requires_calibration": False,
                     "requires_wialon": False,
                 },
@@ -392,6 +393,7 @@ def test_type_uses_common_save_with_mandatory_atomic_history(isolated_arm2_datab
                 values={
                     "name": "Опасное поле",
                     "requires_sts": True,
+                    "plate_category": "Автомобильный",
                     "requires_calibration": False,
                     "requires_wialon": False,
                     "secret": "token",
@@ -406,7 +408,7 @@ def test_type_uses_common_save_with_mandatory_atomic_history(isolated_arm2_datab
                 True,
                 False,
                 False,
-                principal=principal,
+                plate_category="Автомобильный", principal=principal,
                 context=SaveContext("HUMAN", " ", "integration-test"),
             )
         db.rollback()
@@ -697,6 +699,7 @@ with Session(engine) as db:
         values={
             "name": "Изолированный TYPE",
             "requires_sts": True,
+                    "plate_category": "Автомобильный",
             "requires_calibration": False,
             "requires_wialon": False,
         },

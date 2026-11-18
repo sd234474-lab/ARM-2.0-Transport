@@ -32,14 +32,14 @@ def test_vehicle_type_storage_invariants_and_ids(isolated_arm2_database_url):
         db.flush()
         review = create_vehicle_type(
             db, "  Самосвал  ", requires_wialon=True,
-            principal=principal, context=save_context(principal)
+            plate_category="Автомобильный", principal=principal, context=save_context(principal)
         )
         confirmed = create_vehicle_type(
             db,
             "Погрузчик",
             requires_calibration=False,
             requires_wialon=False,
-            principal=principal,
+            plate_category="Автомобильный", principal=principal,
             context=save_context(principal),
         )
         db.commit()
@@ -56,7 +56,7 @@ def test_vehicle_type_storage_invariants_and_ids(isolated_arm2_database_url):
         principal = db.get(User, principal_id)
         rolled_back = create_vehicle_type(
             db, "Экскаватор", True, True, True,
-            principal=principal, context=save_context(principal)
+            plate_category="Автомобильный", principal=principal, context=save_context(principal)
         )
         assert rolled_back.id == "TYPE-000003"
         db.rollback()
@@ -65,7 +65,7 @@ def test_vehicle_type_storage_invariants_and_ids(isolated_arm2_database_url):
         principal = db.get(User, principal_id)
         after_rollback = create_vehicle_type(
             db, "Грейдер", True, True, True,
-            principal=principal, context=save_context(principal)
+            plate_category="Автомобильный", principal=principal, context=save_context(principal)
         )
         db.commit()
         assert after_rollback.id == "TYPE-000004"
@@ -75,7 +75,7 @@ def test_vehicle_type_storage_invariants_and_ids(isolated_arm2_database_url):
         with pytest.raises(IntegrityError):
             create_vehicle_type(
                 db, "  Самосвал  ", True, True, True,
-                principal=principal, context=save_context(principal)
+                plate_category="Автомобильный", principal=principal, context=save_context(principal)
             )
         db.rollback()
         original = db.scalar(select(VehicleType).where(VehicleType.id == "TYPE-000001"))
@@ -86,7 +86,7 @@ def test_vehicle_type_storage_invariants_and_ids(isolated_arm2_database_url):
         principal = db.get(User, principal_id)
         after_conflict = create_vehicle_type(
             db, "Трактор", True, False, True,
-            principal=principal, context=save_context(principal)
+            plate_category="Автомобильный", principal=principal, context=save_context(principal)
         )
         db.commit()
         assert after_conflict.id == "TYPE-000006"
@@ -96,7 +96,7 @@ def test_vehicle_type_storage_invariants_and_ids(isolated_arm2_database_url):
             principal = db.get(User, principal_id)
             vehicle_type = create_vehicle_type(
                 db, name, True, False, False,
-                principal=principal, context=save_context(principal)
+                plate_category="Автомобильный", principal=principal, context=save_context(principal)
             )
             db.commit()
             return vehicle_type.id
@@ -127,6 +127,7 @@ def test_vehicle_type_storage_invariants_and_ids(isolated_arm2_database_url):
     assert set(VehicleType.__table__.columns.keys()) == {
         "id",
         "name",
+        "plate_category",
         "requires_sts",
         "requires_calibration",
         "requires_wialon",

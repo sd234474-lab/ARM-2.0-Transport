@@ -16,6 +16,15 @@
 .arm2-table td, .arm2-table th { padding: 10px; text-align: left; vertical-align: top; overflow-wrap: anywhere; border-bottom: 1px solid var(--border, #8886); }
 .arm2-choice, .arm2-history { padding: 12px; margin: 16px 0; border: 1px solid var(--border, #8886); border-radius: 8px; }
 .arm2-history-control { margin-top: 24px; }
+.arm2-bulk > section { border-top:1px solid var(--border,#8886); padding:16px 0; }
+.arm2-bulk textarea { display:block; width:100%; box-sizing:border-box; }
+.arm2-bulk td input { min-width:140px; }
+.arm2-bulk td input[type=checkbox] { min-width:0; }
+.arm2-bulk-excluded { opacity:.5; }
+.arm2-bulk-plan { padding:12px; margin:12px 0; border:1px solid var(--border,#8886); border-radius:8px; }
+.arm2-bulk-diff { padding:10px 0; border-top:1px solid var(--border,#8886); }
+.arm2-bulk-diff p { margin:4px 0; overflow-wrap:anywhere; }
+.arm2-bulk-warning { color:var(--warning,#b45309); }
 .arm2-document-kind { max-width:1000px; min-width:0; }
 .arm2-document-kind fieldset { min-width:0; border:0; padding:0; margin:12px 0; }
 .arm2-document fieldset { min-width:0; border:0; padding:0; margin:12px 0; }

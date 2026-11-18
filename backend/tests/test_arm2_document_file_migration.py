@@ -57,7 +57,7 @@ def test_0065_preserves_real_0064_data_and_empty_schema_roundtrip(isolated_arm2_
     settings.cache_clear()
     engine = create_engine(isolated_arm2_database_url, poolclass=NullPool)
     try:
-        assert ScriptDirectory.from_config(config()).get_heads() == ["0066"]
+        assert ScriptDirectory.from_config(config()).get_heads() == ["0068"]
         command.downgrade(config(), "0064")
         with engine.begin() as db:
             db.execute(
@@ -164,7 +164,7 @@ def test_0065_guards_staging_naming_or_file_history_without_loss(
         with pytest.raises(RuntimeError, match="downgrade refused"):
             command.downgrade(config(), "0064")
         with engine.connect() as db:
-            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0066"
+            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0068"
             assert db.execute(text("SELECT row_to_json(h)::text FROM arm2_history_events h")).all() == before
     finally:
         engine.dispose()
