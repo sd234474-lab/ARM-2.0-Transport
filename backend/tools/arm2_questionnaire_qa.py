@@ -15,7 +15,8 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
-from arm2_integration_qa import Server, file_manifest, migrate, port, request, require, run, snapshot, stage
+from arm2_integration_qa import Server, file_manifest, migrate, port, request, require, run, stage
+from arm2_integration_qa import snapshot as integration_snapshot
 from PIL import Image
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine import make_url
@@ -51,6 +52,28 @@ def tree_manifest(path):
 
 def domain(url):
     return {k: v for k, v in snapshot(url).items() if not k.startswith('arm2_questionnaire_') and k != 'users'}
+
+
+def snapshot(url):
+    # The shared integration snapshot predates CPREP; preserve those rows too.
+    result = integration_snapshot(url)
+    engine = create_engine(url)
+    try:
+        with engine.connect() as db:
+            for name in ('nsi_counterparty_representatives', 'nsi_organization_representatives'):
+                result[name] = db.execute(text(f'SELECT row_to_json(t)::text FROM "{name}" t ORDER BY 1')).scalars().all()
+    finally:
+        engine.dispose()
+    return result
+
+
+def access_state(url):
+    engine = create_engine(url)
+    try:
+        with engine.connect() as db:
+            return db.execute(text('SELECT id, role, active, deleted_at, permissions FROM users ORDER BY id')).all()
+    finally:
+        engine.dispose()
 
 
 def frontend_start(server, directory):
@@ -95,6 +118,8 @@ def main():
             and source.database != 'contractor_max_test', 'Only local disposable QA account allowed')
     pg_data = Path(args.pg_data).resolve()
     require(pg_data == REPO / '.local/pg-data', 'Only this clone own QA PostgreSQL can restart')
+    require(source.port == int((pg_data / 'postmaster.pid').read_text().splitlines()[3]),
+            'TEST_DATABASE_URL must use the PostgreSQL cluster being restarted')
     pg_bin = Path(os.environ['ARM2_QA_PG_BIN'])
     work = REPO / '.local' / ('b5-native-' + uuid4().hex)
     work.mkdir(parents=True)
@@ -152,6 +177,8 @@ def main():
             original_bundle = request(c, 'GET', document_url + '/files')
         server.stop()
         initial = domain(urls[0])
+        initial_access = access_state(urls[0])
+        initial_files = file_manifest(provider)
         new_pdf, company_pdf = picture('PDF', 'green', 2), picture('PDF', 'red')
         calibration_png, new_jpeg = picture('PNG', 'cyan'), picture('JPEG', 'yellow')
         nested = io.BytesIO()
@@ -175,7 +202,8 @@ def main():
         state = {'password': password, 'cp': cp['id'], 'cp_a': cp_a['id'], 'org': org['id'], 'vehicle': vehicle['id'],
                  'archived': archived['id'], 'unowned': unowned['id'], 'type': typ['id'], 'original_rep': rep['id'],
                  'kinds': kinds, 'document': document['id'], 'document_url': document_url,
-                 'replace_file': original_bundle['revisions'][0]['files'][0]['id'], 'input_path': str(input_path)}
+                 'replace_file': original_bundle['revisions'][0]['files'][0]['id'], 'input_path': str(input_path),
+                 'original_sha256': hashlib.sha256(original_pdf).hexdigest()}
         frontend, frontend_log, origin = frontend_start(server, work)
         review = browser('review', {**state, 'origin': origin}, work)
         state.update(review=review, draft=review['draft'])
@@ -185,12 +213,26 @@ def main():
         server.stop()
         after_review = domain(urls[0])
         # Only the explicitly competing B2 command is allowed to have changed before B5 SAVE.
-        require(initial['arm2_counterparties'] == after_review['arm2_counterparties'], 'CP changed during review')
-        require(initial['arm2_document_files'] == after_review['arm2_document_files'], 'FILE published during review')
+        for table in initial:
+            if table not in {'arm2_vehicles', 'arm2_history_events'}:
+                require(initial[table] == after_review[table], f'{table} changed during private review')
+        require(access_state(urls[0]) == initial_access, 'Review changed user access')
         require(len(after_review['arm2_vehicles']) == 3 and len(after_review['arm2_history_events']) == len(initial['arm2_history_events']) + 1,
                 'Review caused changes beyond the competing B2 command')
+        before_vehicles = {json.loads(row)['id']: json.loads(row) for row in initial['arm2_vehicles']}
+        for raw in after_review['arm2_vehicles']:
+            current = json.loads(raw)
+            before = before_vehicles[current['id']]
+            if current['id'] == vehicle['id']:
+                require(current['owner_org_id'] == org['id'] and current['owner_cp_id'] is None
+                        and current['version'] == before['version'] + 1, 'Competing B2 did not own the only allowed change')
+                require(all(current[k] == v for k, v in before.items() if k not in {'version', 'owner_cp_id', 'owner_org_id'}),
+                        'B2 changed unrelated VEH data')
+            else:
+                require(current == before, 'An unselected VEH changed before SAVE')
         pending_snapshot = snapshot(urls[0])
         pending_files = file_manifest(provider)
+        require(pending_files == initial_files, '409 prechecks uploaded files before a valid final command')
         runtime = work / 'runtime'
         pending_runtime = tree_manifest(runtime)
         run([pg_bin / 'pg_dump', '-Fc', '-f', work / 'pending.dump', names[0]], env=pg_env)
@@ -208,12 +250,27 @@ def main():
         frontend, frontend_log, origin = frontend_start(server, work)
         accepted = browser('accept', {**state, 'origin': origin}, work)
         state.update(accepted=accepted)
+        from openpyxl import load_workbook
+        with zipfile.ZipFile(work / 'roundtrip-v3.zip') as exported:
+            book = load_workbook(io.BytesIO(exported.read('questionnaire.xlsx')), read_only=True, data_only=True)
+            try:
+                passport = book['Паспорт контрагента']
+                require(passport['B3'].value == 'ARM_IMPORT_V3', 'UI export did not produce V3')
+                require([passport[f'B{row}'].value for row in (8, 9, 10)] == ['Synthetic', 'B5', 'Fixture'],
+                        'Normalized CP names missing from the UI export')
+            finally:
+                book.close()
+            exported_hashes = [hashlib.sha256(exported.read(name)).hexdigest() for name in exported.namelist()
+                               if name != 'questionnaire.xlsx']
+            require(len(exported_hashes) == 5 and set(exported_hashes) == set(source_bytes) - {state['original_sha256']},
+                    'UI ZIP must contain all five current originals and exclude replaced history')
         frontend.terminate()
         frontend.wait(20)
         frontend, _ = None, frontend_log.close()
         server.stop()
         accepted_snapshot = snapshot(urls[1])
         accepted_files = file_manifest(pending_provider)
+        require(len(accepted_files) == 6, 'Accepted provider contains missing files or orphan uploads')
         accepted_runtime = tree_manifest(pending_staging)
         run([pg_bin / 'pg_dump', '-Fc', '-f', work / 'accepted.dump', names[1]], env=pg_env)
         final_provider, final_runtime = work / 'accepted-provider', work / 'accepted-runtime'
@@ -224,6 +281,7 @@ def main():
         run([pg_bin / 'pg_ctl', '-D', pg_data, '-l', work / 'postgres-restart.log', 'start'])
         require(snapshot(urls[2]) == accepted_snapshot and file_manifest(final_provider) == accepted_files
                 and tree_manifest(final_runtime) == accepted_runtime, 'Accepted DB/FILE/private staging restore differs')
+        require(access_state(urls[2]) == initial_access, 'SAVE/restore changed user access')
         server = Server(urls[2], work, final_provider, signing, port())
         server.env['DATA_DIR'] = str(final_runtime)
         frontend, frontend_log, origin = frontend_start(server, work)
@@ -246,6 +304,12 @@ def main():
                 require(len(file_rows) == 6 and all(f.extension in ('pdf', 'jpg', 'png') for f in file_rows), 'Transport/nested ZIP became FILE')
                 events = list(db.scalars(select(HistoryEvent).where(HistoryEvent.correlation_id == accepted['receipt']['command_id'], HistoryEvent.source == 'arm2-questionnaire')))
                 require(len(events) == len(accepted['receipt']['event_ids']), 'Receipt/history correlation differs')
+                tables = {'CP': 'arm2_counterparties', 'CPREP': 'nsi_counterparty_representatives',
+                          'VEH': 'arm2_vehicles', 'DOCUMENT': 'arm2_documents'}
+                for item in accepted['receipt']['objects']:
+                    identifier = item.get('id') or item.get('document_id')
+                    require(db.scalar(text(f'SELECT version FROM {tables[item["kind"]]} WHERE id=:id'), {'id': identifier})
+                            == item['version'], 'Restored object/receipt VERSION mismatch')
                 head = db.scalar(text('SELECT version_num FROM alembic_version'))
                 require(head == '0069', 'Expected single 0069 migration')
             engine.dispose()
@@ -260,6 +324,9 @@ def main():
             'review': review, 'accepted': accepted, 'reopened': final_ui, 'restored_cp': result_cp,
             'pending_db_equal': True, 'pending_file_equal': True, 'pending_staging_equal': True,
             'accepted_db_equal': True, 'accepted_file_equal': True, 'accepted_staging_equal': True,
+            'representative_tables_in_both_restore_snapshots': True, 'user_access_unchanged': True,
+            'review_only_competing_b2_domain_change': True, 'receipt_object_versions_verified': True,
+            'ui_export_normalized_cp_names_verified': True, 'ui_export_current_originals_only': True,
             'all_six_file_bytes_downloaded_after_restore': True, 'current_and_historical_file_ids_preserved': True,
             'postgres_backend_frontend_browser_restarted': True, 'file_manifest': accepted_files,
             'dump_hashes': {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in work.glob('*.dump')},
