@@ -424,3 +424,59 @@ def cleanup_expired_staging(db):
         except PermissionError:
             continue  # An active preview/download holds the Windows file handle.
     # Keep expired rows: safe reconciliation must retain ownership/provenance.
+
+
+def publish_prepared_revision_in_transaction(db, prepared_plan, principal, context):
+    """B5 internal publication boundary. Caller owns the ONE outer SQL commit.
+
+    The prepared ledger contains private provider uploads with verified SHA/size, not
+    arbitrary client FILE metadata. Nothing is downloaded/uploaded or committed here.
+    Existing manual accept()/retry/correction behavior above remains unchanged.
+    """
+    from app.arm2.document_store import create_document
+
+    p = prepared_plan
+    if p.get('document_id'):
+        document_access(db, principal, p['parent_type'], p['parent_id'], p['document_id'], edit=True)
+        document = ADAPTER.lock_record(db, p['document_id'])
+        if document.version != p['expected_version']:
+            raise ObjectVersionConflictError('Редакция документа изменена другим оператором')
+    else:
+        document = create_document(db, p['parent_type'], p['parent_id'], p['kind_id'], p['document_name'], None,
+                                   principal=principal, context=context)
+        document_access(db, principal, p['parent_type'], p['parent_id'], document.id, edit=True)
+    current = revision_files(db, document.id, document.current_revision_id)
+    items = p['files']
+    if len(items) > files.MAX_FILES or len({f['sha256'] for f in items}) != len(items):
+        raise ValueError('Недопустимый состав комплекта')
+    for item in items:
+        if item['existing']:
+            row = db.get(DocumentFile, item['id'])
+            if row is None or row.document_id != document.id or row.sha256 != item['sha256']:
+                raise ObjectAuthorizationError('FILE не принадлежит выбранному DOCUMENT')
+        if db.get(DocumentFileCorrection, item['id']):
+            raise ValueError('Исправленная ошибочная загрузка не может быть возвращена')
+        if not item['storage_ref'].startswith(files.document_root() + '/') or not files.verify_remote(type('Metadata', (), item)):
+            raise files.StorageUnavailable('Перед публикацией SHA/размер оригинала не подтверждены')
+    if [r.id for r in current] == [r['id'] for r in items]:
+        return {'document_id': document.id, 'version': document.version, 'no_op': True}
+    previous = db.get(DocumentRevision, document.current_revision_id) if document.current_revision_id else None
+    revision = DocumentRevision(id=next_id(db, 'DOCUMENT-REV'), document_id=document.id,
+        number=previous.number + 1 if previous else 1, file_ids=[f['id'] for f in items], author_id=principal.id,
+        source='arm2-api-manual')
+    db.add(revision)
+    for item in items:
+        if not item['existing']:
+            db.add(DocumentFile(document_id=document.id, **{k: item[k] for k in (
+                'id', 'original_upload_name', 'stored_name', 'storage_ref', 'size', 'sha256', 'media_type', 'extension')}))
+    db.flush()
+    db.add(DocumentRevisionContext(revision_id=revision.id, document_id=document.id,
+        parent_type=document.parent_type, parent_id=document.parent_id))
+    for position, item in enumerate(items):
+        db.add(RevisionFile(revision_id=revision.id, document_id=document.id, file_id=item['id'], position=position))
+    db.flush()
+    saved = update_object(db, object_type='DOCUMENT', object_id=document.id, expected_version=document.version,
+        values={'current_revision_id': revision.id}, partial=True, principal=principal, context=context)
+    if saved.event and set(saved.event.changes) - {'current_revision_id', 'version'}:
+        raise ValueError('Невыбранные сведения документа требуют отдельного явного исправления')
+    return {'document_id': document.id, 'version': saved.record.version, 'revision_id': revision.id, 'no_op': not saved.changed}

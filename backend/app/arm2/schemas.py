@@ -212,6 +212,24 @@ class PartyResponse(StrictModel):
     version: int
 
 
+class CounterpartyCreate(PartyCreate):
+    last_name: str | None = None
+    first_name: str | None = None
+    middle_name: str | None = None
+
+
+class CounterpartyUpdate(PartyUpdate):
+    last_name: str | None = None
+    first_name: str | None = None
+    middle_name: str | None = None
+
+
+class CounterpartyResponse(PartyResponse):
+    last_name: str | None = None
+    first_name: str | None = None
+    middle_name: str | None = None
+
+
 class RepresentativeCreate(StrictModel):
     name: str
     position: str | None = None

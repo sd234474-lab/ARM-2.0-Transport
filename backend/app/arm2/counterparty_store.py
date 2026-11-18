@@ -1,7 +1,7 @@
 from sqlalchemy import select
 
 from app.arm2.counterparty_models import Counterparty
-from app.arm2.counterparty_rules import normalize_party, party_status
+from app.arm2.counterparty_rules import normalize_party, optional_text, party_status
 from app.arm2.ids import next_id
 from app.arm2.object_registry import OBJECT_REGISTRY, ObjectReference
 from app.arm2.object_save import SaveContext, create_object, update_object
@@ -31,7 +31,10 @@ class PartyAdapter:
         self.representative_type = representative_type
 
     def normalize(self, values):
-        return normalize_party(values)
+        result = normalize_party(values)
+        if self.prefix == "CP":
+            result.update({f: optional_text(values[f], f, 200) for f in ("last_name", "first_name", "middle_name")})
+        return result
 
     def create_record(self, db, values):
         record = self.model(id=next_id(db, self.prefix), version=1, **values)
@@ -70,7 +73,8 @@ def register_counterparty_adapter(registry=OBJECT_REGISTRY):
 
 def create_counterparty(db, name, *, principal: User, context: SaveContext, **values):
     return create_object(
-        db, object_type="CP", values=party_values(name, **values), principal=principal, context=context
+        db, object_type="CP", values={**party_values(name, **values),
+            **{f: values.get(f) for f in ("last_name", "first_name", "middle_name")}}, principal=principal, context=context
     ).record
 
 

@@ -23,6 +23,7 @@ from app.arm2.object_save import (
 )
 from app.arm2.organization_models import Organization
 from app.arm2.organization_store import create_organization, update_organization
+from app.arm2.questionnaire_routes import router as questionnaire_router
 from app.arm2.read_routes import router as read_router
 from app.arm2.representative_models import (
     CounterpartyRepresentative,
@@ -33,6 +34,9 @@ from app.arm2.representative_store import (
     update_representative,
 )
 from app.arm2.schemas import (
+    CounterpartyCreate,
+    CounterpartyResponse,
+    CounterpartyUpdate,
     DocumentKindCreate,
     DocumentKindResponse,
     DocumentKindUpdate,
@@ -64,6 +68,7 @@ from app.permissions import Permission
 
 router = APIRouter(prefix="/api/arm2", tags=["arm2"])
 router.include_router(read_router)  # Static /search paths precede legacy /{id} routes.
+router.include_router(questionnaire_router)
 router.include_router(bulk_router)
 router.include_router(document_router)
 Arm2TypeViewer = Annotated[
@@ -167,7 +172,8 @@ def _vehicle_response(record: Vehicle) -> dict[str, Any]:
 
 
 def _party_response(record: Counterparty | Organization) -> dict[str, Any]:
-    return {
+    return ({f: getattr(record, f) for f in ("last_name", "first_name", "middle_name")}
+            if isinstance(record, Counterparty) else {}) | {
         field: getattr(record, field)
         for field in (
             "id",
@@ -484,7 +490,7 @@ def put_vehicle(
     return _vehicle_response(record)
 
 
-@router.get("/counterparties", response_model=list[PartyResponse])
+@router.get("/counterparties", response_model=list[CounterpartyResponse])
 def list_counterparties(
     db: Db,
     _: Arm2CounterpartyViewer,
@@ -497,15 +503,15 @@ def list_counterparties(
     return [_party_response(record) for record in records]
 
 
-@router.get("/counterparties/{cp_id}", response_model=PartyResponse)
+@router.get("/counterparties/{cp_id}", response_model=CounterpartyResponse)
 def get_counterparty(cp_id: str, db: Db, _: Arm2CounterpartyViewer):
     return _party_response(
         _get_or_404(db, Counterparty, cp_id, "ARM2 counterparty not found")
     )
 
 
-@router.post("/counterparties", status_code=201, response_model=PartyResponse)
-def post_counterparty(body: PartyCreate, db: Db, user: Arm2CounterpartyEditor):
+@router.post("/counterparties", status_code=201, response_model=CounterpartyResponse)
+def post_counterparty(body: CounterpartyCreate, db: Db, user: Arm2CounterpartyEditor):
     values = body.model_dump()
     record = _save(
         db,
@@ -516,10 +522,10 @@ def post_counterparty(body: PartyCreate, db: Db, user: Arm2CounterpartyEditor):
     return _party_response(record)
 
 
-@router.put("/counterparties/{cp_id}", response_model=PartyResponse)
+@router.put("/counterparties/{cp_id}", response_model=CounterpartyResponse)
 def put_counterparty(
     cp_id: str,
-    body: PartyUpdate,
+    body: CounterpartyUpdate,
     db: Db,
     user: Arm2CounterpartyEditor,
 ):

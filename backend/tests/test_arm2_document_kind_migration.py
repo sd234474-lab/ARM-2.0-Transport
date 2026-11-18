@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
 from alembic import command
-from app.arm2.counterparty_store import create_counterparty
 from app.arm2.document_kind_store import create_document_kind
 from app.arm2.history_models import HistoryEvent
 from app.arm2.history_store import append_history_event
@@ -51,7 +50,7 @@ def test_upgrade_downgrade_roundtrip_preserves_legacy_objects_history_and_ids(is
     settings.cache_clear()
     engine = create_engine(isolated_arm2_database_url, poolclass=NullPool)
     try:
-        assert ScriptDirectory.from_config(configuration()).get_heads() == ["0068"]
+        assert ScriptDirectory.from_config(configuration()).get_heads() == ["0069"]
         # This test exercises the historical B3 migration boundary. New TYPE
         # categories and their guarded downgrade have their own B4 tests.
         command.downgrade(configuration(), "0064")
@@ -63,7 +62,7 @@ def test_upgrade_downgrade_roundtrip_preserves_legacy_objects_history_and_ids(is
             ctx = SaveContext("HUMAN", str(principal.id), "migration-regression")
             kind = frozen_legacy_record(db, "TYPE", "arm2_vehicle_types", {"name": "Старый тип", "requires_sts": True,
                                         "requires_calibration": False, "requires_wialon": False, "status": "CONFIRMED"}, principal)
-            cp = create_counterparty(db, "Старый CP", principal=principal, context=ctx)
+            cp = frozen_legacy_record(db, "CP", "arm2_counterparties", {"name": "Старый CP", "status": "REVIEW"}, principal)
             org = create_organization(db, "Старая ORG", principal=principal, context=ctx)
             vehicle = frozen_legacy_record(db, "VEH", "arm2_vehicles", {"name": "Старая техника", "plate_number": "А123ВС86",
                                            "type_id": kind.id, "owner_cp_id": cp.id, "owner_org_id": None, "model": None,
@@ -134,7 +133,7 @@ def test_downgrade_refuses_existing_document_kind_data_without_deleting_it(isola
         assert snapshot(engine) == before
         assert "arm2_document_kinds" in inspect(engine).get_table_names()
         with engine.connect() as conn:
-            assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0068"
+            assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0069"
             if existing == "row":
                 assert conn.scalar(text("SELECT name FROM arm2_document_kinds")) == "Сохранить"
     finally:

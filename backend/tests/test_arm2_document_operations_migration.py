@@ -33,7 +33,7 @@ def snapshot(db):
 
 def test_0066_adds_historical_context_without_rewriting_0065_artifacts_and_roundtrips(qa):
     c, db, *_ = qa
-    assert ScriptDirectory.from_config(config()).get_heads() == ["0068"]
+    assert ScriptDirectory.from_config(config()).get_heads() == ["0069"]
     url = create(qa)
     assert accept(c, url, 1, [stage(c, url, pdf("legacy0065"))]).status_code == 200
     record = bundle(c, url)
@@ -46,6 +46,8 @@ def test_0066_adds_historical_context_without_rewriting_0065_artifacts_and_round
     assert snapshot(db) == before
     context = db.scalar(select(DocumentRevisionContext))
     assert context.parent_type == "CP" and context.parent_id == qa[3]["cp"]
+    db.commit()
+    command.upgrade(config(), "head")  # Current CP model requires normalized names added by 0069.
     assert bundle(c, url) == record
 
 
@@ -67,7 +69,7 @@ def test_0066_downgrade_never_discards_operations_or_correction_audit(qa, action
     db.commit()
     with pytest.raises(RuntimeError, match="downgrade refused"):
         command.downgrade(config(), "0065")
-    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0068"
+    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0069"
     assert snapshot(db) == before
     assert db.scalar(text("SELECT count(*) FROM arm2_document_file_corrections")) == (
         1 if action == "correct" else 0
@@ -95,6 +97,7 @@ def test_pending_b3c_acceptance_retries_after_0066_without_changed_fingerprint_o
     command.downgrade(config(), "0065")
     command.upgrade(config(), "0066")
     disk.fail_at = None
+    command.upgrade(config(), "head")  # Reopen the historical B3 acceptance using the complete current schema.
     assert accept(c, url, 1, [candidate], key).status_code == 200
     db.expire_all()
     assert db.get(FileAcceptance, key).fingerprint == fingerprint

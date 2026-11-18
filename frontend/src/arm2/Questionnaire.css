@@ -1,0 +1,8 @@
+.arm2-questionnaire fieldset { min-width:0; margin:1rem 0; padding:1rem; border:1px solid var(--line,#dbe4df); border-radius:10px; }
+.arm2-questionnaire fieldset > section { border-top:1px solid var(--line,#dbe4df); padding:1rem 0; margin-top:1rem; }
+.arm2-questionnaire label { display:block; margin:.5rem 0; }
+.arm2-questionnaire input[type=checkbox] { width:auto; margin-right:.5rem; }
+.arm2-questionnaire input:not([type=checkbox]), .arm2-questionnaire select { max-width:100%; }
+.arm2-questionnaire p, .arm2-questionnaire li { overflow-wrap:anywhere; }
+.arm2-questionnaire [role=alert] { border-left:3px solid #b25230; padding:.5rem .75rem; }
+.arm2-questionnaire canvas, .arm2-questionnaire img { max-width:100%; height:auto; }

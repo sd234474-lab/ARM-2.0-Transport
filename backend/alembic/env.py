@@ -7,6 +7,7 @@ from app.arm2 import (
     counterparty_models,  # noqa: F401
     history_models,  # noqa: F401
     organization_models,  # noqa: F401
+    questionnaire_models,  # noqa: F401
     representative_models,  # noqa: F401
     vehicle_models,  # noqa: F401
     vehicle_type_models,  # noqa: F401
