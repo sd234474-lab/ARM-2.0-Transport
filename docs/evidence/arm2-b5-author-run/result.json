@@ -1,0 +1,415 @@
+{
+  "classification": "AUTHOR-RUN local synthetic QA; NOT Ubuntu UAT/independent acceptance",
+  "base_sha": "ddadebd7be7f5044628fd6b2ee656ca69d823db7",
+  "migration_head": "0069",
+  "review": {
+    "classification": "AUTHOR-RUN synthetic native UI; not UAT",
+    "result": "PASS",
+    "draft": "fcfa5b62-5438-482a-9562-b1143358f148",
+    "revision": 63,
+    "preview_id": "8d2e44f3ddbd725b2603a086a3a049cc6e2ceffcd0e2538dcf014d5d7f8e0c4e",
+    "choices": {
+      "vehicles": {
+        "v:5": {
+          "fields": [
+            "model",
+            "owner"
+          ],
+          "include": true,
+          "type_id": null,
+          "without_type": false,
+          "confirm_owner": true
+        },
+        "v:6": {
+          "fields": [
+            "name",
+            "model",
+            "type_id",
+            "owner"
+          ],
+          "include": true,
+          "type_id": null,
+          "without_type": false,
+          "confirm_owner": false
+        },
+        "v:7": {
+          "fields": [
+            "accounting_state",
+            "owner"
+          ],
+          "include": true,
+          "type_id": null,
+          "without_type": false,
+          "confirm_owner": false
+        }
+      },
+      "cp_fields": [
+        "phone",
+        "last_name",
+        "first_name",
+        "middle_name",
+        "bik",
+        "settlement_account"
+      ],
+      "cp_target": "CP-000002",
+      "documents": {
+        "company": {
+          "accept": true,
+          "append": false,
+          "kind_id": "DOC-KIND-000003",
+          "parent_key": null,
+          "document_id": null,
+          "replace_file_id": null
+        },
+        "v:5:sts": {
+          "accept": true,
+          "append": false,
+          "kind_id": "DOC-KIND-000001",
+          "parent_key": null,
+          "document_id": "DOCUMENT-000001",
+          "replace_file_id": "FILE-000001"
+        },
+        "v:6:sts": {
+          "accept": true,
+          "append": false,
+          "kind_id": "DOC-KIND-000001",
+          "parent_key": null,
+          "document_id": null,
+          "replace_file_id": null
+        },
+        "v:6:calibration": {
+          "accept": true,
+          "append": false,
+          "kind_id": "DOC-KIND-000002",
+          "parent_key": null,
+          "document_id": null,
+          "replace_file_id": null
+        }
+      },
+      "representatives": {
+        "0": {
+          "fields": [
+            "name",
+            "position",
+            "authority_basis"
+          ],
+          "signer": true,
+          "target": "new",
+          "sources": {}
+        }
+      }
+    },
+    "native_login": true,
+    "upload_opens_comparison": true,
+    "pdf_candidate_and_current_preview": true,
+    "missing_owner_confirmation_409": true,
+    "foreign_draft_403": true,
+    "competing_b2_via_ui": true,
+    "stale_save_409": true,
+    "approval_reset_verified": true,
+    "server_choices_after_reload": true,
+    "successful_final_b5_save_performed": false,
+    "rejected_save_attempts": 2,
+    "page_errors": [],
+    "observed_http_status_counts": {
+      "GET 200": 34,
+      "GET 403": 2,
+      "POST 200": 1,
+      "POST 201": 1,
+      "POST 409": 2,
+      "PUT 200": 61
+    },
+    "observed_checkpoints": [
+      {
+        "method": "POST",
+        "path": "/api/arm2/questionnaires/fcfa5b62-5438-482a-9562-b1143358f148/apply",
+        "status": 409
+      },
+      {
+        "method": "GET",
+        "path": "/api/arm2/questionnaires/fcfa5b62-5438-482a-9562-b1143358f148",
+        "status": 403
+      },
+      {
+        "method": "GET",
+        "path": "/api/arm2/questionnaires/fcfa5b62-5438-482a-9562-b1143358f148",
+        "status": 403
+      },
+      {
+        "method": "POST",
+        "path": "/api/arm2/vehicles/VEH-000001/operational-owner",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/api/arm2/questionnaires/fcfa5b62-5438-482a-9562-b1143358f148/apply",
+        "status": 409
+      }
+    ]
+  },
+  "accepted": {
+    "classification": "AUTHOR-RUN synthetic native UI; not UAT",
+    "result": "PASS",
+    "receipt": {
+      "command_id": "bdfea219-478e-4935-b716-86facbb8b3b4",
+      "draft_id": "fcfa5b62-5438-482a-9562-b1143358f148",
+      "cp_id": "CP-000002",
+      "filled_date": "2026-10-21",
+      "uploaded_at": "2026-11-18T11:41:22.522424+00:00",
+      "accepted_at": "2026-11-18T11:41:45.136734+00:00",
+      "objects": [
+        {
+          "kind": "CP",
+          "id": "CP-000002",
+          "version": 3
+        },
+        {
+          "kind": "CPREP",
+          "id": "CPREP-000002",
+          "version": 1
+        },
+        {
+          "kind": "VEH",
+          "id": "VEH-000001",
+          "version": 4
+        },
+        {
+          "kind": "VEH",
+          "id": "VEH-000004",
+          "version": 2
+        },
+        {
+          "kind": "VEH",
+          "id": "VEH-000002",
+          "version": 3
+        },
+        {
+          "kind": "DOCUMENT",
+          "document_id": "DOCUMENT-000002",
+          "version": 2,
+          "revision_id": "DOCUMENT-REV-000002",
+          "no_op": false
+        },
+        {
+          "kind": "DOCUMENT",
+          "document_id": "DOCUMENT-000001",
+          "version": 3,
+          "revision_id": "DOCUMENT-REV-000003",
+          "no_op": false
+        },
+        {
+          "kind": "DOCUMENT",
+          "document_id": "DOCUMENT-000003",
+          "version": 2,
+          "revision_id": "DOCUMENT-REV-000004",
+          "no_op": false
+        },
+        {
+          "kind": "DOCUMENT",
+          "document_id": "DOCUMENT-000004",
+          "version": 2,
+          "revision_id": "DOCUMENT-REV-000005",
+          "no_op": false
+        }
+      ],
+      "event_ids": [
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ],
+      "no_op": false,
+      "correlation_id": "bdfea219-478e-4935-b716-86facbb8b3b4"
+    },
+    "apply_command": {
+      "command_id": "bdfea219-478e-4935-b716-86facbb8b3b4",
+      "revision": 63,
+      "preview_id": "8d2e44f3ddbd725b2603a086a3a049cc6e2ceffcd0e2538dcf014d5d7f8e0c4e"
+    },
+    "restored_review_choices_equal": true,
+    "restored_staged_pdf_png_jpeg_preview": true,
+    "one_final_domain_command": true,
+    "exported_v3_zip": true,
+    "v3_reimport_no_duplicates": true,
+    "closed_packets_cleanup_pending": 0,
+    "no_op_receipt": {
+      "command_id": "413dbd6b-d960-44ee-abb1-90516fec02e6",
+      "draft_id": "1547dda9-0ce2-4eaf-a318-f73884c10092",
+      "cp_id": "CP-000002",
+      "filled_date": "2026-10-21",
+      "uploaded_at": "2026-11-18T11:41:47.099558+00:00",
+      "accepted_at": "2026-11-18T11:41:47.755145+00:00",
+      "objects": [],
+      "event_ids": [],
+      "no_op": true,
+      "correlation_id": "413dbd6b-d960-44ee-abb1-90516fec02e6"
+    },
+    "page_errors": [],
+    "observed_http_status_counts": {
+      "GET 200": 27,
+      "POST 200": 5,
+      "POST 201": 1,
+      "PUT 200": 1
+    },
+    "observed_checkpoints": [
+      {
+        "method": "POST",
+        "path": "/api/arm2/questionnaires/fcfa5b62-5438-482a-9562-b1143358f148/apply",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/api/arm2/questionnaires/fcfa5b62-5438-482a-9562-b1143358f148/cleanup",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/api/arm2/questionnaires/1547dda9-0ce2-4eaf-a318-f73884c10092/apply",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/api/arm2/questionnaires/1547dda9-0ce2-4eaf-a318-f73884c10092/cleanup",
+        "status": 200
+      }
+    ]
+  },
+  "reopened": {
+    "classification": "AUTHOR-RUN synthetic native UI; not UAT",
+    "result": "PASS",
+    "native_login": true,
+    "closed_draft_receipt_reopened": true,
+    "no_active_completed_task": true,
+    "cp_reopened": true,
+    "representative_reopened": true,
+    "representative_user_link_unchanged": true,
+    "one_primary_signer_two_distinct_contacts": true,
+    "exact_bank_strings_visible": true,
+    "existing_new_archived_veh_reopened": true,
+    "history_event_correlation_verified": true,
+    "current_revision_visible": true,
+    "historical_revision_visible": true,
+    "historical_original_download_sha256": "c9ab5f9a460391561cac9d074bf01b6f3ff8be1f4d68b10c0c4b436bb29cb023",
+    "page_errors": [],
+    "observed_http_status_counts": {
+      "GET 200": 31
+    },
+    "observed_checkpoints": []
+  },
+  "restored_cp": {
+    "id": "CP-000002",
+    "name": "B5 Target CP",
+    "full_name": "Synthetic sole trader",
+    "legal_address": "Synthetic QA address",
+    "postal_address": null,
+    "legal_form": "ИП",
+    "short_name": "B5 Target CP",
+    "inn": "1234567890",
+    "kpp": null,
+    "ogrn": null,
+    "phone": "Synthetic B5 contact",
+    "email": null,
+    "bank_name": null,
+    "bik": "001234567",
+    "settlement_account": "00000000000000000001",
+    "correspondent_account": null,
+    "primary_signer_id": "CPREP-000002",
+    "status": "CONFIRMED",
+    "version": 3,
+    "last_name": "Synthetic",
+    "first_name": "B5",
+    "middle_name": "Fixture"
+  },
+  "pending_db_equal": true,
+  "pending_file_equal": true,
+  "pending_staging_equal": true,
+  "accepted_db_equal": true,
+  "accepted_file_equal": true,
+  "accepted_staging_equal": true,
+  "representative_tables_in_both_restore_snapshots": true,
+  "user_access_unchanged": true,
+  "review_only_competing_b2_domain_change": true,
+  "receipt_object_versions_verified": true,
+  "ui_export_normalized_cp_names_verified": true,
+  "ui_export_current_originals_only": true,
+  "all_six_file_bytes_downloaded_after_restore": true,
+  "current_and_historical_file_ids_preserved": true,
+  "postgres_backend_frontend_browser_restarted": true,
+  "file_manifest": {
+    "3cb7ec4ddff05f5fd6a27a08cd6928746d918d380234bc4c358d91fbecde028b": "73cca3419b245285c5a2ca6e4fb9174d8b0af41d6ac51f91886c324f4787c908",
+    "3f9d254d8c2d1243c86b1124562e1f66826c4e825521ba23a3e47b8963ab6027": "cac9ebeade73fe7903904b7f88688c9c5ebae5b825c4f80acf172cab011b5bd7",
+    "53860e02ef3292d05877965babd4dfe7c77f4bd1c69d67f2f2d351c779086a6b": "db5f33ac60ac2b8f9cc62f759f802759f98af23f27fcd037813c4799573286a9",
+    "6d66ff3812ef1d9c9f60e5bd95a8f781cd534e4958e5ad44f1a0a515e8106bd3": "c9ab5f9a460391561cac9d074bf01b6f3ff8be1f4d68b10c0c4b436bb29cb023",
+    "746d28046642150083756885014131a2e8ae8112d314b4a783f63ffbac190cb1": "a7596ffdbe68b62769e708e6f9bafa077d3c6a43f6cd5f0e1b4ce14b393c7b56",
+    "d86a4faaf53c6c8f48e282d49505b61e5f43ffa1b65568684466a19a0a8b49a8": "04e7ccdb97ccf6a97ef2ba980d8623784c1bd971b62e47a2541677adc036c9d1"
+  },
+  "dump_hashes": {
+    "accepted.dump": "65d5a9ab82d90fc38a71f6d79718889fa480e4080c9531c4b0e63290604eaf8c",
+    "pending.dump": "7a8e58d4704bc002de2ad6d9829ba4dfd465966879e02e091f5243b06e0ca216"
+  },
+  "pending_snapshot_hash": "007590ba5af910f9039325b729bb70a585c276af22ed90b382c98be8e3dea882",
+  "accepted_snapshot_hash": "8ce1b1beabb1f784f58b183cbb3f66246c51abdbc0572702f87021483973f09f",
+  "blockers": [],
+  "result": "PASS",
+  "starting_head": "9af93a08a25fdd46ce3f74623a9bb2b9d13db5d9",
+  "production_tree_unchanged_from_start": true,
+  "environment": {
+    "platform": "win32",
+    "python": "3.13.16",
+    "node": "v26.13.0",
+    "playwright": "1.65.1",
+    "browser": "Microsoft Edge 157.0.4341.60 (headless)",
+    "postgres_major": "17"
+  },
+  "local_checks": {
+    "backend_b5": {
+      "passed": 94,
+      "failed": 0
+    },
+    "frontend": {
+      "files": 66,
+      "passed": 443,
+      "failed": 0
+    },
+    "ruff": "PASS",
+    "frontend_builds": "PASS",
+    "git_diff_check": "PASS",
+    "ci": "Not awaited; independent controller checks after push"
+  },
+  "source_sha256_lf": {
+    "backend/tools/arm2_questionnaire_qa.py": "ede1ec2e2146042c5604a832c5aec0234f8820a311cd0718f54c5bec0085fe1a",
+    "backend/tools/arm2_questionnaire_browser.mjs": "2cfa28dc16c2b34e669697abc4745900478c76910c400ce86c73474925dd04f0",
+    "backend/tools/arm2_integration_qa.py": "8b3f5e723f35d96045feb93c4f0065f009626eba24e303813fd7a284705f42e5",
+    "backend/tools/arm2_qa_server.py": "94fc0bbb02eb1239c89dbc69a66c326f9397a2ad7cbe2d4bb31c59ce3b38cbb6",
+    "backend/tools/qa-browser/package.json": "afd0b0fad6c3b043a23fcab4a616bd934d3ea28cbd89aae7a06c26221fd8b5da",
+    "backend/tools/qa-browser/package-lock.json": "164318a69043008213334384bd6916308b610d5c0dc7ca19c0fe698e52be56c4",
+    "backend/app/arm2/questionnaire_store.py": "8babded798fdfb30971e790f0d8de908d723f361a38878f8771861fe128ab761",
+    "backend/app/arm2/questionnaire_parse.py": "5907ba040c1316d22e3c6e053fc15ab7f336365116e464917c19d4ceb4584fc5",
+    "backend/app/arm2/questionnaire_diff.py": "a026066acb12847c5d1f181224a80826ba39d6a530b57006be9db6bde5e3bd34",
+    "backend/app/arm2/questionnaire_routes.py": "c6c931d6b1183ff0c36f04ff5057d79bab0d287644260e1eee5988137ee415d4",
+    "frontend/src/arm2/Questionnaire.tsx": "0326d5f227221befca469cb85ea7a1d524bca50ad87b5491ed2d3124e38288be"
+  },
+  "screenshot_sha256": {
+    "review-durable-choices.png": "06a09a9adb8e8536f71db70c5c230542b04655f03fd25c991a03a12615638766",
+    "review-competing-b2.png": "b86e4fe12c96d9f268ba0a94e5c29dc4a978ed55898726982d8cb7dc4c35d942",
+    "accept-receipt.png": "566cd42a339828fa549c7c12676d22788bec323f47ba7d6cf5ac3476b36330a8",
+    "accept-preview-updated_sts.pdf-candidate.png": "66c5a4eb12882075d4efd40a736d5ccfdb7f6ffce19d6287ceda55df9ea85743",
+    "accept-preview-calibration.png-candidate.png": "fc910e5a83ad1769a42c39ffdcc660d8a36c7296f729d4c77dd141d6ca41b9e0",
+    "accept-preview-new_sts.jpg-candidate.png": "6b9562e1183ad27d75236a24dd54433600727cb1381d290ca2c66e4b5ec21eac",
+    "accept-v3-roundtrip-noop.png": "438eef1c2a2e76152510d57fb27d817616ff83149309afbb511cd8ef985f10d2",
+    "reopen-representative.png": "883c22cbd2e0a55a86aca07185d9118514c1c01718da94bfd037f3fad3eb37c0",
+    "reopen-historical-original.png": "64a4621dbc7688e2d22423106af52196cc55fcce8b6dc50d038a79c5ef3d2c89"
+  }
+}

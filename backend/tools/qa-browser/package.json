@@ -1,0 +1,9 @@
+{
+  "name": "arm2-author-browser-qa",
+  "private": true,
+  "type": "module",
+  "description": "Isolated author QA tooling, not application runtime",
+  "devDependencies": {
+    "playwright": "1.65.1"
+  }
+}

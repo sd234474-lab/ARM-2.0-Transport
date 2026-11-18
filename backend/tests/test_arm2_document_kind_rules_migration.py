@@ -97,7 +97,7 @@ def test_0063_downgrade_refuses_settings_or_new_history_without_losses(isolated_
             command.downgrade(config(), "0062")
         assert snapshots(engine) == old
         with engine.connect() as db:
-            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0068"
+            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0069"
             assert db.execute(text("SELECT row_to_json(d)::text FROM arm2_document_kinds d")).scalars().all() == before
     finally:
         engine.dispose()

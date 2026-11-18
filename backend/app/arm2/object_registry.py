@@ -252,7 +252,8 @@ PARTY_COMMAND_FIELDS = {
     "primary_signer_id": FieldSpec((str,), nullable=True),
 }
 PARTY_HISTORY_FIELDS = {**PARTY_COMMAND_FIELDS, "status": FieldSpec((str,)), "version": FieldSpec((int,))}
-OBJECT_REGISTRY.register(ObjectDefinition("CP", "CP", PARTY_COMMAND_FIELDS, PARTY_HISTORY_FIELDS,
+CP_NAME_FIELDS = {f: FieldSpec((str,), nullable=True) for f in ("last_name", "first_name", "middle_name")}
+OBJECT_REGISTRY.register(ObjectDefinition("CP", "CP", {**PARTY_COMMAND_FIELDS, **CP_NAME_FIELDS}, {**PARTY_HISTORY_FIELDS, **CP_NAME_FIELDS},
                                           edit_permission=Permission.ARM2_CP_EDIT))
 OBJECT_REGISTRY.register(ObjectDefinition("ORG", "ORG", PARTY_COMMAND_FIELDS, PARTY_HISTORY_FIELDS,
                                           edit_permission=Permission.ARM2_ORG_EDIT))

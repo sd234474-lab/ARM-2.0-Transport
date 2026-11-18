@@ -1,0 +1,128 @@
+import {useEffect, useRef, useState} from 'react';
+import {Link, useSearchParams} from 'react-router-dom';
+import {api, ApiError} from '../api';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import type {PDFDocumentProxy} from 'pdfjs-dist';
+import {previewBytes, questionnaireApi} from './api';
+import type {QuestionnaireChoices, QuestionnaireDocument, QuestionnaireDraft, QuestionnaireField, QuestionnaireReceipt} from './api';
+import {labels} from './model';
+import {OwnerPicker} from './Selectors';
+import {display, ErrorMessage} from './shared';
+import type {Can} from './Workspace';
+import './Questionnaire.css';
+
+function download(data:string, media:string, filename:string) {
+  const url=URL.createObjectURL(new Blob([Uint8Array.from(atob(data),c=>c.charCodeAt(0))],{type:media}));
+  const anchor=document.createElement('a');anchor.href=url;anchor.download=filename;anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+export function QuestionnaireExport({cpId}:{cpId:string}) {
+  const [busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[missing,setMissing]=useState<{name:string;file_id:string;document_id:string}[]>([]),[reason,setReason]=useState('');
+  const exporting=async(format:'xlsx'|'zip',incomplete=false)=>{
+    setBusy(true);setError(undefined);
+    try {
+      const result=await api<{data?:string;media_type:string;filename:string;confirmation_required?:boolean;missing?:typeof missing}>(`/arm2/questionnaires/exports/${encodeURIComponent(cpId)}`,'POST',{format,...(incomplete?{incomplete_reason:reason}:{})});
+      if(result.confirmation_required)setMissing(result.missing||[]);
+      else if(result.data){download(result.data,result.media_type,result.filename);setMissing([]);}
+    }catch(e){setError(e);}finally{setBusy(false);}
+  };
+  return <section aria-label="Выгрузка анкеты"><h3>Анкета контрагента</h3><Link to="/arm2/questionnaires">Загрузить и сверить анкету</Link><div className="arm2-actions"><button disabled={busy} onClick={()=>void exporting('xlsx')}>Выгрузить анкету XLSX</button><button disabled={busy} onClick={()=>void exporting('zip')}>Выгрузить ZIP с текущими документами</button></div><ErrorMessage error={error}/>{error instanceof ApiError&&typeof error.detail==='string'&&<p role="alert">{error.detail}</p>}{missing.length>0&&<div role="alert"><p>Эти текущие оригиналы недоступны. Исправьте доступность либо явно подтвердите неполную выгрузку.</p><ul>{missing.map(f=><li key={f.file_id}>{f.document_id} · {f.file_id} · {f.name}</li>)}</ul><label>Причина неполной выгрузки<input value={reason} maxLength={500} onChange={e=>setReason(e.target.value)}/></label><button disabled={busy||!reason.trim()} onClick={()=>void exporting('zip',true)}>Явно выдать неполный ZIP</button></div>}</section>;
+}
+
+function Fields({fields,choose,busy}:{fields:Record<string,QuestionnaireField>;choose:(field:string,selected:boolean)=>void;busy:boolean}) {
+  const fieldLabel=(field:string)=>field==='owner'?'Операционный владелец':labels[field]||field;
+  return <div className="arm2-table"><table><thead><tr><th>Реквизит / источник анкета</th><th>Текущее</th><th>Предложено</th><th>Решение</th></tr></thead><tbody>{Object.entries(fields).map(([field,f])=><tr key={field}><th>{fieldLabel(field)}</th><td>{display(f.current)}</td><td>{display(f.proposed)}{f.error&&<p role="alert">{f.error}</p>}</td><td>{f.equal?<span>Соответствует</span>:<label><input type="checkbox" aria-label={'Принять '+fieldLabel(field)} checked={f.selected} disabled={busy||!!f.error&&!f.selected} onChange={e=>choose(field,e.target.checked)}/>{f.selected?'Принять':'Оставить текущее / отклонить'}</label>}</td></tr>)}</tbody></table></div>;
+}
+
+function SignerSources({value,change}:{value:NonNullable<QuestionnaireDraft['comparison']>['representatives'][number];change:(sources:Record<string,'passport'|'list'>)=>void}) {
+  return <>{value.source_id&&<p>REP-ID анкеты: {value.source_id}</p>}{value.source_comment&&<p>Пометка анкеты: {value.source_comment}</p>}{value.signer_hint&&<p>В анкете указан как основной подписант; назначение требует решения оператора.</p>}{Object.entries(value.conflicts||{}).map(([field,values])=><label key={field}>Расхождение двух представлений: {labels[field]||field}<select aria-label={'Источник подписанта '+(labels[field]||field)} value={value.sources?.[field]||''} onChange={e=>{const sources={...value.sources};if(e.target.value)sources[field]=e.target.value as 'passport'|'list';else delete sources[field];change(sources);}}><option value="">Выберите источник — автоматического приоритета нет</option><option value="passport">Паспорт: {values.passport}</option><option value="list">Представители: {values.list}</option></select></label>)}</>;
+}
+
+function Receipt({value}:{value:QuestionnaireReceipt}) {
+  return <section aria-label="Протокол приёмки анкеты"><h3>{value.no_op?'Соответствует — предметных изменений нет':'Изменения приняты'}</h3><p>Контрагент: {value.cp_id||'Без изменений'} · Команда {value.command_id}</p><p>Дата заполнения: {value.filled_date||'Не указана'} · Загрузка: {value.uploaded_at} · Приёмка: {value.accepted_at}</p><p>События истории: {value.event_ids.join(', ')||'Не создавались'}</p><ul>{value.objects.map((o,i)=><li key={i}>{o.kind} · {o.id||o.document_id} · Версия {o.version}</li>)}</ul>{value.cp_id&&<Link to={'/arm2/cp/'+value.cp_id}>Открыть CP и повторно выгрузить анкету</Link>}</section>;
+}
+
+export default function Questionnaire({can}:{can:Can}) {
+  const [params,setParams]=useSearchParams(),identifier=params.get('draft');
+  const [draft,setDraft]=useState<QuestionnaireDraft>(),[list,setList]=useState<Awaited<ReturnType<typeof questionnaireApi.list>>>([]),[receipts,setReceipts]=useState<QuestionnaireReceipt[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[receipt,setReceipt]=useState<QuestionnaireReceipt>(),[retry,setRetry]=useState(false),[preview,setPreview]=useState<{url:string;name:string;media:string}>();
+  const command=useRef<string|undefined>(undefined),alive=useRef(true);
+  const [garbage,setGarbage]=useState<Awaited<ReturnType<typeof questionnaireApi.cleanupCandidates>>>([]),[notice,setNotice]=useState('');
+  const clean=async(id:string)=>{setBusy(true);try{const result=await questionnaireApi.cleanup(id);setNotice(result.pending?'Осталось временных оригиналов: '+result.pending+'. Повторите очистку после восстановления хранилища':'Временные оригиналы очищены; принятые файлы сохранены');setGarbage(await questionnaireApi.cleanupCandidates());}catch(e){setError(e);}finally{setBusy(false);}};
+  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
+  const refresh=async()=>{const [drafts,protocols]=await Promise.all([questionnaireApi.list(),questionnaireApi.receipts()]);if(alive.current){setList(drafts);setReceipts(protocols);}};
+  useEffect(()=>{void refresh().catch(setError);},[]);
+  useEffect(()=>{
+    if(!identifier)return;
+    let active=true;setBusy(true);setError(undefined);
+    questionnaireApi.reopen(identifier).then(value=>{if(active){setDraft(value);setReceipt(value.receipt);setRetry(false);command.current=undefined;}}).catch(e=>{if(active)setError(e);}).finally(()=>{if(active)setBusy(false);});
+    return()=>{active=false;};
+  },[identifier]);
+  useEffect(()=>()=>{if(preview)URL.revokeObjectURL(preview.url);},[preview]);
+  const update=async(choices:QuestionnaireChoices)=>{if(!draft||busy||retry)return;setBusy(true);setError(undefined);try{const saved=await questionnaireApi.edit(draft,choices);if(alive.current){setDraft(saved);command.current=undefined;}}catch(e){setError(e);setRetry(true);}finally{setBusy(false);}};
+  const cpFields=(field:string,selected:boolean)=>{const previous=draft?.choices?.cp_fields||[];void update({...draft?.choices,cp_fields:selected?[...previous,field]:previous.filter(f=>f!==field)});};
+  const vehicle=(key:string,values:NonNullable<QuestionnaireChoices['vehicles']>[string])=>void update({...draft?.choices,vehicles:{...draft?.choices?.vehicles,[key]:{...draft?.choices?.vehicles?.[key],...values}}});
+  const document=(key:string,values:NonNullable<QuestionnaireChoices['documents']>[string])=>void update({...draft?.choices,documents:{...draft?.choices?.documents,[key]:{...draft?.choices?.documents?.[key],...(Object.keys(values).some(k=>k!=='accept')?{accept:false}:{}),...values}}});
+  const rep=(key:string,values:NonNullable<QuestionnaireChoices['representatives']>[string])=>void update({...draft?.choices,representatives:{...draft?.choices?.representatives,[key]:{...draft?.choices?.representatives?.[key],...values}}});
+  const open=async()=>{if(!draft)return;setBusy(true);try{setDraft(await questionnaireApi.reopen(draft.id));setRetry(false);command.current=undefined;setError(undefined);}catch(e){setError(e);}finally{setBusy(false);}};
+  const upload=async(file:File)=>{setBusy(true);setError(undefined);try{const value=await questionnaireApi.upload(file);if(alive.current){setDraft(value);setReceipt(undefined);setRetry(false);setParams({draft:value.id});await refresh();}}catch(e){setError(e);}finally{setBusy(false);}};
+  const apply=async()=>{if(!draft)return;command.current ||= crypto.randomUUID();setBusy(true);setError(undefined);try{const saved=await questionnaireApi.apply(draft,command.current);if(alive.current){setReceipt(saved);setDraft({...draft,status:'ACCEPTED',receipt:saved});setRetry(false);await refresh();}}catch(e){setError(e);setRetry(true);}finally{setBusy(false);}};
+  const cancel=async()=>{if(!draft)return;setBusy(true);try{const result=await questionnaireApi.cancel(draft.id);setNotice(result.cleanup?.pending?'Осталось временных оригиналов: '+result.cleanup.pending+'. Повторите очистку после восстановления хранилища':'');setDraft(undefined);setReceipt(undefined);setParams({});setRetry(false);await refresh();}catch(e){setError(e);}finally{setBusy(false);}};
+  const show=async(path:string,name:string)=>{setError(undefined);try{const blob=await previewBytes(path,128*1024*1024);setPreview({url:URL.createObjectURL(blob),name,media:blob.type});}catch(e){setError(e);}};
+  const c=draft?.comparison,disabled=busy||retry;
+  return <section className="arm2-questionnaire" aria-label="Анкеты контрагентов"><h2>Загрузка и сверка анкеты</h2><p>XLSX или ZIP → сверка → принятие выбранных изменений вместе. ZIP не является документом. Выбор файла сразу открывает предварительную сверку.</p><label>Файл анкеты XLSX/ZIP<input type="file" accept=".xlsx,.zip" disabled={busy} onChange={e=>{const file=e.target.files?.[0];if(file)void upload(file);e.target.value='';}}/></label><ErrorMessage error={error}/>{error instanceof ApiError&&typeof error.detail==='string'&&<p role="alert">{error.detail}</p>}{busy&&<p role="status">Выполняется операция…</p>}
+    <details><summary>Серверные незавершённые разборы ({list.length})</summary>{list.map(item=><p key={item.id}><button disabled={busy} onClick={()=>{setDraft(undefined);setParams({draft:item.id});if(identifier===item.id)void open();}}>{item.filename} · {item.uploaded_at}</button></p>)}</details>
+    {draft?.status==='OPEN'&&c&&<section aria-label="Сверка анкеты"><p role="status">Черновик сохранён на сервере · {draft.id} · Редакция {draft.revision}</p><p>Дата заполнения: {c.filled_date||'Не указана'} · Загружена: {c.uploaded_at}</p>{c.warnings.map((w,i)=><p role="alert" key={i}>{w}</p>)}
+      <div className="arm2-actions"><button disabled={busy} onClick={()=>void open()}>Повторно открыть сверку</button><button disabled={busy} onClick={()=>void cancel()}>Отклонить загрузку целиком</button></div>
+      {retry&&<div role="alert"><p>Результат запроса требует проверки. Для потерянного ответа повторите ту же команду; для изменённой версии откройте серверную сверку и заново проверьте решения.</p><button disabled={busy||!command.current} onClick={()=>void apply()}>Повторить ту же команду</button></div>}
+      <fieldset disabled={disabled}><legend>Контрагент</legend><p>Кандидат из анкеты (подсказка): {c.cp.hint||'Нет'}.</p><label>Решение о контрагенте<select aria-label="Решение о контрагенте" value={draft.choices?.cp_target||''} onChange={e=>void update({...draft.choices,cp_target:e.target.value||null})}><option value="">Выберите существующего или нового CP</option><option value="new">Явно создать нового CP</option>{c.cp.candidates.map(cp=><option key={cp.id} value={cp.id}>{cp.id} · {cp.name} · {cp.inn||'ИНН не указан'}</option>)}{c.cp.id&&!c.cp.candidates.some(cp=>cp.id===c.cp.id)&&<option value={c.cp.id}>{c.cp.id}</option>}</select></label>
+        <OwnerPicker cp={draft.choices?.cp_target==='new'?null:draft.choices?.cp_target||null} org={null} can={p=>!p.startsWith('arm2_org_')&&can(p)} editable={!disabled} label="Найти существующего CP" change={cp=>void update({...draft.choices,cp_target:cp})}/>
+        {c.cp.error&&<p role="alert">{c.cp.error}</p>}<Fields fields={c.cp.fields} choose={cpFields} busy={disabled}/></fieldset>
+      <fieldset disabled={disabled}><legend>Представители и подписант</legend>{c.representatives.map(r=><section key={r.key} aria-label={'Представитель '+r.key}><label>Запись представителя<select value={r.target||''} onChange={e=>rep(r.key,{target:e.target.value||null})}><option value="">Не принимать представителя</option><option value="new">Явно создать отдельного представителя</option>{r.candidates.map(p=><option key={p.id} value={p.id}>{p.id} · {p.name}</option>)}</select></label><p>Одинаковое ФИО не объединяет записи. Учётные записи и права из анкеты не назначаются.</p>{r.error&&<p role="alert">{r.error}</p>}<SignerSources value={r} change={sources=>rep(r.key,{sources})}/><Fields fields={r.fields} busy={disabled} choose={(field,on)=>rep(r.key,{fields:on?[...(draft.choices?.representatives?.[r.key]?.fields||[]),field]:(draft.choices?.representatives?.[r.key]?.fields||[]).filter(f=>f!==field)})}/><label><input type="checkbox" checked={r.signer} onChange={e=>rep(r.key,{signer:e.target.checked})}/>Назначить выбранную запись подписантом CP</label></section>)}</fieldset>
+      <fieldset disabled={disabled}><legend>Техника</legend>{c.vehicles.map(row=><section key={row.key} aria-label={'Строка техники '+row.row}><h3>{row.source} · {row.id||'Новая машина'} · {row.plate_number||'Нет корректного номера'}</h3>{row.errors.map((message,i)=><p role="alert" key={i}>{message}</p>)}<label><input type="checkbox" aria-label={'Включить строку '+row.row} checked={!!draft.choices?.vehicles?.[row.key]?.include} disabled={disabled||row.errors.length>0} onChange={e=>vehicle(row.key,{include:e.target.checked})}/>Включить строку в единый набор</label><p>Версия: {row.version||'Новая'} · {row.withdrawal?'ВЫБЫЛО: снять связь только у заявившего текущего владельца, не архивировать':'Заявление не является готовностью техники'}</p>
+        <label>Выбор заполненного типа техники<select value={draft.choices?.vehicles?.[row.key]?.type_id||''} onChange={e=>vehicle(row.key,{type_id:e.target.value||null,without_type:false})}><option value="">Предложение анкеты</option>{c.types.map(t=><option key={t.id} value={t.id}>{t.name} · {t.plate_category}</option>)}</select></label><label><input type="checkbox" checked={row.without_type} onChange={e=>vehicle(row.key,{without_type:e.target.checked})}/>Без нового назначения типа; имеющуюся связь сохранить</label>
+        <Fields fields={row.fields} busy={disabled} choose={(field,on)=>vehicle(row.key,{fields:on?[...(draft.choices?.vehicles?.[row.key]?.fields||[]),field]:(draft.choices?.vehicles?.[row.key]?.fields||[]).filter(f=>f!==field)})}/><label><input type="checkbox" checked={row.confirm_owner} onChange={e=>vehicle(row.key,{confirm_owner:e.target.checked})}/>Отдельно подтверждаю смену прежнего владельца → нового</label>{row.volume_proposal&&<p>Предложенный объём: {row.volume_proposal}. {row.volume_notice}. Откройте справку в разделе документов.</p>}{row.diagnostic_hint&&<p>Подсказка Excel: {row.diagnostic_hint}</p>}</section>)}</fieldset>
+      <fieldset disabled={disabled}><legend>Документы и непривязанные файлы</legend><p>Неоднозначный файл требует выбора родителя и вида. Отсутствующее вложение не удаляет принятые оригиналы.</p>{c.documents.map(doc=><DocumentReview key={doc.key} doc={doc} draft={draft} can={can} disabled={disabled} update={values=>document(doc.key,values)} show={show}/>)}</fieldset>
+      <button disabled={disabled||!can('arm2_cp_view')} onClick={()=>void apply()}>Принять изменения</button><p>Все выбранные изменения и протокол сохраняются вместе, с историей и новыми версиями карточек. Ошибка выбранного объекта отменяет весь набор; невключённые ошибки не мешают.</p>
+    </section>}
+    {notice&&<p role="status">{notice}</p>}
+    {draft?.approval_reset&&<p role="alert">Живые карточки изменились. Старые решения сброшены; явно примите их заново.</p>}
+    <button disabled={busy} onClick={()=>{questionnaireApi.cleanupCandidates().then(setGarbage).catch(setError);}}>Показать временные остатки закрытых пакетов</button>{garbage.map(item=><p key={item.id}>{item.filename} · {item.status}<button disabled={busy} onClick={()=>void clean(item.id)}>Очистить временные файлы</button></p>)}
+    {receipt&&<><Receipt value={receipt}/><button disabled={busy} onClick={()=>{setBusy(true);questionnaireApi.cleanup(receipt.draft_id).then(r=>{if(r.pending)setError(new Error('Часть временных оригиналов ожидает восстановления хранилища; повторите очистку'));}).catch(setError).finally(()=>setBusy(false));}}>Очистить временные файлы завершённого пакета</button></>}
+    {preview&&<QuestionnairePreview key={preview.url} value={preview} close={()=>setPreview(undefined)}/>}
+    <details><summary>Сохранённые протоколы ({receipts.length})</summary>{receipts.map(r=><Receipt key={r.command_id} value={r}/>)}</details>
+  </section>;
+}
+
+function DocumentReview({doc,draft,can,disabled,update,show}:{doc:QuestionnaireDocument;draft:QuestionnaireDraft;can:Can;disabled:boolean;update:(v:NonNullable<QuestionnaireChoices['documents']>[string])=>void;show:(path:string,name:string)=>Promise<void>}) {
+  const c=draft.comparison!,choices=draft.choices?.documents?.[doc.key];
+  const [query,setQuery]=useState(''),[parents,setParents]=useState<{id:string;name:string;plate_number:string}[]>([]);
+  useEffect(()=>{let active=true;if(!query.trim()||!can('arm2_veh_view')){setParents([]);return;}api<{items:typeof parents}>('/arm2/vehicles/search?'+new URLSearchParams({q:query,limit:'100'})).then(r=>{if(active)setParents(r.items);}).catch(()=>{if(active)setParents([]);});return()=>{active=false;};},[query,can]);
+  return <section aria-label={'Файл '+doc.name}><h3>{doc.role} · {doc.name}</h3><p>SHA-256: {doc.sha256||'Нет файла'}</p>{doc.error&&<p role="alert">{doc.error}</p>}{doc.equal&&<p>Соответствует текущему FILE — новая редакция не требуется</p>}
+    {doc.upload_id&&<button disabled={disabled||!doc.media_type} onClick={()=>void show(`/arm2/questionnaires/${draft.id}/files/${doc.upload_id}/preview`,doc.name)}>Открыть кандидат</button>}
+    <label>Родитель файла<select value={doc.parent_key||''} onChange={e=>update({parent_key:e.target.value||null,document_id:null,kind_id:null})}><option value="">Выберите родителя</option><option value="CP">Выбранный CP</option>{c.vehicles.map(v=><option value={v.key} key={v.key}>{v.id||'Новая машина'} · {v.plate_number} · строка {v.row}</option>)}{doc.parent_key?.startsWith('VEH-')&&<option value={doc.parent_key}>{doc.parent_key}</option>}</select></label>
+    <label>Найти другую разрешённую машину<input disabled={!can('arm2_veh_view')} value={query} onChange={e=>setQuery(e.target.value)} maxLength={200}/></label>{parents.map(parent=><button key={parent.id} onClick={()=>{update({parent_key:parent.id,kind_id:null,document_id:null});setQuery('');}}>{parent.id} · {parent.plate_number} · {parent.name}</button>)}
+    <label>Вид документа<select value={doc.kind_id||''} onChange={e=>update({kind_id:e.target.value||null,document_id:null})}><option value="">Выберите вид</option>{c.document_kinds.filter(k=>k.parents.includes(doc.parent_key==='CP'?'CP':'VEH')).map(k=><option key={k.id} value={k.id}>{k.name}</option>)}</select></label>
+    <label>Карточка документа<select value={doc.document_id||choices?.document_id||'new'} onChange={e=>update({document_id:e.target.value})}><option value="new">Новый документ, если нет соответствующего</option>{doc.candidates?.map(d=><option value={d.id} key={d.id}>{d.id} · {d.name}</option>)}</select></label>
+    {!!doc.current_files?.length&&<><label>Заменить принятый файл<select value={doc.replace_file_id||''} onChange={e=>update({replace_file_id:e.target.value||null,append:!e.target.value})}><option value="">Явно добавить к комплекту</option>{doc.current_files.map(f=><option value={f.id} key={f.id}>{f.id} · {f.name}</option>)}</select></label>{doc.current_files.map(f=><p key={f.id}>{f.id} · {f.sha256} <button disabled={disabled} onClick={()=>void show(`/arm2/${doc.parent_type?.toLowerCase()}/${doc.parent_id}/documents/${doc.document_id}/revisions/${doc.revision_id}/files/${f.id}/preview`,f.name)}>Открыть действующий</button></p>)}</>}
+    {!doc.equal&&<label><input type="checkbox" checked={!!choices?.accept} disabled={disabled||!!doc.error&&!choices?.accept} onChange={e=>update({accept:e.target.checked})}/>Принять файл и выбранную привязку</label>}
+  </section>;
+}
+
+function QuestionnairePreview({value,close}:{value:{url:string;name:string;media:string};close:()=>void}) {
+  const [pdf,setPdf]=useState<PDFDocumentProxy>(),[page,setPage]=useState(1),[error,setError]=useState<unknown>(),[busy,setBusy]=useState(false);
+  const canvas=useRef<HTMLCanvasElement>(null);
+  useEffect(()=>{
+    if(value.media!=='application/pdf')return;
+    let active=true,dispose:(()=>void)|undefined;
+    setBusy(true);
+    void(async()=>{const renderer=await import('pdfjs-dist');renderer.GlobalWorkerOptions.workerSrc=pdfWorkerUrl;const data=new Uint8Array(await(await fetch(value.url)).arrayBuffer());if(!active)return;const task=renderer.getDocument({data,enableXfa:false,disableFontFace:true,useSystemFonts:true,useWorkerFetch:false,useWasm:false,stopAtErrors:true,disableWorkerRendering:true,disableAutoFetch:true,disableRange:true,disableStream:true,maxImageSize:20000000,canvasMaxAreaInBytes:16000000});dispose=()=>{void task.destroy();};const doc=await task.promise;if(doc.numPages>1000)throw new Error('PDF page limit');if(active)setPdf(doc);})().catch(e=>{if(active)setError(e);}).finally(()=>{if(active)setBusy(false);});
+    return()=>{active=false;dispose?.();};
+  },[value.url,value.media]);
+  useEffect(()=>{
+    if(!pdf||!canvas.current)return;
+    let active=true,cancel:(()=>void)|undefined;
+    setBusy(true);
+    void(async()=>{const source=await pdf.getPage(page),base=source.getViewport({scale:1});if(!active)return;if(!Number.isFinite(base.width*base.height)||base.width<=0||base.height<=0)throw new Error('Некорректный размер PDF');const scale=Math.min(1.5,1600/base.width,2400/base.height,Math.sqrt(4000000/(base.width*base.height))),viewport=source.getViewport({scale}),target=canvas.current!;target.width=Math.max(1,Math.ceil(viewport.width));target.height=Math.max(1,Math.ceil(viewport.height));const task=source.render({canvas:target,viewport});cancel=()=>task.cancel();await task.promise;})().catch(e=>{if(active)setError(e);}).finally(()=>{if(active)setBusy(false);});
+    return()=>{active=false;cancel?.();};
+  },[pdf,page]);
+  return <section aria-label="Просмотр вложения"><h3>{value.name}</h3><ErrorMessage error={error}/>{busy&&<p role="status">Открываем проверенный PDF…</p>}{value.media.startsWith('image/')?<img src={value.url} alt={'Вложение '+value.name} style={{maxWidth:'100%'}}/>:value.media==='application/pdf'?<><canvas ref={canvas} aria-label={'PDF '+value.name} style={{maxWidth:'100%'}}/>{pdf&&<nav aria-label="Страницы вложения"><button disabled={busy||page<=1} onClick={()=>setPage(p=>p-1)}>Предыдущая страница</button><span>{page} / {pdf.numPages}</span><button disabled={busy||page>=pdf.numPages} onClick={()=>setPage(p=>p+1)}>Следующая страница</button></nav>}</>:<p>Формат доступен скачиванием оригинала.</p>}<a href={value.url} download={value.name}>Скачать проверенный оригинал</a><button onClick={close}>Закрыть просмотр вложения</button></section>;
+}

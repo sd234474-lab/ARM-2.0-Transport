@@ -1,0 +1,287 @@
+"""Live, permission-aware questionnaire comparison; never writes domain objects."""
+import re
+
+from sqlalchemy import or_, select
+
+from app.arm2.counterparty_models import Counterparty
+from app.arm2.counterparty_store import COUNTERPARTY_ADAPTER, PARTY_FIELDS
+from app.arm2.document_file_models import DocumentFile
+from app.arm2.document_file_store import revision_files
+from app.arm2.document_kind_models import DocumentKind
+from app.arm2.document_models import Document
+from app.arm2.object_save import ObjectAuthorizationError
+from app.arm2.questionnaire_models import QuestionnaireUpload
+from app.arm2.representative_models import CounterpartyRepresentative
+from app.arm2.representative_store import CPREP_ADAPTER, representative_values
+from app.arm2.vehicle_models import Vehicle
+from app.arm2.vehicle_store import normalize_plate_number
+from app.arm2.vehicle_type_models import VehicleType
+from app.arm2.vehicle_type_rules import plate_compatible
+from app.models import User
+from app.permissions import Permission, has_permission
+
+CP_FIELDS = (*PARTY_FIELDS[:-1], 'last_name', 'first_name', 'middle_name')
+REP_FIELDS = ('name', 'position', 'authority_basis', 'phone', 'email', 'state')
+VEH_FIELDS = ('name', 'model', 'type_id', 'accounting_state', 'owner')
+
+
+def authorized(db, principal, *permissions):
+    user = db.get(User, principal.id, populate_existing=True)
+    if user is None or not user.active or user.deleted_at is not None or any(
+            not has_permission(user, Permission(p)) for p in permissions):
+        raise ObjectAuthorizationError('Нет действующих прав на выбранные изменения')
+    return user
+
+
+def owner(record):
+    return ['CP', record.owner_cp_id] if record and record.owner_cp_id else \
+        ['ORG', record.owner_org_id] if record and record.owner_org_id else None
+
+
+def changes(values, current, selected, errors=None):
+    return {field: {'current': getattr(current, field, None) if current else None, 'proposed': value,
+                    'selected': field in selected, 'error': (errors or {}).get(field),
+                    'equal': current is not None and getattr(current, field, None) == value}
+            for field, value in values.items() if value not in (None, '')}
+
+
+def build(db, principal, draft):
+    user = authorized(db, principal, 'arm2_cp_view')
+    payload, choices = draft.payload, draft.choices
+    cp_values = payload.get('cp', {})
+    target = choices.get('cp_target')
+    cp = db.get(Counterparty, target, populate_existing=True) if target and target != 'new' else None
+    cp_error = None if target == 'new' or cp is not None else 'Выберите существующего или нового контрагента'
+    candidates = []
+    cp_hint = payload.get('cp_hint')
+    if cp_values.get('inn') or cp_values.get('name') or cp_hint:
+        candidates = [{'id': r.id, 'name': r.name, 'inn': r.inn} for r in db.scalars(select(Counterparty).where(or_(
+            Counterparty.inn == cp_values.get('inn') if cp_values.get('inn') else False,
+            Counterparty.name == cp_values.get('name'), Counterparty.id == cp_hint,
+            Counterparty.name == cp_hint)).order_by(Counterparty.id).limit(100))]
+    cp_errors, normalized = dict(payload.get('cp_errors', {})), {}
+    base = {f: getattr(cp, f) if cp else None for f in (*PARTY_FIELDS, 'last_name', 'first_name', 'middle_name')}
+    base['name'] = base['name'] or cp_values.get('name') or 'Анкета'
+    for field in CP_FIELDS:
+        value = cp_values.get(field)
+        if not value:
+            continue
+        try:
+            normalized[field] = COUNTERPARTY_ADAPTER.normalize({**base, field: value})[field]
+            if field == 'inn' and db.scalar(select(Counterparty.id).where(Counterparty.inn == normalized[field],
+                                                Counterparty.id != (cp.id if cp else ''))) is not None:
+                cp_errors[field] = 'ИНН уже принадлежит другой карточке; выберите её'
+        except ValueError as error:
+            normalized[field], cp_errors[field] = value, str(error)
+    cp_plan = {'key': 'CP', 'id': cp.id if cp else None, 'target': target, 'version': cp.version if cp else None,
+               'error': cp_error, 'candidates': candidates, 'hint': payload.get('cp_hint'),
+               'fields': changes(normalized, cp, choices.get('cp_fields', []), cp_errors)}
+    reps = []
+    for index, proposed in enumerate(payload.get('representatives', [])):
+        choice = choices.get('representatives', {}).get(str(index), {})
+        meta = (payload.get('representative_meta') or [{}] * len(payload.get('representatives', [])))[index]
+        rep_id = choice.get('target')
+        signed_rep = next((r for r in (payload.get('manifest') or {}).get('representatives', [])
+                           if r['index'] == index and cp and r['parent_id'] == cp.id), None)
+        hint = meta.get('id') if 'representative_meta' in payload else signed_rep['id'] if signed_rep else None
+        lookup_id = rep_id if rep_id and rep_id != 'new' else hint if cp else None
+        rep = db.get(CounterpartyRepresentative, lookup_id, populate_existing=True) if lookup_id else None
+        error = None
+        if hint and cp and (not re.fullmatch(r'CPREP-\d{6,}', hint) or
+                db.scalar(select(CounterpartyRepresentative.id).where(CounterpartyRepresentative.id == hint,
+                    CounterpartyRepresentative.parent_id == cp.id)) is None):
+            error = 'REP-ID не принадлежит выбранному CP или отсутствует; сопоставьте исходные данные'
+        if hint and rep_id == 'new':
+            error = 'Строка уже содержит REP-ID; выберите существующую запись, не создавайте дубль'
+        if hint and sum(m.get('id') == hint for m in payload.get('representative_meta', [])) > 1:
+            error = 'Повтор REP-ID в листе представителей'
+        if not rep_id and rep and (cp is None or rep.parent_id != cp.id):
+            rep = None
+        if rep_id and rep_id != 'new' and (rep is None or cp is None or rep.parent_id != cp.id):
+            error = 'Представитель не принадлежит выбранному CP'
+        rep_values, rep_errors = {}, {}
+        base_rep = representative_values(cp.id if cp else '$CP', rep.name if rep else proposed.get('name') or 'Представитель',
+            **{f: getattr(rep, f) for f in ('position', 'authority_basis', 'phone', 'email', 'state', 'user_id', 'last_name', 'first_name', 'middle_name')} if rep else {})
+        conflicts = meta.get('conflicts', {})
+        resolved = {**proposed, **{field: alternatives[choice.get('sources', {}).get(field)]
+            for field, alternatives in conflicts.items() if choice.get('sources', {}).get(field) in alternatives}}
+        for field, value in resolved.items():
+            if field not in REP_FIELDS:
+                continue
+            if not value:
+                continue
+            try:
+                rep_values[field] = CPREP_ADAPTER.normalize({**base_rep, field: value})[field]
+            except ValueError as failure:
+                rep_values[field], rep_errors[field] = value, str(failure)
+        for field in conflicts:
+            if choice.get('sources', {}).get(field) not in {'passport', 'list'}:
+                rep_errors[field] = 'Паспорт и список различаются: явно выберите источник значения'
+        reps.append({'key': str(index), 'id': rep.id if rep else None, 'target': rep_id,
+            'version': rep.version if rep else None, 'error': error, 'signer': bool(choice.get('signer')),
+            'source_id': hint, 'source_row': meta.get('row'), 'signer_hint': bool(meta.get('signer_hint')),
+            'source_comment': meta.get('comment'),
+            'conflicts': conflicts, 'sources': choice.get('sources', {}),
+            'fields': changes(rep_values, rep, choice.get('fields', []), rep_errors),
+            'candidates': [{'id': r.id, 'name': r.name} for r in db.scalars(select(CounterpartyRepresentative).where(
+                CounterpartyRepresentative.parent_id == cp.id).order_by(CounterpartyRepresentative.id))] if cp else []})
+    rows, seen = [], {}
+    type_view = has_permission(user, Permission.ARM2_TYPE_VIEW)
+    veh_view = has_permission(user, Permission.ARM2_VEH_VIEW)
+    for raw in payload.get('vehicles', []):
+        choice = choices.get('vehicles', {}).get(raw['key'], {})
+        errors = [raw['status_error']] if raw.get('status_error') else []
+        current, plate = None, None
+        try:
+            if not veh_view:
+                raise ValueError('Нет прав просмотра техники')
+            plate = normalize_plate_number(re.sub(r'\s+', '', raw['plate_number']))
+            by_plate = db.scalar(select(Vehicle).where(Vehicle.plate_number == plate).execution_options(populate_existing=True))
+            by_id = db.get(Vehicle, raw['id'], populate_existing=True) if raw['id'] else None
+            if raw['id'] and by_id is None:
+                raise ValueError('Указанный VEH-ID отсутствует')
+            if by_id and by_id.plate_number != plate:
+                raise ValueError('VEH-ID и госномер не совпадают; исправьте исходную строку')
+            current = by_id or by_plate
+            if plate in seen:
+                errors.append('Повтор госномера в строках анкеты')
+                seen[plate]['errors'].append('Повтор госномера в строках анкеты')
+        except ValueError as error:
+            errors.append(str(error))
+        proposed = {f: raw[f] for f in ('name', 'model') if raw.get(f)}
+        typ, type_error = None, None
+        hint = raw.get('type_hint')
+        type_choice = choice.get('type_id')
+        if type_view and (hint or type_choice):
+            typ = db.get(VehicleType, type_choice, populate_existing=True) if type_choice else \
+                db.scalar(select(VehicleType).where(or_(VehicleType.id == hint, VehicleType.name == hint)))
+            if choice.get('without_type'):
+                # An incomplete historic link is never removed by a blanket "without TYPE" choice.
+                typ = None
+            elif typ is None:
+                type_error = 'TYPE не распознан: выберите CONFIRMED или явно сохраните без TYPE'
+            elif current is not None and current.type_id == typ.id:
+                proposed['type_id'] = typ.id
+            elif typ.status != 'CONFIRMED' or not plate_compatible(plate or '', typ.plate_category):
+                type_error = 'Назначить можно только CONFIRMED TYPE с подходящей категорией номера'
+            else:
+                proposed['type_id'] = typ.id
+        elif hint and not type_view and not choice.get('without_type'):
+            type_error = 'Нет прав просмотра TYPE; можно явно оставить без нового назначения'
+        if type_error:
+            proposed['type_id'] = hint or type_choice
+        withdrawal = raw.get('state_hint', '').upper().strip() == 'ВЫБЫЛО'
+        actual_owner = owner(current)
+        expected_owner = ['CP', cp.id] if cp else ['CP', '$CP'] if target == 'new' else None
+        next_owner = (None if actual_owner == expected_owner else actual_owner) if withdrawal else expected_owner
+        if current is not None and current.accounting_state == 'Архивная' and not withdrawal:
+            proposed['accounting_state'] = 'Действующая'
+        fields = changes(proposed, current, choice.get('fields', []), {'type_id': type_error} if type_error else {})
+        fields['owner'] = {'current': actual_owner, 'proposed': next_owner, 'selected': 'owner' in choice.get('fields', []),
+                           'equal': actual_owner == next_owner, 'error': None if expected_owner else 'Сначала выберите CP'}
+        plan = {'key': raw['key'], 'row': raw['row'], 'id': current.id if current else None,
+                'plate_number': plate, 'version': current.version if current else None, 'fields': fields, 'errors': errors,
+                'withdrawal': withdrawal, 'confirm_owner': bool(choice.get('confirm_owner')),
+                'without_type': bool(choice.get('without_type')), 'source': f'Техника!{raw["row"]}',
+                'type_version': typ.version if typ else None,
+                'volume_proposal': raw.get('volume_proposal'), 'volume_notice': 'Только сверка по справке; объём и согласование не записываются',
+                'legacy_hint': raw.get('legacy_hint'), 'diagnostic_hint': raw.get('diagnostic_hint')}
+        rows.append(plan)
+        if plate:
+            seen[plate] = plan
+    attachments = list(db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == draft.id)
+                                 .order_by(QuestionnaireUpload.name, QuestionnaireUpload.id)))
+    by_name = {}
+    for attachment in attachments:
+        for name in {attachment.name.casefold(), attachment.name.rsplit('/', 1)[-1].casefold()}:
+            by_name.setdefault(name, []).append(attachment)
+    declarations = [('company', 'CP', 'Карточка предприятия', payload.get('company_file'))]
+    for row in payload.get('vehicles', []):
+        declarations.extend([(row['key'] + ':sts', row['key'], 'СТС', row.get('sts_file')),
+                             (row['key'] + ':calibration', row['key'], 'Тарировка', row.get('calibration_file'))])
+    documents, bound = [], set()
+    for key, parent_key, role, name in declarations:
+        if not name:
+            continue
+        matches = list({a.id: a for a in by_name.get(name.replace('\\', '/').casefold(), [])}.values())
+        if not matches and '/' not in name:
+            matches = list({a.id: a for a in by_name.get(name.casefold(), [])}.values())
+        if len(matches) == 1:
+            attachment = matches[0]
+            bound.add(attachment.id)
+            documents.append(document_plan(db, user, draft, attachment, key, parent_key, role, cp, rows))
+        else:
+            documents.append({'key': key, 'name': name, 'parent_key': parent_key, 'role': role,
+                              'selected': bool(choices.get('documents', {}).get(key, {}).get('accept')),
+                              'error': 'Файл отсутствует' if not matches else 'Имя неоднозначно; выберите файл в непривязанных',
+                              'choices': [a.id for a in matches]})
+    for attachment in attachments:
+        if attachment.id not in bound:
+            signed = next((f for f in (payload.get('manifest') or {}).get('files', []) if f['name'] == attachment.name), None)
+            parent_key = None
+            if signed and cp and signed['parent_type'] == 'CP' and signed['parent_id'] == cp.id:
+                parent_key = 'CP'
+            elif signed and signed['parent_type'] == 'VEH':
+                parent_key = next((r['key'] for r in rows if r['id'] == signed['parent_id']), None)
+            documents.append(document_plan(db, user, draft, attachment, 'unbound:' + attachment.id, parent_key, 'Непривязанный файл', cp, rows))
+    kinds = [{'id': k.id, 'name': k.name, 'parents': k.applicable_object_types, 'version': k.version} for k in db.scalars(
+        select(DocumentKind).order_by(DocumentKind.id))] if (has_permission(user, Permission.ARM2_DOCUMENT_VIEW)
+            and has_permission(user, Permission.ARM2_DOC_KIND_VIEW)) else []
+    types = [{'id': t.id, 'name': t.name, 'plate_category': t.plate_category} for t in db.scalars(
+        select(VehicleType).where(VehicleType.status == 'CONFIRMED').order_by(VehicleType.id))] if type_view else []
+    return {'cp': cp_plan, 'representatives': reps, 'vehicles': rows, 'documents': documents,
+            'document_kinds': kinds, 'types': types, 'warnings': payload.get('warnings', []),
+            'filled_date': draft.filled_date.isoformat() if draft.filled_date else None,
+            'uploaded_at': draft.uploaded_at.isoformat()}
+
+
+def document_plan(db, user, draft, attachment, key, parent_key, role, cp, rows):
+    choice = draft.choices.get('documents', {}).get(key, {})
+    parent_key = choice.get('parent_key') or parent_key
+    row = next((r for r in rows if r['key'] == parent_key), None)
+    ptype, pid = ('CP', cp.id if cp else None) if parent_key == 'CP' else ('VEH', row['id'] if row else None)
+    if parent_key and parent_key.startswith('VEH-') and has_permission(user, Permission.ARM2_VEH_VIEW):
+        target = db.get(Vehicle, parent_key)
+        pid = target.id if target else None
+    allowed = has_permission(user, Permission.ARM2_DOCUMENT_VIEW) and has_permission(user, Permission('arm2_' + ptype.lower() + '_view'))
+    manifest = draft.payload.get('manifest') or {}
+    signed = next((f for f in manifest.get('files', []) if f['name'] == attachment.name and
+                   f['parent_type'] == ptype and f['parent_id'] == pid), None)
+    if signed:
+        original = db.get(DocumentFile, signed['file_id'])
+        if original is None or original.document_id != signed['document_id']:
+            signed = None  # SHA or a signed filename alone cannot establish a different parent/DOCUMENT.
+    doc_id = choice.get('document_id') or (signed['document_id'] if signed else None)
+    doc = db.get(Document, doc_id, populate_existing=True) if doc_id and doc_id != 'new' and allowed else None
+    error = attachment.error
+    if not allowed:
+        error = 'Нет прав на документы выбранного родителя'
+    if not parent_key:
+        error = error or 'Выберите допустимого родителя и тип документа'
+    if doc_id and doc_id != 'new' and (doc is None or doc.parent_type != ptype or doc.parent_id != pid):
+        error = 'DOCUMENT не принадлежит выбранному родителю'
+    kind_id = choice.get('kind_id') or (doc.kind_ref if doc else None)
+    kind = db.get(DocumentKind, kind_id) if kind_id else None
+    if doc and kind_id != doc.kind_ref:
+        error = error or 'Выбранный DOCUMENT относится к другому виду'
+    if kind is None or ptype not in kind.applicable_object_types or not kind.file_naming_template:
+        error = error or 'Выберите существующий применимый вид документа с шаблоном имени'
+    candidates = [{'id': d.id, 'name': d.name, 'kind_id': d.kind_ref} for d in db.scalars(select(Document).where(
+        Document.parent_type == ptype, Document.parent_id == pid, Document.archive_state == 'Неархивный').order_by(Document.id))] if pid and allowed else []
+    if not doc and kind and any(c['kind_id'] == kind.id for c in candidates):
+        error = error or 'У родителя уже есть документ этого вида; выберите его, не создавайте дубль'
+    current = revision_files(db, doc.id, doc.current_revision_id) if doc else []
+    same = any(f.sha256 == attachment.sha256 for f in current)
+    replace = None if choice.get('append') else choice.get('replace_file_id') or (signed['file_id'] if signed else current[0].id if len(current) == 1 else None)
+    if doc and len(current) > 1 and not same and not replace and not choice.get('append'):
+        error = error or 'Выберите заменяемый FILE или явно добавьте файл к комплекту'
+    if replace and replace not in {f.id for f in current}:
+        error = error or 'Заменяемый FILE/редакция уже изменены'
+    return {'key': key, 'upload_id': attachment.id, 'name': attachment.name, 'parent_key': parent_key, 'role': role,
+            'parent_type': ptype, 'parent_id': pid, 'document_id': doc.id if doc else None,
+            'kind_id': kind_id, 'version': doc.version if doc else None,
+            'kind_version': kind.version if kind else None,
+            'revision_id': doc.current_revision_id if doc else None, 'replace_file_id': replace,
+            'append': bool(choice.get('append')), 'selected': bool(choice.get('accept')) and not same,
+            'equal': same, 'error': error, 'sha256': attachment.sha256, 'media_type': attachment.media_type,
+            'candidates': candidates, 'current_files': [{'id': f.id, 'name': f.original_upload_name, 'sha256': f.sha256} for f in current]}
