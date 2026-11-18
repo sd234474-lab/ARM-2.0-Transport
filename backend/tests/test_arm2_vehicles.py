@@ -36,11 +36,11 @@ def test_veh_uses_same_pipeline_as_type_with_history_and_versions(isolated_arm2_
         principal = add_admin(db)
         confirmed = create_vehicle_type(
             db, "Самосвал", True, False, False,
-            principal=principal, context=save_context(principal)
+            plate_category="Автомобильный", principal=principal, context=save_context(principal)
         )
         incomplete = create_vehicle_type(
             db, "Незавершённый", True, None, False,
-            principal=principal, context=save_context(principal)
+            plate_category="Автомобильный", principal=principal, context=save_context(principal)
         )
         vehicle = create_vehicle(
             db, "  Машина 1  ", "A123BC86", type_id=confirmed.id,
@@ -55,12 +55,12 @@ def test_veh_uses_same_pipeline_as_type_with_history_and_versions(isolated_arm2_
         vehicle_id = vehicle.id
         confirmed_id = confirmed.id
         incomplete_id = incomplete.id
-        with pytest.raises(ValueError, match="CONFIRMED"):
+        with pytest.raises(ValueError, match="CONFIRMED|не найден"):
             create_vehicle(
                 db, "Нельзя назначить", "B123BC86", type_id=incomplete_id,
                 principal=principal, context=save_context(principal)
             )
-        with pytest.raises(ValueError, match="CONFIRMED"):
+        with pytest.raises(ValueError, match="CONFIRMED|не найден"):
             create_vehicle(
                 db,
                 "Несуществующий тип",

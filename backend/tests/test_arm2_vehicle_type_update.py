@@ -40,7 +40,7 @@ def test_vehicle_type_update_is_version_safe_and_transactional(isolated_arm2_dat
         db.flush()
         vehicle_type = create_vehicle_type(
             db, "Самосвал", requires_wialon=True,
-            principal=principal, context=save_context(principal)
+            plate_category="Автомобильный", principal=principal, context=save_context(principal)
         )
         db.commit()
         type_id = vehicle_type.id
@@ -56,7 +56,7 @@ def test_vehicle_type_update_is_version_safe_and_transactional(isolated_arm2_dat
             try:
                 updated = update_vehicle_type(
                     db, type_id, 1, name, True, False, False,
-                    principal=principal, context=save_context(principal)
+                    plate_category="Автомобильный", principal=principal, context=save_context(principal)
                 )
                 db.commit()
                 return "updated", updated.name, updated.version
@@ -82,7 +82,7 @@ def test_vehicle_type_update_is_version_safe_and_transactional(isolated_arm2_dat
         with pytest.raises(VehicleTypeVersionConflictError):
             update_vehicle_type(
                 db, type_id, 1, "Устаревшая правка", True, True, True,
-                principal=principal, context=save_context(principal)
+                plate_category="Автомобильный", principal=principal, context=save_context(principal)
             )
         db.rollback()
 
@@ -90,7 +90,7 @@ def test_vehicle_type_update_is_version_safe_and_transactional(isolated_arm2_dat
         principal = db.get(User, principal_id)
         temporary = update_vehicle_type(
             db, type_id, 2, "Временное имя", True, True, True,
-            principal=principal, context=save_context(principal)
+            plate_category="Автомобильный", principal=principal, context=save_context(principal)
         )
         assert (temporary.id, temporary.version) == (type_id, 3)
         with Session(engine) as observer:
@@ -103,7 +103,7 @@ def test_vehicle_type_update_is_version_safe_and_transactional(isolated_arm2_dat
         principal = db.get(User, principal_id)
         updated = update_vehicle_type(
             db, type_id, 2, "Обновлённый самосвал", True, False, False,
-            principal=principal, context=save_context(principal)
+            plate_category="Автомобильный", principal=principal, context=save_context(principal)
         )
         db.commit()
         assert (updated.id, updated.status, updated.version) == (type_id, "CONFIRMED", 3)
@@ -112,7 +112,7 @@ def test_vehicle_type_update_is_version_safe_and_transactional(isolated_arm2_dat
         principal = db.get(User, principal_id)
         unchanged = update_vehicle_type(
             db, type_id, 3, "Обновлённый самосвал", True, False, False,
-            principal=principal, context=save_context(principal)
+            plate_category="Автомобильный", principal=principal, context=save_context(principal)
         )
         db.commit()
         assert unchanged.version == 3
@@ -121,7 +121,7 @@ def test_vehicle_type_update_is_version_safe_and_transactional(isolated_arm2_dat
         principal = db.get(User, principal_id)
         review = update_vehicle_type(
             db, type_id, 3, "Обновлённый самосвал", True, False, None,
-            principal=principal, context=save_context(principal)
+            plate_category="Автомобильный", principal=principal, context=save_context(principal)
         )
         db.commit()
         assert (review.status, review.version) == ("REVIEW", 4)
@@ -130,23 +130,23 @@ def test_vehicle_type_update_is_version_safe_and_transactional(isolated_arm2_dat
         principal = db.get(User, principal_id)
         confirmed = update_vehicle_type(
             db, type_id, 4, "Обновлённый самосвал", True, False, False,
-            principal=principal, context=save_context(principal)
+            plate_category="Автомобильный", principal=principal, context=save_context(principal)
         )
         db.commit()
         assert (confirmed.status, confirmed.version) == ("CONFIRMED", 5)
 
     with Session(engine) as db:
         principal = db.get(User, principal_id)
-        with pytest.raises(ValueError, match="requires_sts must be True"):
+        with pytest.raises(ValueError, match="СТС"):
             update_vehicle_type(
                 db, type_id, 5, "Недопустимый СТС", False, True, True,
-                principal=principal, context=save_context(principal)
+                plate_category="Автомобильный", principal=principal, context=save_context(principal)
             )
         db.rollback()
         with pytest.raises(ValueError, match="must not be empty"):
             update_vehicle_type(
                 db, type_id, 5, "   ", True, True, True,
-                principal=principal, context=save_context(principal)
+                plate_category="Автомобильный", principal=principal, context=save_context(principal)
             )
         db.rollback()
 
@@ -154,7 +154,7 @@ def test_vehicle_type_update_is_version_safe_and_transactional(isolated_arm2_dat
         principal = db.get(User, principal_id)
         other = create_vehicle_type(
             db, "Погрузчик", True, True, True,
-            principal=principal, context=save_context(principal)
+            plate_category="Автомобильный", principal=principal, context=save_context(principal)
         )
         db.commit()
         assert other.id == "TYPE-000002"
@@ -164,7 +164,7 @@ def test_vehicle_type_update_is_version_safe_and_transactional(isolated_arm2_dat
         with pytest.raises(IntegrityError):
             update_vehicle_type(
                 db, type_id, 5, "  Погрузчик  ", True, True, True,
-                principal=principal, context=save_context(principal)
+                plate_category="Автомобильный", principal=principal, context=save_context(principal)
             )
         db.rollback()
         preserved = db.get(VehicleType, type_id)
@@ -180,7 +180,7 @@ def test_vehicle_type_update_is_version_safe_and_transactional(isolated_arm2_dat
         with pytest.raises(VehicleTypeNotFoundError):
             update_vehicle_type(
                 db, "TYPE-999999", 1, "Нет записи", True, True, True,
-                principal=principal, context=save_context(principal)
+                plate_category="Автомобильный", principal=principal, context=save_context(principal)
             )
         for invalid_version in (0, -1, True, 1.0):
             with pytest.raises(InvalidExpectedVersionError):
@@ -192,7 +192,7 @@ def test_vehicle_type_update_is_version_safe_and_transactional(isolated_arm2_dat
                     True,
                     True,
                     True,
-                    principal=principal,
+                    plate_category="Автомобильный", principal=principal,
                     context=save_context(principal),
                 )
         db.rollback()

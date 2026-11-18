@@ -1,0 +1,65 @@
+{
+  "classification": "AUTHOR-RUN; synthetic local QA, not independent acceptance/UAT",
+  "environment": {
+    "os": "Windows",
+    "python": "3.13.16",
+    "postgresql": "17.11",
+    "locale_provider": "ICU en-US",
+    "host": "127.0.0.1:55450",
+    "live_cloud_provider_used": false
+  },
+  "backend_full": {
+    "command": "uv run --project backend pytest backend/tests --cov=app --cov-report=term-missing",
+    "collected": 1327,
+    "passed": 1296,
+    "failed": 17,
+    "skipped": 13,
+    "errors": 2,
+    "coverage_percent": 92,
+    "summary": "= 17 failed, 1296 passed, 13 skipped, 1 warning, 2 errors in 1007.36s (0:16:47) =",
+    "failed_nodeids": [
+      "backend\\tests\\test_exchange_reuse.py::test_unchanged_publish_uploads_only_index_and_keeps_original_partition_timestamp",
+      "backend\\tests\\test_exchange_reuse.py::test_correction_rewrites_only_received_day_and_preserves_source_identity",
+      "backend\\tests\\test_exchange_reuse.py::test_dictionary_change_does_not_rewrite_photo_partitions",
+      "backend\\tests\\test_exchange_reuse.py::test_new_day_does_not_rewrite_previous_days",
+      "backend\\tests\\test_exchange_reuse.py::test_shared_file_is_restored_with_frozen_bytes_if_missing",
+      "backend\\tests\\test_exchange_reuse.py::test_corrupt_shared_file_blocks_new_index_instead_of_overwriting_it",
+      "backend\\tests\\test_exchange_reuse.py::test_three_versions_per_day_survive_retirement_of_their_indexes",
+      "backend\\tests\\test_exchange_reuse.py::test_day_retention_window_starts_when_fourth_data_version_is_published",
+      "backend\\tests\\test_exchange_reuse.py::test_missing_historical_fallback_blocks_cleanup_even_without_a_live_index",
+      "backend\\tests\\test_exchange_reuse.py::test_frozen_retry_protects_old_shared_file_until_it_is_superseded",
+      "backend\\tests\\test_exchange_reuse.py::test_existing_manifest_is_imported_and_reused_without_republishing_old_files",
+      "backend\\tests\\test_exchange_reuse.py::test_old_full_generations_are_imported_then_cleaned_per_section",
+      "backend\\tests\\test_ml.py::test_train_save_activate_classify_and_queue_isolation",
+      "backend\\tests\\test_model_storage.py::test_cleanup_never_follows_external_paths_or_symlinks[directory_symlink]",
+      "backend\\tests\\test_model_storage.py::test_cleanup_never_follows_external_paths_or_symlinks[file_symlink]",
+      "backend\\tests\\test_model_storage.py::test_cleanup_never_follows_external_paths_or_symlinks[temporary_symlink]",
+      "backend\\tests\\test_organizations.py::test_reusable_disk_accounts_are_private_separate_folders_and_preserve_originals"
+    ],
+    "all_failed_nodeids_previously_observed_on_c219111e": true,
+    "failed_test_files_unchanged_from_c219111e": [
+      "backend/tests/test_exchange_reuse.py",
+      "backend/tests/test_ml.py",
+      "backend/tests/test_model_storage.py",
+      "backend/tests/test_organizations.py"
+    ],
+    "errors_cause": "Existing image parameter ID exceeds Windows 32767-character environment variable limit; setup and teardown both error"
+  },
+  "arm2_existing_regression": {
+    "passed": 217,
+    "failed": 0
+  },
+  "joint_I01_I05_I07": {
+    "passed": 6,
+    "failed": 0,
+    "test_source_sha256": "3482b26c7c7fdd7a00d8dd5374036550907a87378875cebfc5f8baa0314421cc"
+  },
+  "frontend": {
+    "test_files": 65,
+    "tests_passed": 435,
+    "build": "PASS (main and citizens)"
+  },
+  "ruff": "PASS",
+  "git_diff_check": "PASS",
+  "ci": "Controller verification after PR publication; not awaited per approved task section 7"
+}

@@ -32,7 +32,7 @@ export interface FileBundle {document_id: string; document_version: number; curr
 export interface FileStage {id: string; original_upload_name: string; size: number; sha256: string | null; media_type: string | null; extension: string | null; state: 'empty' | 'ready' | 'consumed'}
 export type Scalar = string | number | boolean | null;
 export interface RecordData { id: string; version: number; name: string; [field: string]: Scalar }
-export interface VehicleType extends RecordData { requires_sts: boolean | null; requires_calibration: boolean | null; requires_wialon: boolean | null; status: string }
+export interface VehicleType extends RecordData { plate_category: 'Автомобильный' | 'Самоходная техника' | null; requires_sts: boolean | null; requires_calibration: boolean | null; requires_wialon: boolean | null; status: string }
 export interface Vehicle extends RecordData { plate_number: string; type_id: string | null; owner_cp_id: string | null; owner_org_id: string | null; accounting_state: string; model: string | null; wialon_unit_id: string | null }
 export interface OwnerIdentity {kind: 'CP' | 'ORG' | null; id: string | null}
 export interface OwnerCommand {expected_version: number; target_kind: OwnerIdentity['kind']; target_id: string | null; expected_owner_kind: OwnerIdentity['kind']; expected_owner_id: string | null; confirm_reassignment: boolean; initiator_kind?: 'CP' | 'ORG'; initiator_id?: string}

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from app.arm2.bulk_routes import router as bulk_router
 from app.arm2.counterparty_models import Counterparty
 from app.arm2.counterparty_store import create_counterparty, update_counterparty
 from app.arm2.document_kind_models import DocumentKind
@@ -63,6 +64,7 @@ from app.permissions import Permission
 
 router = APIRouter(prefix="/api/arm2", tags=["arm2"])
 router.include_router(read_router)  # Static /search paths precede legacy /{id} routes.
+router.include_router(bulk_router)
 router.include_router(document_router)
 Arm2TypeViewer = Annotated[
     User,
@@ -130,6 +132,7 @@ def _type_response(record: VehicleType) -> dict[str, Any]:
         for field in (
             "id",
             "name",
+            "plate_category",
             "requires_sts",
             "requires_calibration",
             "requires_wialon",
@@ -399,7 +402,7 @@ def put_vehicle_type(
     db: Db,
     user: Arm2TypeEditor,
 ):
-    values = body.model_dump(exclude={"expected_version"})
+    values = body.model_dump(exclude={"expected_version"}, exclude_unset=True)
     record = _save(
         db,
         lambda: update_vehicle_type(

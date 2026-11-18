@@ -97,10 +97,12 @@ it.each(['cp', 'org'])('%s embedded vehicles use server owner filtering without 
   expect([...element.querySelectorAll('button,a')].some(item => item.textContent === 'Добавить технику')).toBe(true);
 });
 
-it('TYPE main has four fields together and documents expose no fake attach action', async () => {
+it('TYPE has category and three requirements; documents expose no fake attach action', async () => {
   mockAPI(async path => defaults(path));
   await mount('/arm2/type/TYPE-1');
-  expect(element.querySelector('.arm2-type-main')?.querySelectorAll('label')).toHaveLength(4);
+  expect(element.querySelector('.arm2-type-main')?.querySelectorAll('label')).toHaveLength(2);
+  expect(control('Тип государственного номера').querySelectorAll('option')).toHaveLength(3);
+  expect(control('СТС').querySelectorAll('option')).toHaveLength(1);
   expect(element.querySelector('[aria-label="Разделы карточки"]')?.textContent).not.toContain('Требования к технике');
   await follow('Техника'); await follow('+ Новая запись'); await click('Документы');
   expect(element.textContent).toContain('Сначала сохраните родительскую карточку'); expect(element.querySelector('input[type=file]')).toBeNull();
@@ -148,17 +150,17 @@ it('requests history only by button, renders event differences without related o
 it('creates REVIEW TYPE then completes requirements using false, reopens server version', async () => {
   let saved: RecordData = {...type};
   mockAPI(async (path, method, body) => {
-    if (method === 'POST' || method === 'PUT') {saved = {...saved, ...body as RecordData, version: saved.version + 1}; saved.status = saved.requires_calibration != null && saved.requires_wialon != null ? 'CONFIRMED' : 'REVIEW'; return saved;}
+    if (method === 'POST' || method === 'PUT') {saved = {...saved, ...body as RecordData, version: saved.version + 1}; saved.status = saved.plate_category != null && saved.requires_sts === true && saved.requires_calibration != null && saved.requires_wialon != null ? 'CONFIRMED' : 'REVIEW'; return saved;}
     return path.includes('?') ? [saved] : saved;
   });
   await mount('/arm2/type/new'); await change('Рабочее имя', 'Самосвал'); await submit();
   expect(element.textContent).toContain('REVIEW');
   await click('Основное');
   expect([...control('СТС').querySelectorAll('option')].map(option => option.textContent)).not.toContain('Не требуется');
-  await change('Тарировка', 'false'); await change('Wialon', 'true'); await submit();
+  await change('Тип государственного номера', 'Автомобильный'); await change('Тарировка', 'false'); await change('Wialon', 'true'); await submit();
   expect(saved.requires_calibration).toBe(false); expect(saved.status).toBe('CONFIRMED');
   await follow('← К списку'); await follow('Самосвал'); expect(element.textContent).toContain('CONFIRMED');
-  expect(vi.mocked(api).mock.calls.find(([, method]) => method === 'PUT')?.[2]).toMatchObject({expected_version: 5, requires_calibration: false});
+  expect(vi.mocked(api).mock.calls.find(([, method]) => method === 'PUT')?.[2]).toMatchObject({expected_version: 5, plate_category: 'Автомобильный', requires_sts: true, requires_calibration: false});
 });
 it('VEH keeps existing REVIEW TYPE, disables new REVIEW and switches CP to ORG then clears owner', async () => {
   vi.spyOn(window,'confirm').mockReturnValue(true);
@@ -217,9 +219,16 @@ it('server 403 disables writes after a failed save', async () => {
   await mount('/arm2/type/TYPE-1'); await submit(); expect(control('Рабочее имя').disabled).toBe(true); expect(element.textContent).toContain('Только просмотр');
 });
 it('list pagination fetches next API page and search scope stays explicit', async () => {
-  mockAPI(async path => path.includes('offset=100') ? [{...type, id: 'TYPE-101', name: 'На второй странице'}] : Array.from({length: 100}, (_, i) => ({...type, id: String(i)})));
-  await mount('/arm2/type'); await click('Следующая страница'); expect(element.textContent).toContain('На второй странице'); expect(element.textContent).toContain('только к текущей странице');
-  expect(api).toHaveBeenCalledWith('/arm2/types?limit=100&offset=100', 'GET', undefined, expect.any(AbortSignal));
+  vi.mocked(api).mockImplementation(async path => {
+    const p = new URLSearchParams(path.split('?')[1]);
+    const items = p.get('q') || p.get('status') || p.get('offset') === '100' ? [{...type, id: 'TYPE-101', name: 'На второй странице'}] : Array.from({length: 100}, (_, i) => ({...type, id: String(i)}));
+    return {items, total: 101, matched: p.get('q') || p.get('status') ? 1 : 101, limit: 100, offset: Number(p.get('offset'))};
+  });
+  await mount('/arm2/type'); await click('Следующая страница'); expect(element.textContent).toContain('На второй странице'); expect(element.textContent).not.toContain('только к текущей странице');
+  expect(api).toHaveBeenCalledWith('/arm2/types/search?q=&limit=100&offset=100', 'GET', undefined, expect.any(AbortSignal));
+  await change('Поиск по имени', 'На второй'); await change('Состояние', 'REVIEW');
+  expect(element.textContent).toContain('Найдено: 1');
+  expect(api).toHaveBeenLastCalledWith(expect.stringContaining('status=REVIEW'), 'GET', undefined, expect.any(AbortSignal));
 });
 
 it.each(['cp', 'org'])('%s create → CONFIRMED → create representative → select scoped primary signer', async kind => {

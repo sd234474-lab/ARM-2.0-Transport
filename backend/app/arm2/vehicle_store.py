@@ -95,6 +95,18 @@ def _vehicle_type_reference(db, current, values):
     type_id = values["type_id"]
     if type_id is None:
         return ()
+    from app.arm2.vehicle_type_rules import plate_compatible
+    vehicle_type = db.scalar(select(VehicleType).where(VehicleType.id == type_id)
+                             .with_for_update().execution_options(populate_existing=True))
+    if vehicle_type is None:
+        raise ValueError("Тип техники не найден")
+    changed_assignment = current is None or current.type_id != type_id
+    changed_plate = current is None or current.plate_number != values["plate_number"]
+    if vehicle_type.plate_category is not None:
+        if not plate_compatible(values["plate_number"], vehicle_type.plate_category):
+            raise ValueError("Государственный номер несовместим с категорией выбранного TYPE")
+    elif changed_assignment or changed_plate:
+        raise ValueError("У TYPE не заполнен тип государственного номера. Заполните TYPE либо снимите назначение")
     # An existing link remains valid if TYPE later becomes incomplete. Only a
     # newly assigned or changed link must satisfy the current subject rule.
     if current is None or current.type_id != type_id:

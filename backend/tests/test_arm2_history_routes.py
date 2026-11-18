@@ -43,6 +43,7 @@ def seed_all_object_types(client, db):
         json={
             "name": "History type",
             "requires_sts": True,
+            "plate_category": "Автомобильный",
             "requires_calibration": True,
             "requires_wialon": True,
         },

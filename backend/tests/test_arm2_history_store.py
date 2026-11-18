@@ -19,6 +19,7 @@ def created_changes(name, requires_calibration, requires_wialon, status):
     values = {
         "name": name,
         "requires_sts": True,
+        "plate_category": "Автомобильный",
         "requires_calibration": requires_calibration,
         "requires_wialon": requires_wialon,
         "status": status,
@@ -43,7 +44,7 @@ def test_shared_history_is_detailed_filtered_atomic_and_safe(database_url):
         db.flush()
         vehicle_type = create_vehicle_type(
             db, "Самосвал", True, None, False,
-            principal=principal,
+            plate_category="Автомобильный", principal=principal,
             context=save_context(principal, correlation_id="batch-001"),
         )
         db.commit()
@@ -64,7 +65,7 @@ def test_shared_history_is_detailed_filtered_atomic_and_safe(database_url):
         assert created.occurred_at.tzinfo is not None
         vehicle_type = update_vehicle_type(
             db, first_id, 1, "Самосвал", True, False, False,
-            principal=principal,
+            plate_category="Автомобильный", principal=principal,
             context=save_context(principal, source="internal-service"),
         )
         assert vehicle_type.version == 2
@@ -74,7 +75,7 @@ def test_shared_history_is_detailed_filtered_atomic_and_safe(database_url):
         principal = db.get(User, principal_id)
         other = create_vehicle_type(
             db, "Погрузчик", True, False, False,
-            principal=principal, context=save_context(principal)
+            plate_category="Автомобильный", principal=principal, context=save_context(principal)
         )
         db.commit()
         other_id = other.id
@@ -100,7 +101,7 @@ def test_shared_history_is_detailed_filtered_atomic_and_safe(database_url):
         principal = db.get(User, principal_id)
         rolled_back = create_vehicle_type(
             db, "Будет отменён", True, False, False,
-            principal=principal, context=save_context(principal)
+            plate_category="Автомобильный", principal=principal, context=save_context(principal)
         )
         rolled_back_id = rolled_back.id
         db.rollback()

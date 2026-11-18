@@ -37,6 +37,7 @@ def server_context(user):
 
 def type_body(name="Самосвал"):
     return {
+        "plate_category": "Автомобильный",
         "name": name,
         "requires_sts": True,
         "requires_calibration": True,
@@ -103,6 +104,7 @@ def test_type_http_lifecycle_validation_history_and_pagination(client, users, db
     assert created["id"].startswith("TYPE-") and created["id"][5:].isdigit()
     assert {key: value for key, value in created.items() if key != "id"} == {
         "name": "Самосвал",
+        "plate_category": None,
         "requires_sts": True,
         "requires_calibration": None,
         "requires_wialon": None,
