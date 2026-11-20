@@ -72,3 +72,12 @@
 .arm2-owner-confirm {display:flex;align-items:flex-start;gap:.6rem;margin-block:1rem;}
 .arm2-owner-confirm input {width:auto;flex-shrink:0;}
 .arm2-vehicle-fields {border:0;margin:0;padding:0;min-width:0;}
+.arm2 .arm2-sections {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:stretch}
+.arm2 .arm2-section {min-width:0;min-height:86px;padding:16px;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box}
+.arm2 .arm2-subsections {display:flex;flex-wrap:wrap;gap:16px;margin:16px 0;align-items:center}
+.arm2 .arm2-actions:has(>h2) {display:flex;justify-content:space-between;align-items:center;gap:12px}
+.arm2 .arm2-create {background:#174c3e;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none}
+.arm2 .arm2-counts {display:flex;gap:20px;flex-wrap:wrap;margin:12px 0}
+.arm2 [aria-label="Предложения очистки"] {border:1px solid #a47c35;padding:12px;margin:16px 0;display:grid;gap:10px}
+@media(max-width:760px){.arm2 .arm2-sections {grid-template-columns:repeat(2,minmax(0,1fr))}.arm2 .arm2-actions:has(>h2){flex-wrap:wrap}.arm2 .arm2-create{margin-left:auto}}
+@media(max-width:420px){.arm2 .arm2-sections{grid-template-columns:1fr}}

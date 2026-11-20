@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.arm2 import document_file_storage as files
 from app.arm2.counterparty_models import Counterparty
@@ -74,7 +74,7 @@ def view(db, user, draft, *, reset_on_change=True):
     if reset_on_change and draft.preview and review_hash(draft.preview, draft.choices) != review_hash(comparison, draft.choices):
         # Never reuse an old owner/field/file approval against freshly changed server data.
         choices = draft.choices
-        draft.choices = {**choices, 'cp_fields': [],
+        draft.choices = {**choices, 'cp_fields': [], 'cp_clears': [], 'confirm_identity': False,
             'representatives': {k: {**v, 'fields': [], 'signer': False, 'target': None} for k, v in choices.get('representatives', {}).items()},
             'vehicles': {k: {**v, 'include': False, 'fields': [], 'confirm_owner': False} for k, v in choices.get('vehicles', {}).items()},
             'documents': {k: {**v, 'accept': False} for k, v in choices.get('documents', {}).items()}}
@@ -105,6 +105,14 @@ def review_hash(comparison, choices):
 def upload(db, user, content, filename):
     authorized(db, user, 'arm2_cp_view')
     parsed, attachments = parse(content, filename)
+    digest = hashlib.sha256(content).hexdigest()
+    # Serialize only the same author/content pair, including simultaneous uploads.
+    lock = int.from_bytes(hashlib.sha256(f'B5:{user.id}:{digest}'.encode()).digest()[:8], 'big', signed=True)
+    db.execute(text('SELECT pg_advisory_xact_lock(:lock)'), {'lock': lock})
+    active = db.scalar(select(QuestionnaireDraft).where(QuestionnaireDraft.author_id == user.id,
+        QuestionnaireDraft.source_sha256 == digest, QuestionnaireDraft.status == 'OPEN').with_for_update())
+    if active is not None:
+        return view(db, user, active)
     draft = QuestionnaireDraft(id=str(uuid4()), author_id=user.id, filename=files.original_name(filename),
         source_sha256=hashlib.sha256(content).hexdigest(), filled_date=date.fromisoformat(parsed['filled_date']) if parsed['filled_date'] else None,
         payload=parsed, choices={}, preview={}, staging={}, status='OPEN', revision=1)
@@ -143,10 +151,16 @@ def upload(db, user, content, filename):
 
 
 def validate_choices(choices):
-    if set(choices) - {'cp_target', 'cp_fields', 'representatives', 'vehicles', 'documents'}:
+    if set(choices) - {'cp_target', 'cp_fields', 'cp_clears', 'cp_values', 'confirm_identity', 'representatives', 'vehicles', 'documents'}:
         raise ValueError('Неизвестное решение анкеты')
     if set(choices.get('cp_fields', [])) - set(CP_FIELDS):
         raise ValueError('Неизвестный реквизит CP')
+    if set(choices.get('cp_clears', [])) - (set(CP_FIELDS) - {'name', 'type'}):
+        raise ValueError('Неизвестная либо обязательная очистка CP')
+    if set(choices.get('cp_clears', [])) & set(choices.get('cp_fields', [])):
+        raise ValueError('Выберите одно действие set/clear/keep')
+    if set(choices.get('cp_values', {})) - {'type', 'legal_form'}:
+        raise ValueError('Неизвестное исправление типа/ОПФ')
     for rep in choices.get('representatives', {}).values():
         if (set(rep) - {'target', 'fields', 'signer', 'sources'} or set(rep.get('fields', [])) - set(REP_FIELDS)
                 or set(rep.get('sources', {})) - {'name', 'position', 'authority_basis'}
@@ -168,8 +182,21 @@ def edit(db, user, identifier, revision, choices):
         if draft.preview and review_hash(build(db, user, draft), draft.choices) != review_hash(draft.preview, draft.choices):
             raise ObjectVersionConflictError('Живые карточки изменились; откройте сверку заново перед новым решением')
         validate_choices(choices)
+        previous = draft.choices
+        overrides = choices.get('cp_values', {})
+        changed_values = {f for f in set(previous.get('cp_values', {})) | set(overrides)
+                          if previous.get('cp_values', {}).get(f) != overrides.get(f)}
+        choices = {**choices, 'cp_fields': [f for f in choices.get('cp_fields', []) if f not in changed_values]}
+        def identity_selection(value):
+            return (set(value.get('cp_fields', [])) & {'type', 'legal_form'}, value.get('cp_values', {}),
+                    'legal_form' in value.get('cp_clears', []))
+        if identity_selection(previous) != identity_selection(choices):
+            choices['cp_clears'] = [f for f in choices.get('cp_clears', [])
+                                    if f not in previous.get('cp_clears', []) or f == 'legal_form']
+            if previous.get('confirm_identity'):
+                choices['confirm_identity'] = False
         if draft.choices.get('cp_target') and choices.get('cp_target') != draft.choices.get('cp_target'):
-            choices = {**choices, 'cp_fields': [],
+            choices = {**choices, 'cp_fields': [], 'cp_clears': [], 'confirm_identity': False,
                 'representatives': {k: {**v, 'target': None, 'fields': [], 'signer': False} for k, v in choices.get('representatives', {}).items()},
                 'vehicles': {k: {**v, 'fields': [f for f in v.get('fields', []) if f != 'owner'], 'confirm_owner': False} for k, v in choices.get('vehicles', {}).items()},
                 'documents': {k: {**v, 'accept': False} for k, v in choices.get('documents', {}).items()}}
@@ -203,9 +230,13 @@ def selected(comparison, choices):
         raise ValueError(cp['error'])
     if cp['target'] == 'new' and not cp_fields.get('name'):
         raise ValueError('Для нового CP явно примите рабочее имя')
+    if cp['target'] == 'new' and not cp_fields.get('type'):
+        raise ValueError('Для нового CP явно примите тип')
     for field, value in cp['fields'].items():
         if value['selected'] and value['error']:
             raise ValueError(f'{field}: {value["error"]}')
+    if cp.get('identity_conflict') and not choices.get('confirm_identity'):
+        raise ObjectVersionConflictError('Отдельно подтвердите конфликт личности, изменение типа или ОПФ')
     for rep in reps:
         if rep['error']:
             raise ValueError(rep['error'])
@@ -245,7 +276,7 @@ def metadata(row):
 def partial_update(db, user, context, kind, identifier, version, values):
     saved = update_object(db, object_type=kind, object_id=identifier, expected_version=version,
                           values=values, partial=True, principal=user, context=context)
-    permitted = set(values) | {'version'} | ({'status'} if kind == 'CP' else set())
+    permitted = set(values) | {'version'}
     if saved.event and set(saved.event.changes) - permitted:
         raise ValueError('Невыбранные реквизиты требуют нормализации; сначала явно исправьте обычную карточку')
     return saved
@@ -451,10 +482,19 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
                 entry['version'] = event.version_after
             outcomes = list(by_identity.values())
             events = [event.event_id for event in event_rows]
+            def receipt_link(event):
+                if event.object_type == 'CPREP':
+                    return f'/arm2/cp/{cp.id}/representatives/{event.object_id}'
+                if event.object_type == 'DOCUMENT':
+                    document = db.get(Document, event.object_id)
+                    return f'/arm2/{document.parent_type.lower()}/{document.parent_id}/documents/{document.id}'
+                return f'/arm2/{event.object_type.lower()}/{event.object_id}'
             result = {'command_id': command_id, 'draft_id': draft.id, 'cp_id': cp.id if cp else None,
                 'filled_date': draft.filled_date.isoformat() if draft.filled_date else None,
                 'uploaded_at': draft.uploaded_at.astimezone(UTC).isoformat(), 'accepted_at': accepted.isoformat(),
-                'objects': outcomes, 'event_ids': events, 'no_op': not events, 'correlation_id': command_id}
+                'objects': outcomes, 'event_ids': events, 'no_op': not events, 'correlation_id': command_id,
+                'changes': [{'kind': e.object_type, 'id': e.object_id, 'operation': e.operation,
+                             'fields': e.changes, 'url': receipt_link(e)} for e in event_rows]}
             db.add(QuestionnaireReceipt(command_id=command_id, draft_id=draft.id, author_id=user.id,
                 fingerprint=signature, result=result))
             draft.status, draft.accepted_at = 'ACCEPTED', accepted

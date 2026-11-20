@@ -27,25 +27,25 @@ def user(db, login="cp-org-admin", role="ADMIN_OPERATOR", permissions=None):
 def context(record): return SaveContext("HUMAN", str(record.id), "cp-org-test")
 
 
-def test_cp_org_status_validation_ids_permissions_and_inn(isolated_arm2_database_url):
+def test_cp_org_without_completeness_ids_permissions_and_inn(isolated_arm2_database_url):
     engine = create_engine(isolated_arm2_database_url, poolclass=NullPool)
     with Session(engine) as db:
         admin = user(db)
         viewer = user(db, "cp-viewer", "OPERATOR", [str(Permission.ARM2_CP_VIEW)])
         with pytest.raises(ObjectAuthorizationError):
-            create_counterparty(db, "Denied", principal=viewer, context=context(viewer))
-        cp = create_counterparty(db, "  Same name  ", principal=admin, context=context(admin))
+            create_counterparty(db, "Denied", type='Юридическое лицо', principal=viewer, context=context(viewer))
+        cp = create_counterparty(db, "  Same name  ", type='Юридическое лицо', principal=admin, context=context(admin))
         org = create_organization(db, "Same name", principal=admin, context=context(admin))
-        assert (cp.id, cp.name, cp.status) == ("CP-000001", "Same name", "REVIEW")
-        assert (org.id, org.status) == ("ORG-000001", "REVIEW")
+        assert (cp.id, cp.name, cp.type) == ("CP-000001", "Same name", "Юридическое лицо")
+        assert org.id == "ORG-000001" and not hasattr(org, 'status')
         cp = update_counterparty(db, cp.id, 1, cp.name, full_name="Full CP", legal_address="Address",
                                  inn="001234567890", principal=admin, context=context(admin))
         org = update_organization(db, org.id, 1, org.name, full_name="Full ORG", legal_address="Address",
                                   inn="001234567890", principal=admin, context=context(admin))
-        assert (cp.status, org.status) == ("CONFIRMED", "CONFIRMED")
+        assert not hasattr(cp, 'status') and not hasattr(org, 'status')
         cp = update_counterparty(db, cp.id, 2, cp.name, full_name=None, legal_address="Address",
                                  inn="001234567890", principal=admin, context=context(admin))
-        assert cp.status == "REVIEW"
+        assert cp.full_name is None and not hasattr(cp, 'status')
         db.commit()
         with pytest.raises(ValueError, match="inn"):
             update_organization(db, org.id, 2, org.name, full_name="Full", legal_address="Address",
@@ -53,9 +53,9 @@ def test_cp_org_status_validation_ids_permissions_and_inn(isolated_arm2_database
         db.rollback()
     with Session(engine) as db:
         admin = db.scalar(select(User).where(User.login == "cp-org-admin"))
-        create_counterparty(db, "One", inn="1234567890", principal=admin, context=context(admin))
+        create_counterparty(db, "One", type='Юридическое лицо', inn="1234567890", principal=admin, context=context(admin))
         with pytest.raises(IntegrityError):
-            create_counterparty(db, "Two", inn="1234567890", principal=admin, context=context(admin))
+            create_counterparty(db, "Two", type='Юридическое лицо', inn="1234567890", principal=admin, context=context(admin))
         db.rollback()
     engine.dispose()
 
@@ -76,7 +76,7 @@ def test_cp_org_partial_update_preserves_data_and_history(isolated_arm2_database
             "correspondent_account": "2" * 20,
         }
         cp = create_counterparty(
-            db, "CP", principal=admin, context=context(admin), **details
+            db, "CP", type='Юридическое лицо', principal=admin, context=context(admin), **details
         )
         org = create_organization(
             db,
@@ -102,7 +102,7 @@ def test_cp_org_partial_update_preserves_data_and_history(isolated_arm2_database
             principal=admin,
             context=context(admin),
         )
-        assert cp.version == 2 and cp.status == "CONFIRMED"
+        assert cp.version == 2 and not hasattr(cp, 'status')
         for field, value in details.items():
             assert getattr(cp, field) == value
         cp = update_counterparty(
@@ -114,7 +114,7 @@ def test_cp_org_partial_update_preserves_data_and_history(isolated_arm2_database
             principal=admin,
             context=context(admin),
         )
-        assert cp.primary_signer_id == signer.id and cp.status == "CONFIRMED"
+        assert cp.primary_signer_id == signer.id and not hasattr(cp, 'status')
         assert cp.full_name == details["full_name"] and cp.inn == details["inn"]
         cp = update_counterparty(
             db,
@@ -136,9 +136,8 @@ def test_cp_org_partial_update_preserves_data_and_history(isolated_arm2_database
             principal=admin,
             context=context(admin),
         )
-        assert (org.version, org.status, org.inn, org.bank_name) == (
+        assert (org.version, org.inn, org.bank_name) == (
             2,
-            "CONFIRMED",
             "123456789012",
             "ORG bank",
         )
@@ -180,7 +179,7 @@ def test_cp_org_partial_update_preserves_data_and_history(isolated_arm2_database
             principal=admin,
             context=context(admin),
         )
-        assert cp.status == "REVIEW" and cp.legal_address == details["legal_address"]
+        assert not hasattr(cp, 'status') and cp.legal_address == details["legal_address"]
         db.commit()
 
         events = db.scalars(
@@ -192,7 +191,7 @@ def test_cp_org_partial_update_preserves_data_and_history(isolated_arm2_database
         assert set(events[1].changes) == {"phone", "version"}
         assert set(events[2].changes) == {"primary_signer_id", "version"}
         assert set(events[3].changes) == {"primary_signer_id", "version"}
-        assert set(events[4].changes) == {"full_name", "status", "version"}
+        assert set(events[4].changes) == {"full_name", "version"}
         assert db.scalar(
             select(func.count())
             .select_from(HistoryEvent)

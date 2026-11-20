@@ -27,10 +27,10 @@ PASSPORT = 'Паспорт контрагента'
 VEHICLES = 'Техника'
 MANIFEST = '_ARM2_QUESTIONNAIRE'
 REPRESENTATIVES = 'Представители'
-EXPORT_VERSION = 'ARM_IMPORT_V3'
-SUPPORTED_VERSIONS = {'ARM_IMPORT_V2', EXPORT_VERSION}
+EXPORT_VERSION = 'ARM_IMPORT_V4'
+SUPPORTED_VERSIONS = {'ARM_IMPORT_V2', 'ARM_IMPORT_V3', EXPORT_VERSION}
 REP_COLUMNS = {'C': 'name', 'D': 'position', 'E': 'phone', 'F': 'email', 'G': 'authority_basis', 'H': 'state'}
-CP_CELLS = {5: 'legal_form', 8: 'last_name', 9: 'first_name', 10: 'middle_name', 11: 'full_name',
+CP_CELLS = {5: 'type', 7: 'legal_form', 8: 'last_name', 9: 'first_name', 10: 'middle_name', 11: 'full_name',
             12: 'short_name', 13: 'inn', 14: 'kpp', 15: 'ogrn', 16: 'legal_address', 17: 'postal_address',
             18: 'phone', 19: 'email', 23: 'bank_name', 24: 'bik', 25: 'settlement_account', 26: 'correspondent_account'}
 
@@ -215,15 +215,27 @@ def _parse(data, filename):
 
         version = cell(passport, 'B3')
         if version not in SUPPORTED_VERSIONS:
-            raise ValueError('Поддерживаются анкеты ARM_IMPORT_V2 и ARM_IMPORT_V3')
+            raise ValueError('Поддерживаются анкеты ARM_IMPORT_V2, ARM_IMPORT_V3 и ARM_IMPORT_V4')
         try:
             date_value = passport['B4'].value if passport['B4'].data_type != 'f' else cached[PASSPORT]['B4'].value
             completed = filled_date(date_value)
         except ValueError as error:
             completed = None
             warnings.append(str(error))
-        cp = {field: cell(passport, f'B{row}') for row, field in CP_CELLS.items()}
+        cp = {field: cell(passport, f'B{row}') for row, field in CP_CELLS.items() if row != 7 or version == EXPORT_VERSION}
         cp_errors = {}
+        if version != EXPORT_VERSION:
+            legacy = cell(passport, 'B5')
+            mapped = {'ИП': ('Физическое лицо', 'ИП'), 'Физическое лицо': ('Физическое лицо', ''),
+                      'Физлицо': ('Физическое лицо', ''), 'ООО': ('Юридическое лицо', 'ООО'),
+                      'Иное юридическое лицо': ('Юридическое лицо', ''), 'Иное юрлицо': ('Юридическое лицо', '')}
+            cp['type'], cp['legal_form'] = mapped.get(legacy, ('', ''))
+            if legacy not in mapped:
+                cp_errors['type'] = 'Неизвестный тип/ОПФ старой анкеты: ' + legacy + '. Выберите явно'
+        elif cp['type'] not in ('Физическое лицо', 'Юридическое лицо'):
+            cp_errors['type'] = 'Выберите тип: Физическое лицо или Юридическое лицо'
+        if cp['type'] == 'Физическое лицо' and cp['legal_form'] not in ('', 'ИП'):
+            cp_errors['legal_form'] = 'ОПФ физического лица: ИП или пусто'
         for coordinate, field in [('B25', 'settlement_account'), ('B26', 'correspondent_account')]:
             value = passport[coordinate]
             cached_value = cached[PASSPORT][coordinate]
@@ -248,7 +260,7 @@ def _parse(data, filename):
                 'plate_number': values['I'] or values['E'], 'type_hint': values['H'] or values['D'],
                 'name': values['J'] or values['F'], 'model': values['K'] or values['G'], 'state_hint': values['C'],
                 'status_error': ('Выберите режим строки: ИЗ СПРАВОЧНИКА, НОВАЯ или ВЫБЫЛО'
-                    if version == EXPORT_VERSION and values['C'].upper() not in {'ИЗ СПРАВОЧНИКА', 'НОВАЯ', 'ВЫБЫЛО'} else None),
+                    if version in {'ARM_IMPORT_V3', EXPORT_VERSION} and values['C'].upper() not in {'ИЗ СПРАВОЧНИКА', 'НОВАЯ', 'ВЫБЫЛО'} else None),
                 'volume_proposal': values['L'], 'calibration_declared': values['M'], 'calibration_file': values['N'],
                 'sts_declared': values['O'], 'sts_file': values['P'], 'owner_hint': values['S'],
                 'diagnostic_hint': ' · '.join(v for v in (values['Q'], values['R'], values['T'], values['U']) if v),
@@ -260,7 +272,7 @@ def _parse(data, filename):
             result['manifest'] = unseal(''.join(chunks))
             if not result['manifest']:
                 warnings.append('Служебный манифест не подтверждён; обратная привязка требует выбора оператора')
-        if version == EXPORT_VERSION:
+        if version in {'ARM_IMPORT_V3', EXPORT_VERSION}:
             if REPRESENTATIVES in book.sheetnames:
                 representative_rows(book[REPRESENTATIVES], cell, signer, result)
             else:

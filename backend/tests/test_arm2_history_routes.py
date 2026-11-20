@@ -60,7 +60,7 @@ def seed_all_object_types(client, db):
         },
     ).json()
     counterparty = client.post(
-        "/api/arm2/counterparties", json={"name": "History CP"}
+        "/api/arm2/counterparties", json={'type': 'Юридическое лицо', "name": "History CP"}
     ).json()
     organization = client.post(
         "/api/arm2/organizations", json={"name": "History ORG"}
@@ -168,7 +168,7 @@ def test_history_paging_order_whitelists_detail_and_read_stability(
     set_operator(db, [Permission.ARM2_CP_VIEW, Permission.ARM2_CP_EDIT])
     sign_in(client)
     created = client.post(
-        "/api/arm2/counterparties", json={"name": "History CP"}
+        "/api/arm2/counterparties", json={'type': 'Юридическое лицо', "name": "History CP"}
     ).json()
     confirmed = client.put(
         f"/api/arm2/counterparties/{created['id']}",
@@ -192,7 +192,7 @@ def test_history_paging_order_whitelists_detail_and_read_stability(
             "legal_address": None,
         },
     ).json()
-    assert reviewed["version"] == 3 and reviewed["status"] == "REVIEW"
+    assert reviewed["version"] == 3 and 'status' not in reviewed
 
     before_count = db.scalar(select(func.count()).select_from(HistoryEvent))
     page = client.get(

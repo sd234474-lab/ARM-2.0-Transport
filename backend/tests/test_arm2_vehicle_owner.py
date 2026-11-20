@@ -20,7 +20,7 @@ def test_vehicle_operational_owner_cp_org_null_and_history(isolated_arm2_databas
         admin = User(login="owner-admin", name="owner-admin", password_hash="unused", role="ADMIN_OPERATOR", active=True, permissions=[])
         db.add(admin)
         db.flush()
-        cp = create_counterparty(db, "CP", full_name="CP full", legal_address="Address", principal=admin, context=ctx(admin))
+        cp = create_counterparty(db, "CP", type='Юридическое лицо', full_name="CP full", legal_address="Address", principal=admin, context=ctx(admin))
         org = create_organization(db, "ORG", principal=admin, context=ctx(admin))
         vehicle = create_vehicle(db, "Truck", "A123BC86", owner_cp_id=cp.id, principal=admin, context=ctx(admin))
         vehicle_id = vehicle.id

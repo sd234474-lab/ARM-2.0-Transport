@@ -43,7 +43,7 @@ def api(isolated_arm2_database_url, monkeypatch):
                 client.headers["X-CSRF-Token"] = client.cookies["csrf"]
                 parents = {}
                 for token, route, body in [
-                    ("cp", "counterparties", {"name": "CP"}),
+                    ("cp", "counterparties", {"name": "CP", "type": "Юридическое лицо"}),
                     ("org", "organizations", {"name": "ORG"}),
                     ("veh", "vehicles", {"name": "VEH", "plate_number": "A123BC86"}),
                 ]:

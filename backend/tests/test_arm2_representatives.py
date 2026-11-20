@@ -20,8 +20,8 @@ def test_representatives_parent_signer_state_and_user_link(isolated_arm2_databas
         account = User(login="linked", name="linked", password_hash="unused", role="OPERATOR", active=True, permissions=[])
         db.add_all([admin, account])
         db.flush()
-        cp1 = create_counterparty(db, "CP1", principal=admin, context=ctx(admin))
-        cp2 = create_counterparty(db, "CP2", principal=admin, context=ctx(admin))
+        cp1 = create_counterparty(db, "CP1", type='Юридическое лицо', principal=admin, context=ctx(admin))
+        cp2 = create_counterparty(db, "CP2", type='Юридическое лицо', principal=admin, context=ctx(admin))
         org = create_organization(db, "ORG", principal=admin, context=ctx(admin))
         with pytest.raises(ValueError, match="email"):
             create_representative(

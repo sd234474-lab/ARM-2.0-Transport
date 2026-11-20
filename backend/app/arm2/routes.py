@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.arm2.bulk_routes import router as bulk_router
 from app.arm2.counterparty_models import Counterparty
+from app.arm2.counterparty_rules import counterparty_response
 from app.arm2.counterparty_store import create_counterparty, update_counterparty
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_kind_store import create_document_kind, update_document_kind
@@ -172,31 +173,11 @@ def _vehicle_response(record: Vehicle) -> dict[str, Any]:
 
 
 def _party_response(record: Counterparty | Organization) -> dict[str, Any]:
-    return ({f: getattr(record, f) for f in ("last_name", "first_name", "middle_name")}
-            if isinstance(record, Counterparty) else {}) | {
-        field: getattr(record, field)
-        for field in (
-            "id",
-            "name",
-            "full_name",
-            "legal_address",
-            "postal_address",
-            "legal_form",
-            "short_name",
-            "inn",
-            "kpp",
-            "ogrn",
-            "phone",
-            "email",
-            "bank_name",
-            "bik",
-            "settlement_account",
-            "correspondent_account",
-            "primary_signer_id",
-            "status",
-            "version",
-        )
-    }
+    fields = [f for f in PartyResponse.model_fields]
+    if isinstance(record, Counterparty):
+        fields += ["type", "last_name", "first_name", "middle_name"]
+    values = {f: getattr(record, f) for f in fields}
+    return counterparty_response(values) if isinstance(record, Counterparty) else values
 
 
 def _representative_response(

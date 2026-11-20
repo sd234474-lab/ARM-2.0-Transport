@@ -117,7 +117,7 @@ def test_legacy_numeric_accounts_require_clarification_but_other_fields_and_docu
     draft = choose(c, draft, cp_target=parents['cp'], cp_fields=['phone', 'settlement_account'])
     assert draft['comparison']['cp']['fields']['settlement_account']['error']
     apply(c, draft, 422)
-    draft = choose(c, draft, cp_fields=['phone'], documents={
+    draft = choose(c, draft, cp_fields=['phone'], confirm_identity=True, documents={
         'v:5:sts': {'kind_id': kind, 'accept': True}, 'company': {'kind_id': cp_kind, 'accept': True}})
     bound = {d['key']: d for d in draft['comparison']['documents']}
     assert bound['v:5:sts']['parent_key'] == 'v:5' and bound['company']['parent_key'] == 'CP'
@@ -186,7 +186,7 @@ def test_v3_export_full_contacts_signer_projections_ids_access_formulas_and_vali
     data = exported(c, parents['cp'], 'xlsx')
     book = load_workbook(io.BytesIO(data))
     cached = load_workbook(io.BytesIO(data), data_only=True)
-    assert book[PASSPORT]['B3'].value == EXPORT_VERSION == 'ARM_IMPORT_V3'
+    assert book[PASSPORT]['B3'].value == EXPORT_VERSION == 'ARM_IMPORT_V4'
     assert cached[PASSPORT]['B20'].value == cached[REPRESENTATIVES]['C5'].value == reps[0]['name']
     assert book[PASSPORT]['B20'].data_type == 'f'
     assert book[REPRESENTATIVES]['B5'].value == reps[0]['id']
@@ -299,7 +299,7 @@ def test_v3_missing_sheet_fields_and_rows_do_not_delete_contacts_or_signer(b5):
     assert check(c.get('/api/arm2/counterparties/' + parents['cp']))['primary_signer_id'] == reps[0]['id']
 
 
-@pytest.mark.parametrize('version', ['ARM_IMPORT_V4', 'ПРОЕКТ_ARM2_B5', 'ARM_IMPORT_V30'])
+@pytest.mark.parametrize('version', ['ARM_IMPORT_V5', 'ПРОЕКТ_ARM2_B5', 'ARM_IMPORT_V30'])
 def test_unknown_or_project_versions_are_not_silently_interpreted_as_v2(version):
     with pytest.raises(ValueError, match='ARM_IMPORT_V2.*ARM_IMPORT_V3'):
         parse(workbook({'B3': version}), 'unsupported.xlsx')
@@ -331,7 +331,7 @@ def test_unsigned_v3_without_ids_keeps_one_signer_proposal_and_requires_explicit
 def test_v3_representative_identity_cannot_duplicate_or_cross_cp_boundary(b5, bad_identity):
     c, db, _, parents, *_ = b5
     reps = seeded_exchange(b5)
-    foreign_cp = check(c.post('/api/arm2/counterparties', json={'name': 'Synthetic foreign CP'}), 201)
+    foreign_cp = check(c.post('/api/arm2/counterparties', json={'type': 'Юридическое лицо', 'name': 'Synthetic foreign CP'}), 201)
     foreign_rep = check(c.post('/api/arm2/counterparties/' + foreign_cp['id'] + '/representatives',
                               json={'name': 'Synthetic foreign representative'}), 201)
     data = exported(c, parents['cp'], 'xlsx')

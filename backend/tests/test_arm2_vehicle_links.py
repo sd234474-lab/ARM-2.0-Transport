@@ -55,7 +55,7 @@ def test_full_owner_workflow_review_noop_and_b3_documents_are_unchanged(qa):
     files = bundle(c, document)
     vehicle = current(c, parents["veh"])
     stable = {k: v for k, v in vehicle.items() if k not in ("version", "owner_cp_id", "owner_org_id")}
-    cp2 = c.post("/api/arm2/counterparties", json={"name": "Second CP"}).json()["id"]
+    cp2 = c.post("/api/arm2/counterparties", json={'type': 'Юридическое лицо', "name": "Second CP"}).json()["id"]
     org2 = c.post("/api/arm2/organizations", json={"name": "Second ORG"}).json()["id"]
     for target in [
         ("CP", parents["cp"]),
@@ -93,7 +93,7 @@ def test_full_owner_workflow_review_noop_and_b3_documents_are_unchanged(qa):
         assert command(c, vehicle, target, initiator=target or owner).json()["no_op"] is True
         assert current(c, vehicle["id"]) == vehicle and count(db) == before + 1
     assert c.get("/api/arm2/vehicles/search?owner_kind=NONE").json()["items"][0]["id"] == vehicle["id"]
-    # REVIEW is a description state, never a reason to clear or deny an owner link.
+    # CP has no completeness state; missing requisites never deny/clear an owner link.
     assert command(c, vehicle, ("CP", parents["cp"])).status_code == 200
     from app.arm2.counterparty_models import Counterparty
 
@@ -102,8 +102,7 @@ def test_full_owner_workflow_review_noop_and_b3_documents_are_unchanged(qa):
     owner.legal_address = "Address"
     db.commit()
     body = c.get("/api/arm2/counterparties/" + owner.id).json()
-    assert (
-        c.put(
+    response = c.put(
             "/api/arm2/counterparties/" + owner.id,
             json={
                 "expected_version": body["version"],
@@ -111,17 +110,16 @@ def test_full_owner_workflow_review_noop_and_b3_documents_are_unchanged(qa):
                 "full_name": "Full name",
                 "legal_address": "Address",
             },
-        ).json()["status"]
-        == "CONFIRMED"
-    )
+        )
+    assert response.status_code == 200 and response.json()['full_name'] == 'Full name'
+    assert 'status' not in response.json()
     body = c.get("/api/arm2/counterparties/" + owner.id).json()
-    assert (
-        c.put(
+    response = c.put(
             "/api/arm2/counterparties/" + owner.id,
             json={"expected_version": body["version"], "name": body["name"], "full_name": None},
-        ).json()["status"]
-        == "REVIEW"
-    )
+        )
+    assert response.status_code == 200 and response.json()['full_name'] is None
+    assert 'status' not in response.json()
     assert current(c, vehicle["id"])["owner_cp_id"] == owner.id
 
 
@@ -179,7 +177,7 @@ def test_stale_owner_target_tampering_invalid_inputs_and_confirmation_have_no_si
         command(c, vehicle, ("ORG", parents["org"]), confirm=True, owner_cp_id=parents["cp"]).status_code
         == 422
     )
-    unrelated = c.post("/api/arm2/counterparties", json={"name": "Unrelated initiator"}).json()["id"]
+    unrelated = c.post("/api/arm2/counterparties", json={'type': 'Юридическое лицо', "name": "Unrelated initiator"}).json()["id"]
     before = count(db)
     assert (
         command(

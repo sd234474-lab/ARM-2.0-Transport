@@ -208,23 +208,27 @@ class PartyResponse(StrictModel):
     settlement_account: str | None
     correspondent_account: str | None
     primary_signer_id: str | None
-    status: str
     version: int
 
 
 class CounterpartyCreate(PartyCreate):
+    type: Literal["Физическое лицо", "Юридическое лицо"]
     last_name: str | None = None
     first_name: str | None = None
     middle_name: str | None = None
 
 
 class CounterpartyUpdate(PartyUpdate):
+    type: Literal["Физическое лицо", "Юридическое лицо"] | None = None
+    confirm_identity_change: StrictBool = False
     last_name: str | None = None
     first_name: str | None = None
     middle_name: str | None = None
 
 
 class CounterpartyResponse(PartyResponse):
+    type: Literal["Физическое лицо", "Юридическое лицо"]
+    inapplicable_values: dict[str, str] = Field(default_factory=dict)
     last_name: str | None = None
     first_name: str | None = None
     middle_name: str | None = None

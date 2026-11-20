@@ -179,7 +179,7 @@ def test_signed_three_way_preserves_unedited_owner_and_resolves_name_conflict(bu
     book.active.cell(2, col["Рабочее имя"]).value = "Excel"
     changed = book_bytes(book)
     with Session(engine) as db:
-        db.add(Counterparty(id="CP-800001", name="Владелец", status="REVIEW", version=1))
+        db.add(Counterparty(type='Юридическое лицо', id="CP-800001", name="Владелец",  version=1))
         db.flush()
         update_object(db, object_type="VEH", object_id=vid, expected_version=1, partial=True,
                       values={"owner_cp_id": "CP-800001", "owner_org_id": None}, principal=db.get(User, ids[0]),
@@ -237,7 +237,7 @@ def test_nullable_clear_does_not_clear_neighbors_and_requires_owner_confirmation
     with Session(engine) as db:
         user = db.get(User, ids[0])
         typ = create_vehicle_type(db, "Авто", True, False, False, plate_category="Автомобильный", principal=user, context=SaveContext("HUMAN", str(user.id), "seed"))
-        db.add(Counterparty(id="CP-800001", name="Старый", status="REVIEW", version=1))
+        db.add(Counterparty(type='Юридическое лицо', id="CP-800001", name="Старый",  version=1))
         db.flush()
         v = create_vehicle(db, "Имя", "А333АА86", type_id=typ.id, model="Модель", owner_cp_id="CP-800001", wialon_unit_id="00012", principal=user, context=SaveContext("HUMAN", str(user.id), "seed"))
         db.commit()

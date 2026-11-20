@@ -58,7 +58,30 @@ afterEach(async()=>{await act(async()=>root.unmount());host.remove();vi.restoreA
 async function mount(path='/arm2/questionnaires',child?:React.ReactNode){await act(async()=>{root.render(<MemoryRouter initialEntries={[path]}>{child||<Questionnaire can={()=>true}/>}</MemoryRouter>);await tick();});}
 async function click(text:string){await act(async()=>{const button=[...host.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent===text);if(!button)throw new Error('Missing '+text);button.click();await tick();});}
 async function selectCP(){await act(async()=>{const select=host.querySelector<HTMLSelectElement>('select[aria-label="Решение о контрагенте"]')!;select.value='CP-000001';select.dispatchEvent(new Event('change',{bubbles:true}));await tick();});}
-async function acceptPhone(){await act(async()=>{host.querySelector<HTMLInputElement>('input[aria-label="Принять Официальный телефон"]')!.click();await tick();});}
+async function acceptPhone(){await act(async()=>{const control=host.querySelector<HTMLSelectElement>('select[aria-label="Решение Официальный телефон"]')!;control.value='set';control.dispatchEvent(new Event('change',{bubbles:true}));await tick();});}
+
+it('CP clear is an explicit draft action, mutually exclusive with set, and identity needs its own approval',async()=>{
+  draft.comparison!.cp.identity_conflict=true;
+  draft.comparison!.cp.fields.legal_form={current:'ИП',proposed:'ИП',equal:true,selected:false,error:null,clear_candidate:true};
+  await mount('/arm2/questionnaires?draft='+draft.id);await selectCP();
+  expect(draft.choices?.confirm_identity).not.toBe(true);
+  await act(async()=>{const control=host.querySelector<HTMLSelectElement>('select[aria-label="Решение Организационно-правовая форма"]')!;control.value='clear';control.dispatchEvent(new Event('change',{bubbles:true}));await tick();});
+  expect(draft.choices?.cp_clears).toEqual(['legal_form']);
+  expect(draft.choices?.cp_fields).not.toContain('legal_form');
+  expect(vi.mocked(api).mock.calls.some(([p])=>p.endsWith('/apply'))).toBe(false);
+  await act(async()=>{[...host.querySelectorAll('label')].find(l=>l.textContent?.startsWith('Отдельно подтверждаю конфликт личности'))!.querySelector<HTMLInputElement>('input')!.click();await tick();});
+  expect(draft.choices?.confirm_identity).toBe(true);
+  await click('Отклонить загрузку целиком');
+  expect(vi.mocked(api).mock.calls.some(([p])=>p.endsWith('/apply'))).toBe(false);
+});
+
+it('receipt displays actual before/after fields and a direct card link',async()=>{
+  receipt.changes=[{kind:'CP',id:'CP-000001',operation:'UPDATED',url:'/arm2/cp/CP-000001',fields:{phone:{before:'old phone',after:'new phone'}}}];
+  await mount('/arm2/questionnaires?draft='+draft.id);await selectCP();await acceptPhone();await click('Принять изменения');
+  const table=host.querySelector('[aria-label="Протокол приёмки анкеты"] table')!;
+  expect(table.textContent).toContain('Официальный телефон');expect(table.textContent).toContain('old phone');expect(table.textContent).toContain('new phone');
+  expect(table.querySelector('a')!.getAttribute('href')).toBe('/arm2/cp/CP-000001');
+});
 
 it('V3 signer conflict needs an explicit source and a separate field approval; no access controls',async()=>{
   draft.comparison!.representatives=[{key:'0',id:'CPREP-000001',target:'CPREP-000001',version:1,error:null,signer:false,
@@ -116,10 +139,10 @@ it('T24 a 409 preserves the server draft and offers explicit reopen before chang
   await mount('/arm2/questionnaires?draft='+draft.id);await selectCP();await acceptPhone();stale=true;
   await click('Принять изменения');
   expect(host.textContent).toContain('Сверка устарела');
-  expect(host.querySelector<HTMLInputElement>('input[aria-label="Принять Официальный телефон"]')!.disabled).toBe(true);
+  expect(host.querySelector<HTMLSelectElement>('select[aria-label="Решение Официальный телефон"]')!.disabled).toBe(true);
   await click('Повторно открыть сверку');
-  expect(host.querySelector<HTMLInputElement>('input[aria-label="Принять Официальный телефон"]')!.checked).toBe(true);
-  expect(host.querySelector<HTMLInputElement>('input[aria-label="Принять Официальный телефон"]')!.disabled).toBe(false);
+  expect(host.querySelector<HTMLSelectElement>('select[aria-label="Решение Официальный телефон"]')!.value).toBe('set');
+  expect(host.querySelector<HTMLSelectElement>('select[aria-label="Решение Официальный телефон"]')!.disabled).toBe(false);
 });
 
 it('T23 cancelling the whole package clears the review without calling SAVE',async()=>{

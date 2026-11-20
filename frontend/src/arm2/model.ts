@@ -2,7 +2,7 @@ import { ApiError } from '../api';
 import type { Kind, RecordData, Scalar } from './api';
 
 export const labels: Record<string, string> = {
-  current_revision_id: 'Текущая редакция комплекта', file_naming_template: 'Шаблон имени файла',
+  type: 'Тип контрагента', current_revision_id: 'Текущая редакция комплекта', file_naming_template: 'Шаблон имени файла',
   plate_category: 'Тип государственного номера',
   kind_ref: 'Тип документа', parent_type: 'Тип родителя', parent_id: 'Родитель', description: 'Описание', archive_state: 'Архивность', display_state: 'Состояние документа',
   applicable_object_types: 'Применимость', max_current_documents: 'Максимум актуальных документов',
@@ -24,7 +24,7 @@ export const isParty = (kind: Kind) => kind === 'CP' || kind === 'ORG';
 export const requirementLabel = (value: Scalar | undefined) => value === true ? 'Требуется' : value === false ? 'Не требуется' : 'Не заполнено';
 export const missingRequirements = (row: RecordData) => ['name', 'plate_category', ...requirements].filter(key => key === 'name' ? !row.name?.trim() : row[key] == null).map(key => labels[key]).join(', ');
 export function emptyRecord(kind: Kind | 'REP'): RecordData {
-  const keys = kind === 'REP' ? repFields : kind === 'TYPE' ? ['name', 'plate_category', ...requirements] : kind === 'VEH' ? vehicleFields : partyFields;
+  const keys = kind === 'REP' ? repFields : kind === 'TYPE' ? ['name', 'plate_category', ...requirements] : kind === 'VEH' ? vehicleFields : kind === 'CP' ? [...partyFields,'type','last_name','first_name','middle_name'] : partyFields;
   const row: RecordData = { id: '', version: 0, name: '' };
   keys.forEach(key => { if (key !== 'name') row[key] = null; });
   if (kind === 'TYPE') row.requires_sts = true;
@@ -34,10 +34,11 @@ export function emptyRecord(kind: Kind | 'REP'): RecordData {
 }
 export function payload(kind: Kind | 'REP', draft: RecordData, original: RecordData): Record<string, Scalar> {
   const editing = !!original.id;
-  const keys = kind === 'REP' ? repFields : kind === 'TYPE' ? ['name', 'plate_category', ...requirements] : kind === 'VEH' ? vehicleFields : [...partyFields, ...(editing ? ['primary_signer_id'] : [])];
+  const keys = kind === 'REP' ? repFields : kind === 'TYPE' ? ['name', 'plate_category', ...requirements] : kind === 'VEH' ? vehicleFields : [...partyFields, ...(kind==='CP'?['type','last_name','first_name','middle_name']:[]), ...(editing ? ['primary_signer_id'] : [])];
   const body: Record<string, Scalar> = { name: draft.name };
   if (editing) body.expected_version = original.version;
   keys.forEach(key => {
+    if(kind==='CP'&&draft.type==='Физическое лицо'&&['full_name','short_name'].includes(key)&&draft[key]===original[key])return;
     if ((kind === 'CP' || kind === 'ORG') && editing && key !== 'name' && draft[key] === original[key]) return;
     body[key] = draft[key] ?? null;
   });

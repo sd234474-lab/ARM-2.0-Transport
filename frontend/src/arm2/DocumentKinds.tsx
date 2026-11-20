@@ -79,7 +79,7 @@ function KindList({editable}: {editable: boolean}) {
   const offset = Number.isSafeInteger(raw) && raw >= 0 && raw % 100 === 0 ? raw : 0;
   const result = useLoad(signal => api<Page>(`${base}/search?${new URLSearchParams({q, limit: '100', offset: String(offset)})}`, 'GET', undefined, signal), [q, offset]);
   const change = (query: string, next: number, replace = false) => setParams({q: query, offset: String(next)}, {replace});
-  return <><header className="arm2-actions"><h2>Типы документов</h2>{editable && <Link to={base + '/new'} state={{from: location.pathname + location.search}}>Создать тип документа</Link>}</header>
+  return <><header className="arm2-actions"><h2>Типы документов</h2>{editable && <Link className="arm2-create" to={base + '/new'} state={{from: location.pathname + location.search}}>+ Новая запись</Link>}</header>
     <label className="arm2-field">Поиск по имени во всём справочнике<input value={q} onChange={event => change(event.target.value, 0, true)}/></label>
     <ErrorMessage error={result.error} retry={result.reload}/>{result.loading && <p role="status">Загружаем типы документов…</p>}
     {result.data && <><p>Найдено: {result.data.matched} / Всего: {result.data.total}</p><div className="arm2-table"><table><thead><tr><th>Имя</th><th>Постоянный ID</th><th>Применимость</th><th>Максимум актуальных документов</th><th>Версия</th></tr></thead><tbody>{result.data.items.map(row => <tr key={row.id}><td><Link to={base + '/' + encodeURIComponent(row.id)} state={{from: location.pathname + location.search}}>{row.name}</Link></td><td>{row.id}</td><td>{applicability(row.applicable_object_types)}</td><td>{multiplicity(row.max_current_documents)}</td><td>{row.version}</td></tr>)}</tbody></table></div>

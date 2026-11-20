@@ -2,14 +2,21 @@
 import re
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import case, func, literal, or_, select
 
 from app.arm2.counterparty_models import Counterparty
+from app.arm2.counterparty_rules import PERSON, counterparty_response
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.organization_models import Organization
-from app.arm2.schemas import DocumentKindResponse, PartyResponse, VehicleResponse, VehicleTypeResponse
+from app.arm2.schemas import (
+    CounterpartyResponse,
+    DocumentKindResponse,
+    PartyResponse,
+    VehicleResponse,
+    VehicleTypeResponse,
+)
 from app.arm2.vehicle_models import Vehicle
 from app.arm2.vehicle_store import _LATIN_TO_CYRILLIC
 from app.arm2.vehicle_type_models import VehicleType
@@ -35,10 +42,12 @@ class VehiclePage(BaseModel):
     matched: int
     limit: int
     offset: int
+    without_owner: int
+    without_wialon: int
 
 
 class PartyPage(BaseModel):
-    items: list[PartyResponse]
+    items: list[CounterpartyResponse | PartyResponse]
     total: int
     matched: int
     limit: int
@@ -133,37 +142,56 @@ def search_vehicles(
         stmt = stmt.where(column == owner_id if owner_id else column.is_not(None))
     sorts = {'name': Vehicle.name, 'plate_number': Vehicle.plate_number, 'type': VehicleType.name,
              'owner': owner_name, 'accounting_state': Vehicle.accounting_state}
-    return _page(db, stmt, Vehicle, sorts[sort], direction, limit, offset)
+    # Aggregate exactly the same permission-filtered relation, before pagination.
+    filtered = stmt.order_by(None).subquery()
+    counts = db.execute(select(
+        func.count().filter(filtered.c.owner_cp_id.is_(None), filtered.c.owner_org_id.is_(None)),
+        func.count().filter(or_(filtered.c.wialon_unit_id.is_(None), func.trim(filtered.c.wialon_unit_id) == '')),
+    ).select_from(filtered)).one()
+    return {**_page(db, stmt, Vehicle, sorts[sort], direction, limit, offset),
+            'without_owner': counts[0], 'without_wialon': counts[1]}
 
 
-def _search_party(db, user, model, permission, q, status, legal_form, sort, direction, limit, offset):
+def _search_party(db, user, model, permission, q, legal_form, sort, direction, limit, offset):
     check_permission(user, permission)
     stmt = select(*[getattr(model, field).label(field) for field in PartyResponse.model_fields])
+    if model is Counterparty:
+        stmt = stmt.add_columns(*[getattr(model, f).label(f) for f in ('type', 'last_name', 'first_name', 'middle_name')])
+    full_name = (case((Counterparty.type == PERSON, func.trim(func.concat(
+        case((Counterparty.legal_form == 'ИП', 'Индивидуальный предприниматель '), else_=''),
+        func.concat_ws(' ', Counterparty.last_name, Counterparty.first_name, Counterparty.middle_name)))),
+        else_=Counterparty.full_name) if model is Counterparty else model.full_name)
     if q.strip():
-        stmt = stmt.where(or_(*[_text_match(getattr(model, field), q.strip())
-                                for field in ['name', 'full_name', 'inn']]))
-    if status:
-        stmt = stmt.where(model.status == status)
+        stmt = stmt.where(or_(_text_match(full_name, q.strip()), *[_text_match(getattr(model, field), q.strip())
+                                for field in ['name', 'full_name', 'short_name', 'inn',
+                                    *(['last_name', 'first_name', 'middle_name'] if model is Counterparty else [])]]))
     if legal_form:
         stmt = stmt.where(model.legal_form == legal_form)
-    return _page(db, stmt, model, getattr(model, sort), direction, limit, offset)
+    result = _page(db, stmt, model, full_name if sort == 'full_name' else getattr(model, sort), direction, limit, offset)
+    if model is Counterparty:
+        result['items'] = [counterparty_response(row) for row in result['items']]
+    return result
 
 
-PartySort = Literal['name', 'full_name', 'legal_form', 'inn', 'status']
+PartySort = Literal['name', 'full_name', 'legal_form', 'inn']
 
 
 @router.get('/counterparties/search', response_model=PartyPage)
-def search_counterparties(db: Db, user: CurrentUser, q: TextQuery = '', status: Literal['REVIEW', 'CONFIRMED'] | None = None,
+def search_counterparties(db: Db, user: CurrentUser, request: Request, q: TextQuery = '',
                          legal_form: Annotated[str | None, Query(max_length=500, pattern=r'^[^\x00]*$')] = None, sort: PartySort = 'name',
                          direction: Direction = 'asc', limit: Limit = 100, offset: Offset = 0):
-    return _search_party(db, user, Counterparty, Permission.ARM2_CP_VIEW, q, status, legal_form, sort, direction, limit, offset)
+    if 'status' in request.query_params:
+        raise HTTPException(422, 'У CP нет фильтра полноты status')
+    return _search_party(db, user, Counterparty, Permission.ARM2_CP_VIEW, q, legal_form, sort, direction, limit, offset)
 
 
 @router.get('/organizations/search', response_model=PartyPage)
-def search_organizations(db: Db, user: CurrentUser, q: TextQuery = '', status: Literal['REVIEW', 'CONFIRMED'] | None = None,
+def search_organizations(db: Db, user: CurrentUser, request: Request, q: TextQuery = '',
                         legal_form: Annotated[str | None, Query(max_length=500, pattern=r'^[^\x00]*$')] = None, sort: PartySort = 'name',
                         direction: Direction = 'asc', limit: Limit = 100, offset: Offset = 0):
-    return _search_party(db, user, Organization, Permission.ARM2_ORG_VIEW, q, status, legal_form, sort, direction, limit, offset)
+    if 'status' in request.query_params:
+        raise HTTPException(422, 'У ORG нет фильтра полноты status')
+    return _search_party(db, user, Organization, Permission.ARM2_ORG_VIEW, q, legal_form, sort, direction, limit, offset)
 
 
 @router.get('/types/search', response_model=TypePage)

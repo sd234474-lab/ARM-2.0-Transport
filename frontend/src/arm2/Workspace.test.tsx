@@ -13,8 +13,12 @@ vi.mock('../api', async importOriginal => ({...await importOriginal<typeof impor
 let element: HTMLDivElement, root: ReturnType<typeof createRoot>;
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const type = {...emptyRecord('TYPE'), id: 'TYPE-1', name: 'Самосвал', version: 4, status: 'REVIEW'};
-const party = {...emptyRecord('CP'), id: 'CP-1', name: 'Партнёр', version: 2, full_name: 'Полное имя', legal_address: 'Адрес', status: 'CONFIRMED', primary_signer_id: null};
+const party = {...emptyRecord('CP'), id: 'CP-1', name: 'Партнёр', version: 2, full_name: 'Полное имя', legal_address: 'Адрес', type: 'Юридическое лицо', primary_signer_id: null};
 const vehicle = {...emptyRecord('VEH'), id: 'VEH-1', name: 'Машина', plate_number: 'А001АА86', version: 3, type_id: 'TYPE-1', model: 'Модель', owner_cp_id: 'CP-1'};
+
+async function ariaSelect(label:string,value:string) {
+  await act(async()=>{const select=element.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!;expect(select).not.toBeNull();select.value=value;select.dispatchEvent(new Event('change',{bubbles:true}));await tick();});
+}
 beforeEach(() => {
   (globalThis as {IS_REACT_ACT_ENVIRONMENT?: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
   vi.mocked(api).mockReset();
@@ -65,13 +69,18 @@ it('no catalog permission makes no API requests and exposes no editable deep lin
 });
 
 it('server search resets pagination, shows exact counters, filtering and empty results', async () => {
-  const records = Array.from({length: 130}, (_, index) => ({...vehicle, id: `VEH-${index + 1}`, name: `Машина ${String(index + 1).padStart(3, '0')}`, accounting_state: index % 2 ? 'Архивная' : 'Действующая'}));
+  const records: RecordData[] = Array.from({length: 130}, (_, index) => ({...vehicle, id: `VEH-${index + 1}`, name: `Машина ${String(index + 1).padStart(3, '0')}`, accounting_state: index % 2 ? 'Архивная' : 'Действующая'}));
   vi.mocked(api).mockImplementation(async path => {
     const params = new URLSearchParams(path.split('?')[1]);
     const matches = records.filter(row => row.name.includes(params.get('q') || '') && (!params.get('state') || row.accounting_state === params.get('state')));
-    return {items: matches.slice(Number(params.get('offset')), Number(params.get('offset')) + 100), matched: matches.length, total: records.length, limit: 100, offset: Number(params.get('offset'))};
+    return {items: matches.slice(Number(params.get('offset')), Number(params.get('offset')) + 100), matched: matches.length, total: records.length, without_owner: matches.filter(r=>!r.owner_cp_id&&!r.owner_org_id).length, without_wialon:matches.filter(r=>!String(r.wialon_unit_id||'').trim()).length, limit: 100, offset: Number(params.get('offset'))};
   });
   await mount('/arm2/veh', permission => permission === 'arm2_veh_view');
+  expect(element.textContent).toContain('Найдено: 65');
+  expect(control('Учётное состояние').value).toBe('Действующая');
+  await change('Учётное состояние','ALL');
+  expect(new URLSearchParams(vi.mocked(api).mock.calls.at(-1)![0].split('?')[1]).has('state')).toBe(false);
+  expect(element.textContent).toContain('Без Wialon ID: 130');
   expect(element.textContent).toContain('Найдено: 130');
   await click('Следующая страница'); expect(element.textContent).toContain('Машина 130');
   await change('Поиск по рабочему имени', '130');
@@ -83,6 +92,53 @@ it('server search resets pagination, shows exact counters, filtering and empty r
   expect(element.textContent).toContain('По заданным условиям записей нет');
   expect(button('Следующая страница').disabled).toBe(true);
   expect([...element.querySelectorAll('a')].some(a => a.textContent === '+ Новая запись')).toBe(false);
+});
+
+it('an explicit ALL URL survives opening the list and never sends state=ALL to the API',async()=>{
+  vi.mocked(api).mockResolvedValue({items:[],total:0,matched:0,limit:100,offset:0,without_owner:0,without_wialon:0});
+  await mount('/arm2/veh?state=ALL',p=>p==='arm2_veh_view');
+  expect(control('Учётное состояние').value).toBe('ALL');
+  const url=vi.mocked(api).mock.calls.find(([p])=>p.includes('/vehicles/search?'))![0];
+  expect(new URLSearchParams(url.split('?')[1]).has('state')).toBe(false);
+  expect(element.textContent).toContain('Без операционного владельца: 0');
+  expect(element.textContent).toContain('Без Wialon ID: 0');
+});
+
+it('CP creation explicitly selects a type and sends primary FIO without a competing name copy',async()=>{
+  mockAPI(async(path,method,body)=>method==='POST'?{...emptyRecord('CP'),...body as RecordData,id:'CP-NEW',version:1}:defaults(path));
+  await mount('/arm2/cp/new');
+  expect(control('Тип контрагента').required).toBe(true);
+  await change('Тип контрагента','Физическое лицо');
+  await change('Рабочее имя','Свободное имя');
+  await change('Фамилия','Тестов');await change('Имя','Иван');
+  await submit();
+  const body=vi.mocked(api).mock.calls.find(([,m])=>m==='POST')![2];
+  expect(body).toMatchObject({type:'Физическое лицо',name:'Свободное имя',last_name:'Тестов',first_name:'Иван'});
+  expect(body).not.toHaveProperty('full_name');expect(body).not.toHaveProperty('short_name');
+  expect(element.textContent).not.toContain('Состояние описания');
+  expect([...element.querySelectorAll('[aria-label="Разделы карточки"] button')].map(x=>x.textContent)).toEqual(['Основное','Контакты','Банковские счета','Документы','Техника']);
+});
+
+it('type transition presents clears, keeps the working name and needs a separate confirmation before one SAVE',async()=>{
+  let stored={...party,legal_form:'ООО',full_name:'Старое полное',short_name:'Старое краткое',kpp:'001234567',ogrn:'0012345678901'};
+  mockAPI(async(_path,method,body)=>{if(method==='PUT'){stored={...stored,...body as RecordData,version:3};return stored;}return stored;});
+  await mount('/arm2/cp/CP-1');
+  await change('Тип контрагента','Физическое лицо');await change('Организационно-правовая форма','ИП');
+  expect(element.textContent).toContain('Старое полное');
+  expect(vi.mocked(api).mock.calls.some(([,m])=>m==='PUT')).toBe(false);
+  for(const field of ['Полное наименование','Краткое наименование','КПП','ОГРН / ОГРНИП'])await ariaSelect('Решение об очистке '+field,'clear');
+  await act(async()=>{[...element.querySelectorAll('label')].find(l=>l.textContent?.startsWith('Подтверждаю изменение типа'))!.querySelector<HTMLInputElement>('input')!.click();await tick();});
+  await submit();
+  const writes=vi.mocked(api).mock.calls.filter(([,m])=>m==='PUT');expect(writes).toHaveLength(1);
+  expect(writes[0][2]).toMatchObject({name:'Партнёр',type:'Физическое лицо',legal_form:'ИП',full_name:null,short_name:null,kpp:null,ogrn:null,confirm_identity_change:true,expected_version:2});
+});
+
+it('read-only CP has no editable clear controls and navigation puts TYPE below symmetric top-level tiles',async()=>{
+  mockAPI(async()=>({...party,last_name:'Сохранённое неприменимое'}));
+  await mount('/arm2/cp/CP-1',p=>p.endsWith('_view'));
+  expect(element.querySelector<HTMLSelectElement>('select[aria-label="Решение об очистке Фамилия"]')!.disabled).toBe(true);
+  expect(element.querySelector('.arm2-sections')!.textContent).not.toContain('Типы техники');
+  expect([...element.querySelectorAll('.arm2-sections > *')].every(e=>e.classList.contains('arm2-section'))).toBe(true);
 });
 
 it.each(['cp', 'org'])('%s embedded vehicles use server owner filtering without automatic writes', async kind => {
@@ -231,21 +287,21 @@ it('list pagination fetches next API page and search scope stays explicit', asyn
   expect(api).toHaveBeenLastCalledWith(expect.stringContaining('status=REVIEW'), 'GET', undefined, expect.any(AbortSignal));
 });
 
-it.each(['cp', 'org'])('%s create → CONFIRMED → create representative → select scoped primary signer', async kind => {
+it.each(['cp', 'org'])('%s create without completeness status → create representative → select scoped primary signer', async kind => {
   const parentId = kind === 'cp' ? 'CP-NEW' : 'ORG-NEW';
   const path = kind === 'cp' ? '/arm2/counterparties' : '/arm2/organizations';
-  let saved: RecordData = {...emptyRecord(kind === 'cp' ? 'CP' : 'ORG'), id: parentId, version: 1, status: 'REVIEW'};
+  let saved: RecordData = {...emptyRecord(kind === 'cp' ? 'CP' : 'ORG'), id: parentId, version: 1};
   const reps: RecordData[] = [];
   mockAPI(async (url, method, body) => {
     if (url.includes('/representatives')) {
       if (method === 'POST') {const rep = {...emptyRecord('REP'), ...body as RecordData, id: 'REP-NEW', parent_id: parentId, version: 1}; reps.push(rep); return rep;}
       return url.includes('?') ? reps : reps[0];
     }
-    if (method === 'POST' || method === 'PUT') {saved = {...saved, ...body as RecordData, version: method === 'POST' ? 1 : saved.version + 1}; saved.status = saved.full_name && saved.legal_address ? 'CONFIRMED' : 'REVIEW'; return saved;}
+    if (method === 'POST' || method === 'PUT') {saved = {...saved, ...body as RecordData, version: method === 'POST' ? 1 : saved.version + 1}; return saved;}
     return url.includes('?') ? [saved] : saved;
   });
-  await mount(`/arm2/${kind}/new`); await change('Рабочее имя', 'Новый партнёр'); await submit(); expect(element.textContent).toContain('REVIEW');
-  await change('Юридический адрес', 'Адрес'); await click('Основное'); await change('Полное наименование', 'Полное имя'); await submit(); expect(saved.status).toBe('CONFIRMED');
+  await mount(`/arm2/${kind}/new`); if(kind==='cp')await change('Тип контрагента','Юридическое лицо'); await change('Рабочее имя', 'Новый партнёр'); await submit(); expect(element.textContent).not.toContain('Состояние описания'); expect(saved).not.toHaveProperty('status');
+  await change('Юридический адрес', 'Адрес'); await click('Основное'); await change('Полное наименование', 'Полное имя'); await submit(); expect(saved.full_name).toBe('Полное имя'); expect(saved).not.toHaveProperty('status');
   await click('Контакты'); await follow('Добавить представителя'); await change('ФИО / Имя', 'Иван Петров'); await change('Телефон представителя', '123'); await submit();
   expect(reps[0]).toMatchObject({name: 'Иван Петров', phone: '123', state: 'Действующий', user_id: null});
   await follow('← К родительской карточке'); await click('Контакты');

@@ -30,7 +30,7 @@ def test_0069_upgrade_preserves_0068_rows_ids_versions_history_and_sequence(isol
     monkeypatch.setenv('DATABASE_URL', isolated_arm2_database_url)
     settings.cache_clear()
     scripts = ScriptDirectory.from_config(config())
-    assert scripts.get_heads() == ['0069'] and scripts.get_revision('0069').down_revision == '0068'
+    assert scripts.get_heads() == ['0070'] and scripts.get_revision('0069').down_revision == '0068'
     command.downgrade(config(), '0068')
     engine = create_engine(isolated_arm2_database_url)
     with engine.begin() as db:
@@ -43,7 +43,7 @@ def test_0069_upgrade_preserves_0068_rows_ids_versions_history_and_sequence(isol
         old_cp = db.execute(text('SELECT row_to_json(t)::jsonb FROM arm2_counterparties t')).scalar_one()
         history = db.execute(text('SELECT row_to_json(t)::text FROM arm2_history_events t')).scalars().all()
         sequence = db.execute(text('SELECT last_value,is_called FROM arm2_cp_id_seq')).one()
-    command.upgrade(config(), 'head')
+    command.upgrade(config(), '0069')
     with engine.connect() as db:
         current = db.execute(text('SELECT row_to_json(t)::jsonb FROM arm2_counterparties t')).scalar_one()
         assert {k: v for k, v in current.items() if k not in ('last_name', 'first_name', 'middle_name')} == old_cp
@@ -77,7 +77,7 @@ def test_0069_guard_never_discards_names_history_or_questionnaire_ledgers(b5, re
     db.commit()
     before = snapshot(db)
     db.commit()
-    with pytest.raises(RuntimeError, match='B5 data/history.*downgrade refused'):
+    with pytest.raises(RuntimeError, match='0070.*downgrade refused'):
         command.downgrade(config(), '0068')
     assert snapshot(db) == before
-    assert db.scalar(text('SELECT version_num FROM alembic_version')) == '0069'
+    assert db.scalar(text('SELECT version_num FROM alembic_version')) == '0070'

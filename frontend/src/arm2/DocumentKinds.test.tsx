@@ -74,7 +74,7 @@ it('searches beyond 100, creates/updates/reopens persisted fields and reads real
   expect(vi.mocked(api).mock.calls.at(-1)![0]).toContain('offset=0');
   await follow('Тарировка за сотой'); expect(control('Имя типа').value).toBe('Тарировка за сотой');
   await follow('← К типам документов'); expect(control('Поиск').value).toBe('тарировка');
-  await follow('Создать тип документа'); expect((control('Контрагенты') as HTMLInputElement).checked).toBe(false);
+  await follow('+ Новая запись'); expect((control('Контрагенты') as HTMLInputElement).checked).toBe(false);
   expect(control('Максимум').value).toBe(''); expect(host.textContent).not.toContain('История');
   await change('Имя типа', '  Новый вид  '); await check('Собственные организации'); await check('Контрагенты'); await change('Максимум', 'unlimited');
   await click('Сохранить');
@@ -94,7 +94,7 @@ it.each([{grants: []}, {grants: ['arm2_doc_kind_edit']}])('denies direct URLs wi
   await mount(base+'/new', p=>grants.includes(p)); expect(api).not.toHaveBeenCalled(); expect(host.querySelector('form')).toBeNull(); expect(host.textContent).not.toContain('Типы документов');
 });
 it('VIEW-only exposes card/history but no creation or writes', async () => {
-  await mount(base, p=>p==='arm2_doc_kind_view'); expect(host.textContent).not.toContain('Создать тип документа');
+  await mount(base, p=>p==='arm2_doc_kind_view'); expect(host.textContent).not.toContain('+ Новая запись');
   await follow('Вид 1'); expect(control('Имя типа').matches(':disabled')).toBe(true);
   expect([...host.querySelectorAll('button')].some(b=>b.textContent==='Сохранить')).toBe(false);
   await click('История'); expect(vi.mocked(api).mock.calls.some(([p])=>p.startsWith('/arm2/history/DOC-KIND/'))).toBe(true); expect(writes()).toHaveLength(0);
