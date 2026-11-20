@@ -16,7 +16,10 @@ def test_user_link_lifecycle_persisted_record_history_and_unchanged_permissions(
     assert accounts.status_code == 200
     first, second = accounts.json()[:2]
     snapshots = {user.id: (user.role, list(user.permissions or [])) for user in db.scalars(select(User))}
-    parent = admin.post(f"/api/arm2/{path}", json={"name": "Party"}).json()
+    body = {"name": "Party"}
+    if path == "counterparties":
+        body["type"] = "Юридическое лицо"
+    parent = admin.post(f"/api/arm2/{path}", json=body).json()
     collection = f"/api/arm2/{path}/{parent['id']}/representatives"
     response = admin.post(collection, json={"name": "Linked representative", "user_id": first["id"]})
     assert response.status_code == 201, response.text

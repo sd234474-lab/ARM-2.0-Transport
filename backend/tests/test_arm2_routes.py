@@ -212,6 +212,7 @@ def test_vehicle_http_type_owner_and_history_contract(client, users, db):
     cp = create_counterparty(
         db,
         "CP",
+        type="Юридическое лицо",
         full_name="CP full",
         legal_address="Address",
         principal=admin,
