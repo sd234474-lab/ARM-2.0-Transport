@@ -61,6 +61,7 @@ class VehicleChoice(Command):
 
 
 class DocumentChoice(Command):
+    upload_id: str | None = None
     parent_key: str | None = None
     kind_id: str | None = None
     document_id: str | None = None
@@ -206,7 +207,10 @@ def preview(identifier: UUID, upload_id: str, db: Db, user: CurrentUser):
         if stage is None or stage.draft_id != str(identifier) or stage.error:
             raise ValueError('Проверенный файл не найден в вашем черновике')
         path = files.staged_preview(stage)
-        return FileResponse(path, media_type=stage.media_type, headers={'Content-Security-Policy': 'sandbox',
+        download = not (stage.media_type == 'application/pdf' or (stage.media_type or '').startswith('image/'))
+        return FileResponse(path, media_type=stage.media_type,
+            filename=stage.name.rsplit('/', 1)[-1] if download else None, content_disposition_type='attachment',
+            headers={'Content-Security-Policy': 'sandbox',
             'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'},
             background=BackgroundTask(path.unlink, missing_ok=True))
     return translated(db, operation)

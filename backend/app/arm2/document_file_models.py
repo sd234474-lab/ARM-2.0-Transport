@@ -61,7 +61,7 @@ class DocumentFile(Base):
             "id ~ '^FILE-[0-9]{6,}$' AND size>0 AND sha256 ~ '^[0-9a-f]{64}$'", name="ck_arm2_file_identity"
         ),
         CheckConstraint(
-            "extension IN ('pdf','png','jpg','gif','webp','docx','xlsx','pptx') AND stored_name<>'' AND original_upload_name<>'' AND storage_ref LIKE 'disk:/%'",
+            "extension IN ('pdf','png','jpg','gif','webp','docx','xlsx','pptx','bin') AND stored_name<>'' AND original_upload_name<>'' AND storage_ref LIKE 'disk:/%'",
             name="ck_arm2_file_metadata",
         ),
     )

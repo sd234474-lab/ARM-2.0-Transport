@@ -73,11 +73,17 @@ def view(db, user, draft, *, reset_on_change=True):
     approval_reset = False
     if reset_on_change and draft.preview and review_hash(draft.preview, draft.choices) != review_hash(comparison, draft.choices):
         # Never reuse an old owner/field/file approval against freshly changed server data.
-        choices = draft.choices
-        draft.choices = {**choices, 'cp_fields': [], 'cp_clears': [], 'confirm_identity': False,
-            'representatives': {k: {**v, 'fields': [], 'signer': False, 'target': None} for k, v in choices.get('representatives', {}).items()},
-            'vehicles': {k: {**v, 'include': False, 'fields': [], 'confirm_owner': False} for k, v in choices.get('vehicles', {}).items()},
-            'documents': {k: {**v, 'accept': False} for k, v in choices.get('documents', {}).items()}}
+        choices = dict(draft.choices)
+        old = draft.preview
+        if old['cp'] != comparison['cp']:
+            choices.update(cp_fields=[], cp_clears=[], confirm_identity=False)
+        for group in ('representatives', 'vehicles', 'documents'):
+            before = {p['key']: p for p in old[group]}
+            changed = {p['key'] for p in comparison[group] if p != before.get(p['key'])}
+            reset = {'fields': [], 'signer': False} if group == 'representatives' else \
+                    {'fields': [], 'include': False, 'confirm_owner': False} if group == 'vehicles' else {'accept': False}
+            choices[group] = {k: {**v, **(reset if k in changed else {})} for k, v in choices.get(group, {}).items()}
+        draft.choices = choices
         draft.revision += 1
         draft.staging = {}
         comparison = build(db, user, draft)
@@ -92,11 +98,11 @@ def view(db, user, draft, *, reset_on_change=True):
 def review_hash(comparison, choices):
     """Only chosen dependencies participate; unrelated broken/unselected rows cannot veto SAVE."""
     def item(plan):
-        return {k: v for k, v in plan.items() if k not in ('candidates', 'hint', 'diagnostic_hint', 'legacy_hint', 'source', 'volume_notice')}
+        return {k: v for k, v in plan.items() if k not in ('candidates', 'attachment_options', 'hint', 'diagnostic_hint', 'legacy_hint', 'source', 'volume_notice')}
     cp = item(comparison['cp'])
     cp['fields'] = {k: f for k, f in cp['fields'].items() if f['selected']}
     reps = [item(r) for r in comparison['representatives'] if r['target']]
-    docs = [d for d in comparison['documents'] if d.get('selected')]
+    docs = [item(d) for d in comparison['documents'] if d.get('selected')]
     parent_keys = {d.get('parent_key') for d in docs}
     rows = [item(r) for r in comparison['vehicles'] if choices.get('vehicles', {}).get(r['key'], {}).get('include') or r['key'] in parent_keys]
     return fingerprint({'cp': cp, 'representatives': reps, 'vehicles': rows, 'documents': docs})
@@ -131,13 +137,14 @@ def upload(db, user, content, filename):
             else:
                 path.write_bytes(data)
                 try:
-                    if data.startswith(b'PK'):
-                        raise ValueError('Вложенный ZIP не распаковывается и не является СТС/тарировкой')
                     media, extension = files.content_type(path)
-                    if extension not in {'pdf', 'jpg', 'png'}:
-                        raise ValueError('Неподдерживаемый формат: только PDF/JPG/JPEG/PNG')
-                except ValueError:
-                    error = 'Неподдерживаемый формат: только проверенные PDF/JPG/JPEG/PNG'
+                except ValueError as failure:
+                    if zipfile.is_zipfile(path):
+                        error = 'Вложенный ZIP нельзя принять как документ; приложите отдельный файл'
+                    elif data and str(failure).startswith('Содержимое файла не соответствует'):
+                        media, extension = 'application/octet-stream', 'bin'
+                    else:
+                        error = str(failure)
             db.add(QuestionnaireUpload(id=token, draft_id=draft.id, name=name, size=len(data),
                 sha256=hashlib.sha256(data).hexdigest(), media_type=media, extension=extension,
                 error=error, state='STAGED', prepared={}))
@@ -170,8 +177,66 @@ def validate_choices(choices):
         if set(row) - {'fields', 'type_id', 'without_type', 'confirm_owner', 'include'} or set(row.get('fields', [])) - set(VEH_FIELDS):
             raise ValueError('Неизвестный реквизит VEH')
     for doc in choices.get('documents', {}).values():
-        if set(doc) - {'parent_key', 'kind_id', 'document_id', 'replace_file_id', 'append', 'accept'}:
+        if set(doc) - {'upload_id', 'parent_key', 'kind_id', 'document_id', 'replace_file_id', 'append', 'accept'}:
             raise ValueError('Неизвестное решение документа')
+
+
+def propose_new(db, user, draft, previous):
+    """Seed the private decision draft once, never SQL objects or existing values.
+
+    Explicit exclusions survive reopen/edits. Resolving a new row's TYPE is an
+    explicit decision; only that TYPE field is refreshed, never another row.
+    """
+    choices = dict(draft.choices)
+    comparison = build(db, user, draft)
+    new_cp = choices.get('cp_target') == 'new'
+    first_cp = new_cp and previous.get('cp_target') != 'new' and not comparison['cp']['error']
+    if first_cp and not choices.get('cp_fields'):
+        choices['cp_fields'] = [k for k, f in comparison['cp']['fields'].items() if not f['error'] and f['proposed'] not in (None, '')]
+    reps = dict(choices.get('representatives', {}))
+    vehicles = dict(choices.get('vehicles', {}))
+    if choices.get('cp_target') and not comparison['cp']['error']:
+        for r in comparison['representatives']:
+            # Never infer an existing representative's identity from a name.
+            same_name = any(c['name'] == r['fields'].get('name', {}).get('proposed') for c in r['candidates'])
+            if r['key'] not in reps and not r['id'] and not r['source_id'] and not r['error'] and not same_name:
+                fields = [k for k, f in r['fields'].items() if not f['error']]
+                if 'name' in fields:
+                    reps[r['key']] = {'target': 'new', 'fields': fields, 'signer': r['signer_hint']}
+            elif (reps.get(r['key'], {}).get('target') == 'new'
+                  and previous.get('representatives', {}).get(r['key'], {}).get('target') != 'new' and not r['error']):
+                value = reps[r['key']]
+                if not value.get('fields'):
+                    reps[r['key']] = {**value, 'fields': [k for k, f in r['fields'].items() if not f['error']]}
+        for row in comparison['vehicles']:
+            if row['key'] not in vehicles and not row['id']:
+                valid = not row['errors'] and not any(f['error'] for f in row['fields'].values())
+                vehicles[row['key']] = {'include': valid, 'fields': [k for k, f in row['fields'].items() if not f['error']] if valid else [],
+                                        'confirm_owner': False}
+            elif not row['id'] and row['key'] in vehicles:
+                old = previous.get('vehicles', {}).get(row['key'], {})
+                value = vehicles[row['key']]
+                if (old.get('type_id'), old.get('without_type')) != (value.get('type_id'), value.get('without_type')):
+                    fields = [f for f in value.get('fields', []) if f != 'type_id']
+                    if 'type_id' in row['fields'] and not row['fields']['type_id']['error']:
+                        fields.append('type_id')
+                    vehicles[row['key']] = {**value, 'fields': fields}
+            # Adding a NEW machine includes its declared selected CP relationship.
+            # Only existing machines expose independent owner reassignment.
+            if not row['id'] and vehicles.get(row['key'], {}).get('include'):
+                value = vehicles[row['key']]
+                vehicles[row['key']] = {**value, 'fields': list(dict.fromkeys([*value.get('fields', []), 'owner']))}
+    choices.update(representatives=reps, vehicles=vehicles)
+    draft.choices = choices
+    comparison = build(db, user, draft)
+    documents = dict(choices.get('documents', {}))
+    for doc in comparison['documents']:
+        if doc['key'] not in documents and doc.get('upload_id') and not doc.get('error') and not doc.get('equal') and not doc.get('document_id'):
+            parent_new = (first_cp if doc['parent_key'] == 'CP' else
+                          any(r['key'] == doc['parent_key'] and not r['id'] and vehicles.get(r['key'], {}).get('include') for r in comparison['vehicles']))
+            if parent_new:
+                documents[doc['key']] = {'kind_id': doc['kind_id'], 'accept': True}
+    draft.choices = {**choices, 'documents': documents}
 
 
 def edit(db, user, identifier, revision, choices):
@@ -182,7 +247,7 @@ def edit(db, user, identifier, revision, choices):
         if draft.preview and review_hash(build(db, user, draft), draft.choices) != review_hash(draft.preview, draft.choices):
             raise ObjectVersionConflictError('Живые карточки изменились; откройте сверку заново перед новым решением')
         validate_choices(choices)
-        previous = draft.choices
+        original = previous = draft.choices
         overrides = choices.get('cp_values', {})
         changed_values = {f for f in set(previous.get('cp_values', {})) | set(overrides)
                           if previous.get('cp_values', {}).get(f) != overrides.get(f)}
@@ -210,6 +275,7 @@ def edit(db, user, identifier, revision, choices):
             representatives[key] = {**decision, 'fields': [field for field in decision.get('fields', []) if field not in changed]}
         choices = {**choices, 'representatives': representatives}
         draft.choices = choices
+        propose_new(db, user, draft, original)
         draft.revision += 1
         draft.staging = {}
         return view(db, user, draft, reset_on_change=False)
@@ -224,6 +290,8 @@ def selected(comparison, choices):
         raise ValueError('Для принятия представителя/подписанта явно выберите существующую или новую запись')
     rows = [r for r in comparison['vehicles'] if choices.get('vehicles', {}).get(r['key'], {}).get('include')]
     docs = [d for d in comparison['documents'] if d.get('selected')]
+    if len({d.get('upload_id') for d in docs}) != len(docs):
+        raise ValueError('Один загруженный файл выбран для нескольких документов; уточните привязку')
     if not (cp_fields or cp['target'] == 'new' or reps or rows or docs):
         return cp_fields, reps, rows, docs
     if cp['error']:
@@ -489,6 +557,15 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
                     document = db.get(Document, event.object_id)
                     return f'/arm2/{document.parent_type.lower()}/{document.parent_id}/documents/{document.id}'
                 return f'/arm2/{event.object_type.lower()}/{event.object_id}'
+            for entry in outcomes:
+                identifier = entry.get('id') or entry.get('document_id')
+                model = {'CP': Counterparty, 'CPREP': CounterpartyRepresentative, 'VEH': Vehicle, 'DOCUMENT': Document}[entry['kind']]
+                record = db.get(model, identifier)
+                if record:
+                    entry['name'] = record.name + (f' · {record.plate_number}' if entry['kind'] == 'VEH' else '')
+                event = next((e for e in event_rows if e.object_type == entry['kind'] and e.object_id == identifier), None)
+                if event:
+                    entry['url'] = receipt_link(event)
             result = {'command_id': command_id, 'draft_id': draft.id, 'cp_id': cp.id if cp else None,
                 'filled_date': draft.filled_date.isoformat() if draft.filled_date else None,
                 'uploaded_at': draft.uploaded_at.astimezone(UTC).isoformat(), 'accepted_at': accepted.isoformat(),

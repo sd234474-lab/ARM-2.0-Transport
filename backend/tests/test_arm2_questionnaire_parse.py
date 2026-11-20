@@ -59,3 +59,25 @@ def test_invalid_date_is_visible_warning_not_invented_date_or_blocker():
 def test_formula_payload_is_not_a_parser_for_arbitrary_details_keys():
     parsed, _ = parse(workbook({'A13': 'inn:ИНН', 'B7': 'details', 'B18': '=HYPERLINK("https://invalid")'}), 'synthetic.xlsx')
     assert parsed['cp']['phone'] == '' and 'details' not in parsed['cp'] and 'inn:ИНН' not in parsed['cp']
+
+
+@pytest.mark.parametrize('mode,expected', [('НОВАЯ', 'I'), ('ИЗ СПРАВОЧНИКА', 'E'), ('ВЫБЫЛО', 'E'), ('', None), ('OTHER', None)])
+def test_issue78_vehicle_columns_are_selected_only_by_explicit_mode(mode, expected):
+    raw = {'C': mode, 'I': 'A234BC86', 'H': 'New type', 'J': 'New name', 'K': 'New model',
+           'E': 'B345BC86', 'D': 'Existing type', 'F': 'Existing name', 'G': 'Existing model'}
+    data, _ = parse(workbook(rows=[raw]), 'synthetic.xlsx')
+    row = data['vehicles'][0]
+    assert row['plate_number'] == (raw[expected] if expected else '')
+    assert row['name'] == ('New name' if expected == 'I' else 'Existing name' if expected else '')
+    assert bool(row['status_error']) == (expected is None)
+
+
+def test_issue78_xlsx_attachment_is_not_mistaken_for_second_questionnaire():
+    from openpyxl import Workbook
+    ordinary = Workbook()
+    ordinary.active['A1'] = 'Ordinary attachment, no questionnaire schema'
+    out = io.BytesIO()
+    ordinary.save(out)
+    ordinary.close()
+    parsed, attachments = parse(transport(workbook({'B5': 'ООО', 'B12': 'Synthetic'}), {'other.xlsx': out.getvalue()}), 'synthetic.zip')
+    assert parsed['cp']['name'] == 'Synthetic' and attachments['other.xlsx'] == out.getvalue()

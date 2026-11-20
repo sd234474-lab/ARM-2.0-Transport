@@ -207,7 +207,7 @@ def safe_name(preset, document, parent, kind, file_id, extension):
     if (
         preset not in PRESETS
         or not re.fullmatch(r"FILE-[0-9]{6,}", file_id)
-        or extension not in {"pdf", "png", "jpg", "gif", "webp", "docx", "xlsx", "pptx"}
+        or extension not in {"pdf", "png", "jpg", "gif", "webp", "docx", "xlsx", "pptx", "bin"}
     ):
         raise ValueError("Настройте поддерживаемый шаблон имени файла в типе документа")
     text = document.name if preset == "DOCUMENT_NAME" else parent.name + " " + kind.name

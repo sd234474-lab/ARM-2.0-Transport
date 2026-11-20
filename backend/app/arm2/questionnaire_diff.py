@@ -1,16 +1,18 @@
 """Live, permission-aware questionnaire comparison; never writes domain objects."""
 import re
+import unicodedata
 
 from sqlalchemy import or_, select
 
 from app.arm2.counterparty_models import Counterparty
-from app.arm2.counterparty_rules import LEGAL, PERSON, official_names, transition_clears
+from app.arm2.counterparty_rules import LEGAL, PERSON, inapplicable_fields, official_names, transition_clears
 from app.arm2.counterparty_store import COUNTERPARTY_ADAPTER, PARTY_FIELDS
 from app.arm2.document_file_models import DocumentFile
 from app.arm2.document_file_store import revision_files
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_models import Document
 from app.arm2.object_save import ObjectAuthorizationError
+from app.arm2.organization_models import Organization
 from app.arm2.questionnaire_models import QuestionnaireUpload
 from app.arm2.representative_models import CounterpartyRepresentative
 from app.arm2.representative_store import CPREP_ADAPTER, representative_values
@@ -60,6 +62,8 @@ def build(db, principal, draft):
             Counterparty.inn == cp_values.get('inn') if cp_values.get('inn') else False,
             Counterparty.name == cp_values.get('name'), Counterparty.id == cp_hint,
             Counterparty.name == cp_hint)).order_by(Counterparty.id).limit(100))]
+    if target == 'new' and candidates:
+        cp_error = 'Найден совпадающий контрагент; выберите существующую карточку вместо создания дубля'
     cp_errors, normalized = dict(payload.get('cp_errors', {})), {}
     base = {f: getattr(cp, f) if cp else None for f in (*PARTY_FIELDS, 'type', 'last_name', 'first_name', 'middle_name')}
     base['name'] = base['name'] or cp_values.get('name') or 'Анкета'
@@ -93,6 +97,8 @@ def build(db, principal, draft):
                 if validation_base['type'] == PERSON and validation_base.get('legal_form') not in (None, 'ИП'):
                     validation_base['legal_form'] = None
             normalized[field] = COUNTERPARTY_ADAPTER.normalize({**validation_base, field: value})[field]
+            if field in inapplicable_fields(normalization_base) and value != base.get(field):
+                cp_errors[field] = 'Реквизит неприменим к предложенному типу контрагента; оставьте без изменения'
             if field == 'inn' and db.scalar(select(Counterparty.id).where(Counterparty.inn == normalized[field],
                                                 Counterparty.id != (cp.id if cp else ''))) is not None:
                 cp_errors[field] = 'ИНН уже принадлежит другой карточке; выберите её'
@@ -117,12 +123,22 @@ def build(db, principal, draft):
             item.update(proposed=None, selected=True, equal=current is None, error=None)
     if cp and 'name' in cp_fields and not cp_fields['name']['equal']:
         cp_fields['name']['error'] = 'Рабочее имя существующего CP сохраняется; изменяйте его вручную в карточке'
-    conflict = bool(cp and ((cp_hint and cp_hint != cp.id) or
-        (cp_values.get('inn') and cp.inn and cp_values['inn'] != cp.inn) or
-        any(f in effective and effective[f] != getattr(cp, f) for f in ('type', 'legal_form'))))
+    reasons = []
+    if cp:
+        if cp_hint and cp_hint not in (cp.id, cp.name):
+            hinted = db.get(Counterparty, cp_hint) if re.fullmatch(r'CP-\d{6,}', cp_hint) else None
+            reasons.append({'field': 'counterparty', 'label': 'Контрагент', 'current': cp.name,
+                            'proposed': hinted.name if hinted else 'В анкете указан другой контрагент'})
+        if cp_values.get('inn') and cp.inn and cp_values['inn'] != cp.inn:
+            reasons.append({'field': 'inn', 'label': 'ИНН', 'current': cp.inn, 'proposed': cp_values['inn']})
+        for field, label in (('type', 'Тип контрагента'), ('legal_form', 'Организационно-правовая форма')):
+            if effective.get(field) != getattr(cp, field):
+                reasons.append({'field': field, 'label': label, 'current': getattr(cp, field), 'proposed': effective.get(field)})
+    conflict = bool(reasons)
     cp_plan = {'key': 'CP', 'id': cp.id if cp else None, 'target': target, 'version': cp.version if cp else None,
                'error': cp_error, 'candidates': candidates, 'hint': payload.get('cp_hint'),
-               'identity_conflict': conflict, 'identity_confirmed': bool(choices.get('confirm_identity')),
+               'identity_conflict': conflict, 'identity_conflict_reasons': reasons,
+               'name': cp.name if cp else cp_values.get('name'), 'identity_confirmed': bool(choices.get('confirm_identity')),
                'notices': notices, 'fields': cp_fields}
     reps = []
     for index, proposed in enumerate(payload.get('representatives', [])):
@@ -191,6 +207,8 @@ def build(db, principal, draft):
             if by_id and by_id.plate_number != plate:
                 raise ValueError('VEH-ID и госномер не совпадают; исправьте исходную строку')
             current = by_id or by_plate
+            if current is None and raw.get('state_hint') in ('ИЗ СПРАВОЧНИКА', 'ВЫБЫЛО'):
+                raise ValueError('Машина из справочника не найдена; для создания выберите режим НОВАЯ в анкете')
             if plate in seen:
                 errors.append('Повтор госномера в строках анкеты')
                 seen[plate]['errors'].append('Повтор госномера в строках анкеты')
@@ -227,6 +245,21 @@ def build(db, principal, draft):
         fields = changes(proposed, current, choice.get('fields', []), {'type_id': type_error} if type_error else {})
         fields['owner'] = {'current': actual_owner, 'proposed': next_owner, 'selected': 'owner' in choice.get('fields', []),
                            'equal': actual_owner == next_owner, 'error': None if expected_owner else 'Сначала выберите CP'}
+        def owner_name(value):
+            if not value:
+                return 'Не назначен'
+            if value == ['CP', '$CP']:
+                return cp_values.get('name') or 'Создаваемый контрагент'
+            model = Counterparty if value[0] == 'CP' else Organization
+            if not has_permission(user, Permission('arm2_' + value[0].lower() + '_view')):
+                return 'Другой владелец'
+            record = db.get(model, value[1])
+            return record.name if record else 'Прежний владелец'
+        fields['owner'].update(current_display=owner_name(actual_owner), proposed_display=owner_name(next_owner))
+        if 'type_id' in fields:
+            old_type = db.get(VehicleType, current.type_id) if current and current.type_id and type_view else None
+            fields['type_id'].update(current_display=old_type.name if old_type else 'Не указан',
+                                     proposed_display=typ.name if typ else 'Требуется выбор типа или сохранение без типа')
         plan = {'key': raw['key'], 'row': raw['row'], 'id': current.id if current else None,
                 'plate_number': plate, 'version': current.version if current else None, 'fields': fields, 'errors': errors,
                 'withdrawal': withdrawal, 'confirm_owner': bool(choice.get('confirm_owner')),
@@ -240,29 +273,66 @@ def build(db, principal, draft):
     attachments = list(db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == draft.id)
                                  .order_by(QuestionnaireUpload.name, QuestionnaireUpload.id)))
     by_name = {}
+    def reference(name):
+        return unicodedata.normalize('NFC', name.replace('\\', '/').strip()).casefold()
     for attachment in attachments:
-        for name in {attachment.name.casefold(), attachment.name.rsplit('/', 1)[-1].casefold()}:
+        # Non-UTF8 ZIP headers are decoded as CP437 by ZipFile. Keep provenance,
+        # but allow an EXACT cell match in the legacy codepages used by senders.
+        # Multiple matching physical files still remain ambiguous; no ranking.
+        variants = {attachment.name}
+        try:
+            raw_name = attachment.name.encode('cp437')
+        except UnicodeEncodeError:
+            raw_name = None
+        if raw_name is not None:
+            for encoding in ('cp866', 'cp1251'):
+                try:
+                    variants.add(raw_name.decode(encoding))
+                except UnicodeDecodeError:
+                    pass
+        for name in {reference(n) for v in variants for n in (v, v.rsplit('/', 1)[-1])}:
             by_name.setdefault(name, []).append(attachment)
     declarations = [('company', 'CP', 'Карточка предприятия', payload.get('company_file'))]
     for row in payload.get('vehicles', []):
         declarations.extend([(row['key'] + ':sts', row['key'], 'СТС', row.get('sts_file')),
                              (row['key'] + ':calibration', row['key'], 'Тарировка', row.get('calibration_file'))])
     documents, bound = [], set()
-    for key, parent_key, role, name in declarations:
+    resolved = {}
+    for key, _, _, name in declarations:
         if not name:
             continue
-        matches = list({a.id: a for a in by_name.get(name.replace('\\', '/').casefold(), [])}.values())
-        if not matches and '/' not in name:
-            matches = list({a.id: a for a in by_name.get(name.casefold(), [])}.values())
+        override = choices.get('documents', {}).get(key, {}).get('upload_id')
+        resolved[key] = ([a for a in attachments if a.id == override] if override else
+                         list({a.id: a for a in by_name.get(reference(name), [])}.values()))
+    claimed = {}
+    for key, matches in resolved.items():
+        if len(matches) == 1:
+            claimed.setdefault(matches[0].id, []).append(key)
+    for key, parent_key, role, name in sorted(declarations, key=lambda d: not choices.get('documents', {}).get(d[0], {}).get('accept')):
+        if not name:
+            continue
+        matches = resolved[key]
         if len(matches) == 1:
             attachment = matches[0]
+            competing = claimed[attachment.id]
+            explicit = [k for k in competing if choices.get('documents', {}).get(k, {}).get('accept')]
+            collision = len(competing) > 1 and explicit != [key]
+            if attachment.id in bound:
+                documents.append({'key': key, 'name': name, 'parent_key': parent_key, 'role': role,
+                                  'selected': bool(choices.get('documents', {}).get(key, {}).get('accept')),
+                                  'error': 'Файл уже указан для другой строки; выберите отдельное вложение',
+                                  'attachment_options': [{'id': a.id, 'name': a.name} for a in attachments]})
+                continue
             bound.add(attachment.id)
-            documents.append(document_plan(db, user, draft, attachment, key, parent_key, role, cp, rows))
+            plan = document_plan(db, user, draft, attachment, key, parent_key, role, cp, rows)
+            if collision:
+                plan['error'] = 'Один файл указан несколько раз; явно примите только одну привязку или выберите другой файл'
+            documents.append(plan)
         else:
             documents.append({'key': key, 'name': name, 'parent_key': parent_key, 'role': role,
                               'selected': bool(choices.get('documents', {}).get(key, {}).get('accept')),
                               'error': 'Файл отсутствует' if not matches else 'Имя неоднозначно; выберите файл в непривязанных',
-                              'choices': [a.id for a in matches]})
+                              'attachment_options': [{'id': a.id, 'name': a.name} for a in attachments]})
     for attachment in attachments:
         if attachment.id not in bound:
             signed = next((f for f in (payload.get('manifest') or {}).get('files', []) if f['name'] == attachment.name), None)
@@ -278,6 +348,7 @@ def build(db, principal, draft):
     types = [{'id': t.id, 'name': t.name, 'plate_category': t.plate_category} for t in db.scalars(
         select(VehicleType).where(VehicleType.status == 'CONFIRMED').order_by(VehicleType.id))] if type_view else []
     return {'cp': cp_plan, 'representatives': reps, 'vehicles': rows, 'documents': documents,
+            'document_kind_notice': (None if kinds else 'Нет доступных видов документов. Администратор должен проверить права и подготовить виды «Карточка предприятия», «СТС», «Тарировка» в справочнике видов документов до импорта.'),
             'document_kinds': kinds, 'types': types, 'warnings': payload.get('warnings', []),
             'filled_date': draft.filled_date.isoformat() if draft.filled_date else None,
             'uploaded_at': draft.uploaded_at.isoformat()}
@@ -285,7 +356,7 @@ def build(db, principal, draft):
 
 def document_plan(db, user, draft, attachment, key, parent_key, role, cp, rows):
     choice = draft.choices.get('documents', {}).get(key, {})
-    parent_key = choice.get('parent_key') or parent_key
+    parent_key = (choice.get('parent_key') or parent_key) if key.startswith('unbound:') else parent_key
     row = next((r for r in rows if r['key'] == parent_key), None)
     ptype, pid = ('CP', cp.id if cp else None) if parent_key == 'CP' else ('VEH', row['id'] if row else None)
     if parent_key and parent_key.startswith('VEH-') and has_permission(user, Permission.ARM2_VEH_VIEW):
@@ -308,7 +379,9 @@ def document_plan(db, user, draft, attachment, key, parent_key, role, cp, rows):
         error = error or 'Выберите допустимого родителя и тип документа'
     if doc_id and doc_id != 'new' and (doc is None or doc.parent_type != ptype or doc.parent_id != pid):
         error = 'DOCUMENT не принадлежит выбранному родителю'
-    kind_id = choice.get('kind_id') or (doc.kind_ref if doc else None)
+    role_kinds = list(db.scalars(select(DocumentKind).where(DocumentKind.name == role))) if allowed and has_permission(user, Permission.ARM2_DOC_KIND_VIEW) else []
+    role_kinds = [k for k in role_kinds if ptype in k.applicable_object_types and k.file_naming_template]
+    kind_id = choice.get('kind_id') or (doc.kind_ref if doc else role_kinds[0].id if len(role_kinds) == 1 else None)
     kind = db.get(DocumentKind, kind_id) if kind_id else None
     if doc and kind_id != doc.kind_ref:
         error = error or 'Выбранный DOCUMENT относится к другому виду'
@@ -332,4 +405,5 @@ def document_plan(db, user, draft, attachment, key, parent_key, role, cp, rows):
             'revision_id': doc.current_revision_id if doc else None, 'replace_file_id': replace,
             'append': bool(choice.get('append')), 'selected': bool(choice.get('accept')) and not same,
             'equal': same, 'error': error, 'sha256': attachment.sha256, 'media_type': attachment.media_type,
+            'attachment_options': [{'id': a.id, 'name': a.name} for a in db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == draft.id))],
             'candidates': candidates, 'current_files': [{'id': f.id, 'name': f.original_upload_name, 'sha256': f.sha256} for f in current]}

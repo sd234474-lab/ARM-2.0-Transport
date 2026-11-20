@@ -5,7 +5,8 @@ from uuid import uuid4
 import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import IntegrityError
 from test_arm2_questionnaire_workflow import api as api
 from test_arm2_questionnaire_workflow import b5 as b5
 from test_arm2_questionnaire_workflow import qa as qa
@@ -30,7 +31,7 @@ def test_0069_upgrade_preserves_0068_rows_ids_versions_history_and_sequence(isol
     monkeypatch.setenv('DATABASE_URL', isolated_arm2_database_url)
     settings.cache_clear()
     scripts = ScriptDirectory.from_config(config())
-    assert scripts.get_heads() == ['0070'] and scripts.get_revision('0069').down_revision == '0068'
+    assert scripts.get_heads() == ['0071'] and scripts.get_revision('0069').down_revision == '0068'
     command.downgrade(config(), '0068')
     engine = create_engine(isolated_arm2_database_url)
     with engine.begin() as db:
@@ -80,4 +81,40 @@ def test_0069_guard_never_discards_names_history_or_questionnaire_ledgers(b5, re
     with pytest.raises(RuntimeError, match='0070.*downgrade refused'):
         command.downgrade(config(), '0068')
     assert snapshot(db) == before
-    assert db.scalar(text('SELECT version_num FROM alembic_version')) == '0070'
+    assert db.scalar(text('SELECT version_num FROM alembic_version')) == '0071'
+
+
+def test_0071_preserves_existing_files_and_enables_only_opaque_bin(isolated_arm2_database_url, monkeypatch):
+    monkeypatch.setenv('DATABASE_URL', isolated_arm2_database_url)
+    settings.cache_clear()
+    assert ScriptDirectory.from_config(config()).get_revision('0071').down_revision == '0070'
+    command.downgrade(config(), '0070')
+    engine = create_engine(isolated_arm2_database_url)
+    with engine.begin() as db:
+        db.execute(text("INSERT INTO arm2_counterparties(id,name,type,version) VALUES('CP-700001','Synthetic migration','Юридическое лицо',3)"))
+        db.execute(text("INSERT INTO arm2_document_kinds(id,name,applicable_object_types) VALUES('DOC-KIND-700001','Synthetic','[\"CP\"]'::jsonb)"))
+        db.execute(text("INSERT INTO arm2_documents(id,parent_type,parent_id,kind_ref,name,version) VALUES('DOCUMENT-700001','CP','CP-700001','DOC-KIND-700001','Synthetic',2)"))
+        for i, extension in enumerate(('pdf', 'png', 'jpg', 'gif', 'webp', 'docx', 'xlsx', 'pptx'), 1):
+            db.execute(text("""INSERT INTO arm2_document_files(id,document_id,original_upload_name,stored_name,storage_ref,size,sha256,media_type,extension)
+                VALUES(:id,'DOCUMENT-700001',:name,:name,:ref,10,:sha,'synthetic/metadata',:ext)"""),
+                {'id': f'FILE-{700000+i}', 'name': 'synthetic.'+extension, 'ref': 'disk:/SYNTHETIC/'+extension,
+                 'sha': f'{i:064x}', 'ext': extension})
+    with engine.connect() as db:
+        before = db.execute(text('SELECT row_to_json(t)::text FROM arm2_document_files t ORDER BY id')).scalars().all()
+        old_constraint = next(c['sqltext'] for c in inspect(db).get_check_constraints('arm2_document_files') if c['name'] == 'ck_arm2_file_metadata')
+        assert 'bin' not in old_constraint
+    command.upgrade(config(), '0071')
+    with engine.connect() as db:
+        assert db.execute(text('SELECT row_to_json(t)::text FROM arm2_document_files t ORDER BY id')).scalars().all() == before
+    with engine.begin() as db:
+        db.execute(text("""INSERT INTO arm2_document_files(id,document_id,original_upload_name,stored_name,storage_ref,size,sha256,media_type,extension)
+            VALUES('FILE-799999','DOCUMENT-700001','card.doc','synthetic.bin','disk:/SYNTHETIC/bin',12,repeat('f',64),'application/octet-stream','bin')"""))
+    with pytest.raises(RuntimeError, match='0071 downgrade refused'):
+        command.downgrade(config(), '0070')
+    with engine.connect() as db:
+        assert db.scalar(text('SELECT version_num FROM alembic_version')) == '0071'
+        assert db.scalar(text("SELECT original_upload_name FROM arm2_document_files WHERE extension='bin'")) == 'card.doc'
+    with pytest.raises(IntegrityError, match='ck_arm2_file_metadata'), engine.begin() as db:
+        db.execute(text("""INSERT INTO arm2_document_files(id,document_id,original_upload_name,stored_name,storage_ref,size,sha256,media_type,extension)
+            VALUES('FILE-799998','DOCUMENT-700001','bad.exe','bad.exe','disk:/SYNTHETIC/bad',12,repeat('e',64),'application/octet-stream','exe')"""))
+    engine.dispose()
