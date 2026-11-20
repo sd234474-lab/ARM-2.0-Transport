@@ -1,0 +1,64 @@
+{
+  "name": "arm2-ubuntu-uat-r2",
+  "services": {
+    "r2-db": {
+      "image": "postgis/postgis:16-3.5",
+      "restart": "no",
+      "environment": {
+        "POSTGRES_DB": "arm2_r2_uat",
+        "POSTGRES_USER": "arm2r2",
+        "POSTGRES_PASSWORD": "${R2_DB_PASSWORD:?Generate private R2 password}"
+      },
+      "volumes": ["r2_postgres_data:/var/lib/postgresql/data"],
+      "networks": ["r2_internal"],
+      "healthcheck": {
+        "test": ["CMD-SHELL", "pg_isready -U arm2r2 -d arm2_r2_uat"],
+        "interval": "5s", "timeout": "5s", "retries": 20
+      }
+    },
+    "r2-api": {
+      "image": "arm2-r2-api:${R2_SOURCE_SHA:?Set reviewed checkout SHA}",
+      "build": {"context": "./backend", "dockerfile": "Dockerfile"},
+      "pull_policy": "never",
+      "user": "10001:10001",
+      "restart": "no",
+      "environment": {
+        "DATABASE_URL": "postgresql+psycopg://arm2r2:${R2_DB_PASSWORD:?Generate private R2 password}@r2-db:5432/arm2_r2_uat",
+        "APP_ENV": "test", "ORGANIZATIONS_ENABLED": "false",
+        "DATA_DIR": "/data", "COOKIE_SECURE": "false",
+        "APP_ORIGIN": "${APP_ORIGIN:?Set exact loopback origin}",
+        "ARM2_TABLE_SIGNING_KEY": "${ARM2_TABLE_SIGNING_KEY:?Generate new private R2 key}",
+        "MAX_BOT_TOKEN": "", "YANDEX_DISK_TOKEN": "", "YANDEX_MAPS_API_KEY": ""
+      },
+      "volumes": ["r2_photo_data:/data", "r2_file_data:/files"],
+      "networks": {"r2_internal": {"aliases": ["api"]}},
+      "depends_on": {"r2-db": {"condition": "service_healthy"}},
+      "healthcheck": {
+        "test": ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=4)"],
+        "interval": "10s", "timeout": "5s", "retries": 12, "start_period": "20s"
+      }
+    },
+    "r2-web": {
+      "image": "arm2-r2-web:${R2_SOURCE_SHA:?Set reviewed checkout SHA}",
+      "build": {"context": "./frontend", "dockerfile": "Dockerfile", "target": "operators"},
+      "pull_policy": "never",
+      "restart": "no",
+      "ports": [{"target": 80, "published": "${R2_HTTP_PORT:?Select verified unused R2 port}", "host_ip": "127.0.0.1", "protocol": "tcp"}],
+      "networks": ["r2_internal", "r2_ingress"],
+      "depends_on": {"r2-api": {"condition": "service_healthy"}},
+      "healthcheck": {
+        "test": ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/api/health"],
+        "interval": "10s", "timeout": "5s", "retries": 12
+      }
+    }
+  },
+  "volumes": {
+    "r2_postgres_data": {"name": "arm2-ubuntu-uat-r2_r2_postgres_data"},
+    "r2_photo_data": {"name": "arm2-ubuntu-uat-r2_r2_photo_data"},
+    "r2_file_data": {"name": "arm2-ubuntu-uat-r2_r2_file_data"}
+  },
+  "networks": {
+    "r2_internal": {"name": "arm2-ubuntu-uat-r2_r2_internal", "internal": true},
+    "r2_ingress": {"name": "arm2-ubuntu-uat-r2_r2_ingress"}
+  }
+}
