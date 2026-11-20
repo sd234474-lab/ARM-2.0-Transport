@@ -64,21 +64,21 @@ def all_party_permissions():
 def test_party_routes_auth_permissions_and_csrf(client, users, db):
     assert client.get("/api/arm2/counterparties").status_code == 401
     assert client.post(
-        "/api/arm2/counterparties", json=party_body("CP")
+        "/api/arm2/counterparties", json=party_body("CP", type='Юридическое лицо')
     ).status_code == 401
 
     set_operator(db, [Permission.ARM2_CP_VIEW])
     sign_in(client)
     assert client.get("/api/arm2/counterparties").status_code == 200
     assert client.post(
-        "/api/arm2/counterparties", json=party_body("CP")
+        "/api/arm2/counterparties", json=party_body("CP", type='Юридическое лицо')
     ).status_code == 403
     assert client.get("/api/arm2/organizations").status_code == 403
 
     set_operator(db, [Permission.ARM2_CP_VIEW, Permission.ARM2_CP_EDIT])
     response = client.post(
         "/api/arm2/counterparties",
-        json=party_body("No CSRF"),
+        json=party_body("No CSRF", type='Юридическое лицо'),
         headers={"X-CSRF-Token": "wrong"},
     )
     assert response.status_code == 403
@@ -101,7 +101,7 @@ def test_party_lifecycle_partial_fields_status_uniqueness_and_history(
     operator = set_operator(db, all_party_permissions())
     sign_in(client)
     cp_body = party_body(
-        "CP One",
+        "CP One", type="Юридическое лицо",
         full_name="Counterparty Full",
         inn="0012345678",
         bank_name="Bank",
@@ -112,7 +112,7 @@ def test_party_lifecycle_partial_fields_status_uniqueness_and_history(
     response = client.post("/api/arm2/counterparties", json=cp_body)
     assert response.status_code == 201, response.text
     cp = response.json()
-    assert cp["status"] == "REVIEW" and cp["version"] == 1
+    assert 'status' not in cp and cp['type'] == 'Юридическое лицо' and cp["version"] == 1
     assert cp["inn"] == "0012345678"
     assert set(cp) == {
         "id",
@@ -135,7 +135,7 @@ def test_party_lifecycle_partial_fields_status_uniqueness_and_history(
         "settlement_account",
         "correspondent_account",
         "primary_signer_id",
-        "status",
+        "type", "inapplicable_values",
         "version",
     }
 
@@ -149,7 +149,7 @@ def test_party_lifecycle_partial_fields_status_uniqueness_and_history(
     )
     assert confirmed.status_code == 200, confirmed.text
     cp = confirmed.json()
-    assert (cp["status"], cp["version"]) == ("CONFIRMED", 2)
+    assert 'status' not in cp and cp["version"] == 2
     assert cp["full_name"] == "Counterparty Full"
     assert cp["bank_name"] == "Bank"
     assert cp["settlement_account"] == "00000000000000000001"
@@ -187,10 +187,7 @@ def test_party_lifecycle_partial_fields_status_uniqueness_and_history(
         },
     )
     assert reviewed.status_code == 200
-    assert (reviewed.json()["status"], reviewed.json()["version"]) == (
-        "REVIEW",
-        4,
-    )
+    assert 'status' not in reviewed.json() and reviewed.json()["version"] == 4
 
     org = client.post(
         "/api/arm2/organizations",
@@ -203,7 +200,7 @@ def test_party_lifecycle_partial_fields_status_uniqueness_and_history(
     )
     assert org.status_code == 201, org.text
     org = org.json()
-    assert org["status"] == "CONFIRMED"
+    assert 'status' not in org and 'type' not in org
     assert org["inn"] == cp["inn"]
     org_update = client.put(
         f"/api/arm2/organizations/{org['id']}",
@@ -224,7 +221,7 @@ def test_party_lifecycle_partial_fields_status_uniqueness_and_history(
     before_history = db.scalar(select(func.count()).select_from(HistoryEvent))
     duplicate = client.post(
         "/api/arm2/counterparties",
-        json=party_body("Duplicate", inn="0012345678"),
+        json=party_body("Duplicate", inn="0012345678", type='Юридическое лицо'),
     )
     assert duplicate.status_code == 409
     assert "sql" not in duplicate.text.lower()
@@ -232,8 +229,8 @@ def test_party_lifecycle_partial_fields_status_uniqueness_and_history(
     assert db.scalar(select(func.count()).select_from(HistoryEvent)) == before_history
 
     for invalid in (
-        party_body("Bad email", email="not-an-email"),
-        party_body("Bad BIK", bik="123"),
+        party_body("Bad email", email="not-an-email", type='Юридическое лицо'),
+        party_body("Bad BIK", bik="123", type='Юридическое лицо'),
     ):
         response = client.post("/api/arm2/counterparties", json=invalid)
         assert response.status_code == 422
@@ -247,12 +244,12 @@ def test_party_lifecycle_partial_fields_status_uniqueness_and_history(
     ):
         response = client.post(
             "/api/arm2/counterparties",
-            json={"name": "Spoofed", forbidden: "client"},
+            json={'type': 'Юридическое лицо', "name": "Spoofed", forbidden: "client"},
         )
         assert response.status_code == 422
 
     second = client.post(
-        "/api/arm2/counterparties", json=party_body("CP Two")
+        "/api/arm2/counterparties", json=party_body("CP Two", type='Юридическое лицо')
     ).json()
     page = client.get("/api/arm2/counterparties?limit=1&offset=1")
     assert page.status_code == 200 and page.json() == [second]
@@ -278,10 +275,10 @@ def test_representatives_parent_scope_full_put_and_primary_signer(client, users,
     operator = set_operator(db, all_party_permissions())
     sign_in(client)
     cp_one = client.post(
-        "/api/arm2/counterparties", json=party_body("CP One")
+        "/api/arm2/counterparties", json=party_body("CP One", type='Юридическое лицо')
     ).json()
     cp_two = client.post(
-        "/api/arm2/counterparties", json=party_body("CP Two")
+        "/api/arm2/counterparties", json=party_body("CP Two", type='Юридическое лицо')
     ).json()
     org = client.post(
         "/api/arm2/organizations", json=party_body("ORG One")
@@ -416,7 +413,7 @@ def test_representative_validation_and_user_link_do_not_grant_access(
     operator = set_operator(db, all_party_permissions())
     sign_in(client)
     cp = client.post(
-        "/api/arm2/counterparties", json=party_body("CP")
+        "/api/arm2/counterparties", json=party_body("CP", type='Юридическое лицо')
     ).json()
     response = client.post(
         f"/api/arm2/counterparties/{cp['id']}/representatives",
@@ -479,7 +476,7 @@ def test_party_save_authorization_failure_returns_403_and_rolls_back(
         arm2_routes, "create_counterparty", revoke_edit_permission
     )
     response = client.post(
-        "/api/arm2/counterparties", json=party_body("Forbidden")
+        "/api/arm2/counterparties", json=party_body("Forbidden", type='Юридическое лицо')
     )
 
     assert response.status_code == 403

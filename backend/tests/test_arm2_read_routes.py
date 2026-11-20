@@ -11,8 +11,8 @@ from app.models import User
 
 @pytest.fixture
 def catalog(db):
-    db.add_all([Counterparty(id='CP-000001', name='Партнёр', full_name='Полное имя', legal_form='ООО', status='REVIEW'),
-                Organization(id='ORG-000001', name='Своя организация', full_name='Полное ORG', legal_form='ИП', status='REVIEW'),
+    db.add_all([Counterparty(type='Юридическое лицо', id='CP-000001', name='Партнёр', full_name='Полное имя', legal_form='ООО'),
+                Organization(id='ORG-000001', name='Своя организация', full_name='Полное ORG', legal_form='ИП'),
                 VehicleType(id='TYPE-000001', name='Самосвал', requires_sts=True, requires_calibration=False,
                             requires_wialon=True, status='CONFIRMED')])
     db.flush()
@@ -62,7 +62,7 @@ def test_invalid_query_is_rejected(admin, catalog, query):
 
 def test_party_read_models_and_type_search(admin, catalog):
     for path, full_name, form in [('counterparties', 'Полное имя', 'ООО'), ('organizations', 'Полное ORG', 'ИП')]:
-        result = admin.get('/api/arm2/' + path + '/search', params={'q': full_name.lower(), 'legal_form': form, 'status': 'REVIEW'}).json()
+        result = admin.get('/api/arm2/' + path + '/search', params={'q': full_name.lower(), 'legal_form': form}).json()
         assert result['total'] == result['matched'] == 1
         assert result['items'][0]['full_name'] == full_name and result['items'][0]['legal_form'] == form
         assert admin.get('/api/arm2/' + path + '/search?status=READY').status_code == 422

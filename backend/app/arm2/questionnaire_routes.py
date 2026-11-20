@@ -72,6 +72,9 @@ class DocumentChoice(Command):
 class Choices(Command):
     cp_target: str | None = None
     cp_fields: list[str] = Field(default_factory=list, max_length=24)
+    cp_clears: list[str] = Field(default_factory=list, max_length=24)
+    cp_values: dict[Literal['type', 'legal_form'], str | None] = Field(default_factory=dict, max_length=2)
+    confirm_identity: StrictBool = False
     representatives: dict[str, RepresentativeChoice] = Field(default_factory=dict, max_length=1000)
     vehicles: dict[str, VehicleChoice] = Field(default_factory=dict, max_length=1000)
     documents: dict[str, DocumentChoice] = Field(default_factory=dict, max_length=512)

@@ -8,6 +8,7 @@ class Counterparty(Base):
     __tablename__ = "arm2_counterparties"
     id: Mapped[str] = mapped_column(String, primary_key=True)
     name: Mapped[str] = mapped_column(String(500), nullable=False)
+    type: Mapped[str] = mapped_column(String(30), nullable=False)
     full_name: Mapped[str | None] = mapped_column(String(2000))
     last_name: Mapped[str | None] = mapped_column(String(200))
     first_name: Mapped[str | None] = mapped_column(String(200))
@@ -26,7 +27,6 @@ class Counterparty(Base):
     settlement_account: Mapped[str | None] = mapped_column(String(20))
     correspondent_account: Mapped[str | None] = mapped_column(String(20))
     primary_signer_id: Mapped[str | None] = mapped_column(String)
-    status: Mapped[str] = mapped_column(String, nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     __table_args__ = (
         ForeignKeyConstraint(
@@ -36,6 +36,7 @@ class Counterparty(Base):
         ),
         CheckConstraint("id ~ '^CP-[0-9]{6,}$'", name="ck_arm2_counterparties_id"),
         CheckConstraint("name=btrim(name) AND name<>''", name="ck_arm2_counterparties_name"),
-        CheckConstraint("status IN ('REVIEW','CONFIRMED')", name="ck_arm2_counterparties_status"),
+        CheckConstraint("type IN ('Физическое лицо','Юридическое лицо')", name="ck_arm2_counterparties_type"),
+        CheckConstraint("type<>'Физическое лицо' OR legal_form IS NULL OR legal_form='ИП'", name="ck_arm2_counterparties_legal_form"),
         UniqueConstraint("inn", name="uq_arm2_counterparties_inn"),
     )

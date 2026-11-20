@@ -60,5 +60,52 @@ def normalize_party(values):
     return normalized
 
 
-def party_status(values):
-    return "CONFIRMED" if values["full_name"] and values["legal_address"] else "REVIEW"
+PERSON = "Физическое лицо"
+LEGAL = "Юридическое лицо"
+NAME_FIELDS = ("last_name", "first_name", "middle_name")
+
+
+def normalize_counterparty(values):
+    result = normalize_party(values)
+    if values.get("type") not in (PERSON, LEGAL):
+        raise ValueError("Выберите тип: Физическое лицо или Юридическое лицо")
+    result["type"] = values["type"]
+    if result["type"] == PERSON and result["legal_form"] not in (None, "ИП"):
+        raise ValueError("ОПФ физического лица: ИП или пусто")
+    result.update({f: optional_text(values[f], f, 200) for f in NAME_FIELDS})
+    return result
+
+
+def official_names(values):
+    """Display projection only. Never store a second source of personal names."""
+    if values.get("type") != PERSON:
+        return values.get("full_name"), values.get("short_name")
+    full = " ".join(values.get(f) or "" for f in NAME_FIELDS).strip()
+    full = " ".join(full.split()) or None
+    short = " ".join(filter(None, [values.get("last_name"),
+        "".join((values.get(f) or "")[0:1] + "." for f in NAME_FIELDS[1:] if values.get(f))])) or None
+    if values.get("legal_form") == "ИП":
+        full = "Индивидуальный предприниматель" + (" " + full if full else "")
+        short = "ИП" + (" " + short if short else "")
+    return full, short
+
+
+def inapplicable_fields(values):
+    if values.get("type") == PERSON:
+        return ("full_name", "short_name", "kpp", *(() if values.get("legal_form") == "ИП" else ("ogrn",)))
+    return NAME_FIELDS
+
+
+def transition_clears(current, values):
+    """Candidates, never implicit writes: the caller decides set/clear/keep."""
+    fields = set(inapplicable_fields(values))
+    if current and current["type"] != values["type"]:
+        fields.update(("ogrn", "legal_form"))
+    return {f: current[f] for f in fields if current and current.get(f)}
+
+
+def counterparty_response(values):
+    result = dict(values)
+    result["inapplicable_values"] = {f: values[f] for f in inapplicable_fields(values) if values.get(f)}
+    result["full_name"], result["short_name"] = official_names(values)
+    return result

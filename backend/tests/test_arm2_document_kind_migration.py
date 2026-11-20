@@ -15,7 +15,6 @@ from app.arm2.history_models import HistoryEvent
 from app.arm2.history_store import append_history_event
 from app.arm2.ids import next_id
 from app.arm2.object_save import SaveContext
-from app.arm2.organization_store import create_organization
 from app.config import settings
 from app.models import User
 
@@ -50,7 +49,7 @@ def test_upgrade_downgrade_roundtrip_preserves_legacy_objects_history_and_ids(is
     settings.cache_clear()
     engine = create_engine(isolated_arm2_database_url, poolclass=NullPool)
     try:
-        assert ScriptDirectory.from_config(configuration()).get_heads() == ["0069"]
+        assert ScriptDirectory.from_config(configuration()).get_heads() == ["0070"]
         # This test exercises the historical B3 migration boundary. New TYPE
         # categories and their guarded downgrade have their own B4 tests.
         command.downgrade(configuration(), "0064")
@@ -63,7 +62,7 @@ def test_upgrade_downgrade_roundtrip_preserves_legacy_objects_history_and_ids(is
             kind = frozen_legacy_record(db, "TYPE", "arm2_vehicle_types", {"name": "Старый тип", "requires_sts": True,
                                         "requires_calibration": False, "requires_wialon": False, "status": "CONFIRMED"}, principal)
             cp = frozen_legacy_record(db, "CP", "arm2_counterparties", {"name": "Старый CP", "status": "REVIEW"}, principal)
-            org = create_organization(db, "Старая ORG", principal=principal, context=ctx)
+            org = frozen_legacy_record(db, "ORG", "arm2_organizations", {"name": "Старая ORG", "status": "REVIEW"}, principal)
             vehicle = frozen_legacy_record(db, "VEH", "arm2_vehicles", {"name": "Старая техника", "plate_number": "А123ВС86",
                                            "type_id": kind.id, "owner_cp_id": cp.id, "owner_org_id": None, "model": None,
                                            "wialon_unit_id": None, "accounting_state": "Действующая"}, principal)
@@ -133,7 +132,7 @@ def test_downgrade_refuses_existing_document_kind_data_without_deleting_it(isola
         assert snapshot(engine) == before
         assert "arm2_document_kinds" in inspect(engine).get_table_names()
         with engine.connect() as conn:
-            assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0069"
+            assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0070"
             if existing == "row":
                 assert conn.scalar(text("SELECT name FROM arm2_document_kinds")) == "Сохранить"
     finally:

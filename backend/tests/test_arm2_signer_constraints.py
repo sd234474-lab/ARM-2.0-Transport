@@ -33,8 +33,8 @@ def test_database_rejects_invalid_signer_links_and_preserves_save_history(isolat
         db.add(admin)
         db.flush()
         context = SaveContext("HUMAN", str(admin.id), "constraint-test")
-        first = create(db, "First", principal=admin, context=context)
-        second = create(db, "Second", principal=admin, context=context)
+        first = create(db, "First", principal=admin, context=context, **({"type":"Юридическое лицо"} if kind=="CP" else {}))
+        second = create(db, "Second", principal=admin, context=context, **({"type":"Юридическое лицо"} if kind=="CP" else {}))
         own = create_representative(db, kind, first.id, "Own", principal=admin, context=context)
         foreign = create_representative(db, kind, second.id, "Foreign", principal=admin, context=context)
         first = update(db, first.id, first.version, first.name, primary_signer_id=own.id,
@@ -99,7 +99,7 @@ def test_signer_migration_existing_data_diagnostics_and_roundtrip(isolated_arm2_
                                         f"('{prefix}REP-000001','{prefix}-000001','Existing signer')"))
                 connection.execute(text(f"UPDATE {party} SET primary_signer_id='{prefix}REP-000001' "
                                         f"WHERE id='{prefix}-000001'"))
-        command.upgrade(config, "head")
+        command.upgrade(config, "0061")
         for table in ("arm2_counterparties", "arm2_organizations"):
             fk = next(item for item in inspect(engine).get_foreign_keys(table)
                       if item["constrained_columns"] == ["primary_signer_id", "id"])
@@ -116,7 +116,7 @@ def test_signer_migration_existing_data_diagnostics_and_roundtrip(isolated_arm2_
                 connection.execute(text(f"UPDATE {table} SET primary_signer_id=:signer WHERE id=:id"),
                                    {"signer": signer, "id": f"{prefix}-000002"})
             with pytest.raises(RuntimeError, match=f"AUD-02: orphan/mismatched primary signer in {table}"):
-                command.upgrade(config, "head")
+                command.upgrade(config, "0061")
             with engine.connect() as connection:
                 assert connection.scalar(text(f"SELECT primary_signer_id FROM {table} WHERE id=:id"),
                                          {"id": f"{prefix}-000002"}) == signer
@@ -125,7 +125,7 @@ def test_signer_migration_existing_data_diagnostics_and_roundtrip(isolated_arm2_
             with engine.begin() as connection:
                 connection.execute(text(f"UPDATE {table} SET primary_signer_id=NULL WHERE id=:id"),
                                    {"id": f"{prefix}-000002"})
-        command.upgrade(config, "head")
+        command.upgrade(config, "0061")
         with engine.connect() as connection:
             assert connection.scalar(text("SELECT primary_signer_id FROM arm2_counterparties "
                                           "WHERE id='CP-000001'")) == "CPREP-000001"

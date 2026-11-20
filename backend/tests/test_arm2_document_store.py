@@ -31,8 +31,8 @@ def data(isolated_arm2_database_url):
         db.add(user)
         db.flush()
         ctx = SaveContext("HUMAN", str(user.id), "document-test")
-        cp = create_counterparty(db, "CP", principal=user, context=ctx)
-        other = create_counterparty(db, "CP2", principal=user, context=ctx)
+        cp = create_counterparty(db, "CP", type='Юридическое лицо', principal=user, context=ctx)
+        other = create_counterparty(db, "CP2", type='Юридическое лицо', principal=user, context=ctx)
         kind = create_document_kind(
             db,
             "Ограниченный",

@@ -180,23 +180,24 @@ def test_t05_only_selected_field_changes_other_values_and_history_preserved(b5):
 
 def test_t06_empty_inn_allowed_duplicate_inn_is_not_a_new_cp(b5):
     c, db, _, parents, *_ = b5
-    existing = check(c.post('/api/arm2/counterparties', json={'name': 'Known INN', 'inn': '1234567890'}), 201)
-    d = choose(c, upload(c, workbook({'B12': 'Explicit new', 'B13': '1234567890'})), cp_target='new', cp_fields=['name', 'inn'])
+    existing = check(c.post('/api/arm2/counterparties', json={'type': 'Юридическое лицо', 'name': 'Known INN', 'inn': '1234567890'}), 201)
+    d = choose(c, upload(c, workbook({'B5': 'ООО', 'B12': 'Explicit new', 'B13': '1234567890'})), cp_target='new', cp_fields=['type', 'name', 'inn'])
     before = count(db, Counterparty)
     apply(c, d, status=422)
     assert count(db, Counterparty) == before
     assert any(r['id'] == existing['id'] for r in reopen(c, d)['comparison']['cp']['candidates'])
-    d = choose(c, upload(c, workbook({'B12': 'Empty INN'})), cp_target='new', cp_fields=['name'])
+    d = choose(c, upload(c, workbook({'B5': 'ООО', 'B12': 'Empty INN'})), cp_target='new', cp_fields=['type', 'name'])
     result, _ = apply(c, d)
     assert check(c.get('/api/arm2/counterparties/' + result['cp_id']))['inn'] is None
 
 
 def test_t07_legacy_map_formula_hints_no_arbitrary_details_or_zero_guessing(b5):
     c, db, _, parents, *_ = b5
-    book = workbook({'A13': 'inn:ИНН', 'B8': 'Synthetic last', 'B9': 'Synthetic first', 'B10': 'Synthetic middle',
+    book = workbook({'B5': 'ИП', 'A13': 'inn:ИНН', 'B8': 'Synthetic last', 'B9': 'Synthetic first', 'B10': 'Synthetic middle',
         'B18': 'Legacy phone', 'B24': '001234567', 'B25': '00000000000000000001', 'B7': 'ignored'},
         [{'B': 'V3-old', 'E': 'A123BC86', 'G': '=1+1', 'V': 'V3 private hint'}])
-    d = choose(c, upload(c, book), cp_target=parents['cp'], cp_fields=['last_name', 'first_name', 'middle_name', 'phone', 'bik', 'settlement_account'])
+    d = choose(c, upload(c, book), cp_target=parents['cp'], confirm_identity=True,
+               cp_fields=['type', 'legal_form', 'last_name', 'first_name', 'middle_name', 'phone', 'bik', 'settlement_account'])
     saved, _ = apply(c, d)
     cp = check(c.get('/api/arm2/counterparties/' + parents['cp']))
     assert cp['bik'] == '001234567' and cp['settlement_account'] == '00000000000000000001'
@@ -479,7 +480,7 @@ def test_t25_server_draft_reopens_in_new_authenticated_session(b5):
 
 def test_t26_export_contains_all_vehicle_ids_without_other_cp_requisites(b5):
     c, db, _, parents, *_ = b5
-    check(c.post('/api/arm2/counterparties', json={'name': 'DO_NOT_LEAK_OTHER_CP', 'inn': '1111111111'}), 201)
+    check(c.post('/api/arm2/counterparties', json={'type': 'Юридическое лицо', 'name': 'DO_NOT_LEAK_OTHER_CP', 'inn': '1111111111'}), 201)
     for i in range(101, 251):
         db.add(Vehicle(id=f'VEH-{i:06}', name=f'Catalog {i}', plate_number=f'В{i}ВС86',
             accounting_state='Архивная' if i % 2 else 'Действующая', version=1))
@@ -629,9 +630,9 @@ def test_transport_security_attacks_are_rejected_before_drafts(b5, attack):
 def test_all_cp_rep_vehicle_document_classes_publish_together_with_final_versions(b5):
     c, db, *_ = b5
     kind = doc_kind(c)
-    d = upload(c, transport(workbook({'B12': 'Brand new synthetic CP', 'B8': 'Normalized surname', 'B20': 'Separate signer'},
+    d = upload(c, transport(workbook({'B5': 'ИП', 'B12': 'Brand new synthetic CP', 'B8': 'Normalized surname', 'B20': 'Separate signer'},
         [{'I': 'A888AA86', 'J': 'New fleet item', 'P': 'sts.pdf'}]), {'sts.pdf': pdf('all classes')}), True)
-    d = choose(c, d, cp_target='new', cp_fields=['name', 'last_name'],
+    d = choose(c, d, cp_target='new', cp_fields=['type', 'name', 'last_name'],
         representatives={'0': {'target': 'new', 'fields': ['name'], 'signer': True}},
         vehicles={'v:5': {'include': True, 'fields': ['name', 'owner']}},
         documents={'v:5:sts': {'kind_id': kind, 'accept': True}})

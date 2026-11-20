@@ -4,6 +4,7 @@ import re
 from sqlalchemy import or_, select
 
 from app.arm2.counterparty_models import Counterparty
+from app.arm2.counterparty_rules import LEGAL, PERSON, official_names, transition_clears
 from app.arm2.counterparty_store import COUNTERPARTY_ADAPTER, PARTY_FIELDS
 from app.arm2.document_file_models import DocumentFile
 from app.arm2.document_file_store import revision_files
@@ -20,7 +21,7 @@ from app.arm2.vehicle_type_rules import plate_compatible
 from app.models import User
 from app.permissions import Permission, has_permission
 
-CP_FIELDS = (*PARTY_FIELDS[:-1], 'last_name', 'first_name', 'middle_name')
+CP_FIELDS = (*PARTY_FIELDS[:-1], 'type', 'last_name', 'first_name', 'middle_name')
 REP_FIELDS = ('name', 'position', 'authority_basis', 'phone', 'email', 'state')
 VEH_FIELDS = ('name', 'model', 'type_id', 'accounting_state', 'owner')
 
@@ -48,7 +49,7 @@ def changes(values, current, selected, errors=None):
 def build(db, principal, draft):
     user = authorized(db, principal, 'arm2_cp_view')
     payload, choices = draft.payload, draft.choices
-    cp_values = payload.get('cp', {})
+    cp_values = {**payload.get('cp', {}), **choices.get('cp_values', {})}
     target = choices.get('cp_target')
     cp = db.get(Counterparty, target, populate_existing=True) if target and target != 'new' else None
     cp_error = None if target == 'new' or cp is not None else 'Выберите существующего или нового контрагента'
@@ -60,22 +61,69 @@ def build(db, principal, draft):
             Counterparty.name == cp_values.get('name'), Counterparty.id == cp_hint,
             Counterparty.name == cp_hint)).order_by(Counterparty.id).limit(100))]
     cp_errors, normalized = dict(payload.get('cp_errors', {})), {}
-    base = {f: getattr(cp, f) if cp else None for f in (*PARTY_FIELDS, 'last_name', 'first_name', 'middle_name')}
+    base = {f: getattr(cp, f) if cp else None for f in (*PARTY_FIELDS, 'type', 'last_name', 'first_name', 'middle_name')}
     base['name'] = base['name'] or cp_values.get('name') or 'Анкета'
+    proposed_type = cp_values.get('type') or base.get('type')
+    normalization_base = {**base, 'type': proposed_type or LEGAL,
+                          'legal_form': cp_values.get('legal_form') or base.get('legal_form')}
+    if 'legal_form' in choices.get('cp_clears', []):
+        normalization_base['legal_form'] = None
+    notices = []
+    if proposed_type == PERSON:
+        names = official_names({**base, **cp_values, 'type': PERSON})
+        for field, name in zip(('full_name', 'short_name'), names, strict=True):
+            if cp_values.get(field) and cp_values[field] != name:
+                notices.append(f'{field}: представление ФЛ вычисляется из ФИО, независимое имя не принимается')
+        cp_values = {k: v for k, v in cp_values.items() if k not in ('full_name', 'short_name')}
+    if not cp_values.get('type') and target == 'new':
+        normalized['type'] = ''
+        cp_errors['type'] = cp_errors.get('type') or 'Для нового CP явно выберите тип'
+    for field in choices.get('cp_values', {}):
+        cp_errors.pop(field, None)
     for field in CP_FIELDS:
         value = cp_values.get(field)
         if not value:
             continue
         try:
-            normalized[field] = COUNTERPARTY_ADAPTER.normalize({**base, field: value})[field]
+            # An invalid, UNSELECTED type/OPF proposal must not poison an unrelated
+            # phone/bank/etc. field. Final SAVE still validates the complete chosen state.
+            validation_base = normalization_base
+            if field not in ('type', 'legal_form'):
+                validation_base = {**base, 'type': base.get('type') or LEGAL}
+                if validation_base['type'] == PERSON and validation_base.get('legal_form') not in (None, 'ИП'):
+                    validation_base['legal_form'] = None
+            normalized[field] = COUNTERPARTY_ADAPTER.normalize({**validation_base, field: value})[field]
             if field == 'inn' and db.scalar(select(Counterparty.id).where(Counterparty.inn == normalized[field],
                                                 Counterparty.id != (cp.id if cp else ''))) is not None:
                 cp_errors[field] = 'ИНН уже принадлежит другой карточке; выберите её'
         except ValueError as error:
             normalized[field], cp_errors[field] = value, str(error)
+    effective = {**base, **{f: normalized[f] for f in choices.get('cp_fields', []) if f in normalized},
+                 **{f: None for f in choices.get('cp_clears', [])}}
+    candidates_clear = transition_clears(base if cp else None, effective)
+    if cp and cp.legal_form:
+        candidates_clear['legal_form'] = cp.legal_form
+    cp_fields = changes(normalized, cp, choices.get('cp_fields', []), cp_errors)
+    if 'type' in cp_errors and 'type' not in cp_fields:
+        cp_fields['type'] = {'current': cp.type if cp else None, 'proposed': cp_values.get('type'),
+                             'selected': False, 'equal': False, 'error': cp_errors['type']}
+    for field in set(candidates_clear) | set(choices.get('cp_clears', [])):
+        current = getattr(cp, field, None) if cp else None
+        cleared = field in choices.get('cp_clears', [])
+        item = cp_fields.setdefault(field, {'current': current, 'proposed': None, 'equal': current is None,
+                                           'selected': False, 'error': None})
+        item.update(clear_candidate=True, clear_selected=cleared, reason='Явная очистка; пустота анкеты не удаляет значение')
+        if cleared:
+            item.update(proposed=None, selected=True, equal=current is None, error=None)
+    if cp and 'name' in cp_fields and not cp_fields['name']['equal']:
+        cp_fields['name']['error'] = 'Рабочее имя существующего CP сохраняется; изменяйте его вручную в карточке'
+    conflict = bool(cp and ((cp_hint and cp_hint != cp.id) or
+        (cp_values.get('inn') and cp.inn and cp_values['inn'] != cp.inn) or
+        any(f in effective and effective[f] != getattr(cp, f) for f in ('type', 'legal_form'))))
     cp_plan = {'key': 'CP', 'id': cp.id if cp else None, 'target': target, 'version': cp.version if cp else None,
                'error': cp_error, 'candidates': candidates, 'hint': payload.get('cp_hint'),
-               'fields': changes(normalized, cp, choices.get('cp_fields', []), cp_errors)}
+               'identity_conflict': conflict, 'identity_confirmed': bool(choices.get('confirm_identity')),
+               'notices': notices, 'fields': cp_fields}
     reps = []
     for index, proposed in enumerate(payload.get('representatives', [])):
         choice = choices.get('representatives', {}).get(str(index), {})

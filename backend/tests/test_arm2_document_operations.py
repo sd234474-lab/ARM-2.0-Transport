@@ -47,6 +47,8 @@ def kind(c, *, parents=None, maximum=None, preset="PARENT_AND_KIND"):
 def parent(c, token):
     route = {"cp": "counterparties", "org": "organizations", "veh": "vehicles"}[token]
     body = {"name": "Получатель " + uuid.uuid4().hex}
+    if token == "cp":
+        body["type"] = "Юридическое лицо"
     if token == "veh":
         body["plate_number"] = "B123BC86"
     r = c.post("/api/arm2/" + route, json=body)

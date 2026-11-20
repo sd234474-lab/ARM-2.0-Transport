@@ -8,6 +8,7 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.workbook.defined_name import DefinedName
 from openpyxl.worksheet.datavalidation import DataValidation
 
+from app.arm2.counterparty_rules import official_names
 from app.arm2.questionnaire_parse import (
     CP_CELLS,
     EXPORT_VERSION,
@@ -79,8 +80,19 @@ def build_workbook(cp, representatives, linked_users, vehicles, owned, types, ma
     for coordinate, value in {'B3': EXPORT_VERSION, 'B4': filled_date, 'B6': cp.id}.items():
         text(passport, coordinate, value)
     for row, field in CP_CELLS.items():
-        text(passport, f'B{row}', getattr(cp, field))
-    validation(passport, 'B5', '"ИП,ООО,Иное юридическое лицо,Физическое лицо"')
+        names = official_names({f: getattr(cp, f) for f in ('type', 'legal_form', 'last_name', 'first_name', 'middle_name', 'full_name', 'short_name')})
+        text(passport, f'B{row}', names[0] if field == 'full_name' else names[1] if field == 'short_name' else getattr(cp, field))
+    text(passport, 'A5', 'Тип контрагента')
+    text(passport, 'A7', 'ОПФ: у ФЛ ИП или пусто; у ЮЛ свободный текст')
+    validation(passport, 'B5', '"Физическое лицо,Юридическое лицо"')
+    # A dependent list offers ИП/blank for FL; UL remains free text without VBA.
+    # Excel guidance is deliberately not the trust boundary: the server checks the pair.
+    opf = DataValidation(type='list', formula1='IF($B$5="Физическое лицо",ARM2_PERSON_OPF,ARM2_EMPTY_OPF)',
+                         allow_blank=True, showErrorMessage=False, showInputMessage=True)
+    opf.promptTitle = 'ОПФ'
+    opf.prompt = 'ФЛ: ИП или пусто. ЮЛ: введите любую ОПФ. Итоговую пару проверит АРМ.'
+    passport.add_data_validation(opf)
+    opf.add('B7')
     for coordinate in ['B27', 'B29']:
         validation(passport, coordinate, '"ДА,НЕТ"')
     rep_sheet = book.create_sheet(REPRESENTATIVES)
@@ -92,6 +104,10 @@ def build_workbook(cp, representatives, linked_users, vehicles, owned, types, ma
     def formula(sheet, coordinate, expression, cached):
         sheet[coordinate] = expression
         cache.setdefault(sheet.title, {})[coordinate] = '' if cached is None else str(cached)
+    if cp.type == 'Физическое лицо':
+        full, short = official_names({f: getattr(cp, f) for f in ('type', 'legal_form', 'last_name', 'first_name', 'middle_name', 'full_name', 'short_name')})
+        formula(passport, 'B11', '=IF(B5="Физическое лицо",IF(B7="ИП","Индивидуальный предприниматель ","")&TRIM(B8&" "&B9&" "&B10),"")', full)
+        formula(passport, 'B12', '=IF(B5="Физическое лицо",IF(B7="ИП","ИП ","")&TRIM(B8&" "&IF(B9="","",LEFT(B9,1)&".")&IF(B10="","",LEFT(B10,1)&".")),"")', short)
 
     for index, rep in enumerate(representatives, 5):
         text(rep_sheet, f'A{index}', index - 4)
@@ -118,6 +134,11 @@ def build_workbook(cp, representatives, linked_users, vehicles, owned, types, ma
     for col, label in enumerate(VEH_HEADERS, 1):
         text(sheet, sheet.cell(4, col).coordinate, label)
     catalog = book.create_sheet('Справочники')
+    text(catalog, 'J1', 'ОПФ физического лица')
+    text(catalog, 'J2', 'ИП')
+    text(catalog, 'J3', '')
+    book.defined_names.add(DefinedName('ARM2_PERSON_OPF', attr_text="'Справочники'!$J$2:$J$3"))
+    book.defined_names.add(DefinedName('ARM2_EMPTY_OPF', attr_text="'Справочники'!$J$3"))
     for col, label in enumerate(['VEH-ID', 'Госномер', 'TYPE-ID', 'Тип', 'Имя', 'Модель', 'Учётное состояние'], 1):
         text(catalog, catalog.cell(1, col).coordinate, label)
     for row, vehicle in enumerate(vehicles, 2):

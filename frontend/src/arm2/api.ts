@@ -21,16 +21,16 @@ export async function previewBytes(path: string, maximum: number): Promise<Blob>
 }
 
 export type Kind = 'TYPE' | 'VEH' | 'CP' | 'ORG';
-export type QuestionnaireField = {current: unknown; proposed: unknown; selected: boolean; equal: boolean; error: string | null};
-export type QuestionnaireChoices = {cp_target?: string | null; cp_fields?: string[];
+export type QuestionnaireField = {current: unknown; proposed: unknown; selected: boolean; equal: boolean; error: string | null;clear_candidate?:boolean;clear_selected?:boolean;reason?:string};
+export type QuestionnaireChoices = {cp_target?: string | null; cp_fields?: string[];cp_clears?:string[];cp_values?:{type?:string|null;legal_form?:string|null};confirm_identity?:boolean;
   representatives?: Record<string,{target?: string | null; fields?: string[]; signer?: boolean; sources?: Record<string,'passport'|'list'>}>;
   vehicles?: Record<string,{fields?: string[]; include?: boolean; type_id?: string | null; without_type?: boolean; confirm_owner?: boolean}>;
   documents?: Record<string,{parent_key?: string | null; kind_id?: string | null; document_id?: string | null; replace_file_id?: string | null; append?: boolean; accept?: boolean}>};
-export type QuestionnaireReceipt = {command_id: string; draft_id: string; cp_id: string | null; filled_date: string | null; uploaded_at: string; accepted_at: string; correlation_id: string; no_op: boolean; event_ids: number[]; objects: {kind: string; id?: string; document_id?: string; version: number}[]};
+export type QuestionnaireReceipt = {command_id: string; draft_id: string; cp_id: string | null; filled_date: string | null; uploaded_at: string; accepted_at: string; correlation_id: string; no_op: boolean; event_ids: number[]; changes?:{kind:string;id:string;operation:string;url?:string;fields:Record<string,{before:unknown;after:unknown}>}[];objects: {kind: string; id?: string; document_id?: string; version: number}[]};
 export type QuestionnaireRow = {key: string; row: number; id: string | null; plate_number: string | null; version: number | null; fields: Record<string,QuestionnaireField>; errors: string[]; withdrawal: boolean; confirm_owner: boolean; without_type: boolean; source: string; volume_proposal: string; volume_notice: string; legacy_hint?: string; diagnostic_hint?: string};
 export type QuestionnaireDocument = {key: string; upload_id?: string; name: string; parent_key: string | null; role: string; parent_type?: 'CP'|'VEH'; parent_id?: string; document_id?: string | null; kind_id?: string | null; version?: number; revision_id?: string; replace_file_id?: string | null; selected: boolean; equal?: boolean; error?: string | null; sha256?: string; media_type?: string; candidates?: {id:string; name:string; kind_id:string}[]; current_files?: {id:string; name:string; sha256:string}[]};
 export type QuestionnaireDraft = {id:string; revision:number; status:'OPEN'|'ACCEPTED'|'CANCELLED'; approval_reset?:boolean; filename?:string; choices?:QuestionnaireChoices; preview_id?:string; receipt?:QuestionnaireReceipt;
-  comparison?:{cp:{key:string;id:string|null;target:string|null;version:number|null;error:string|null;hint:string;candidates:{id:string;name:string;inn:string|null}[];fields:Record<string,QuestionnaireField>};
+  comparison?:{cp:{key:string;id:string|null;target:string|null;version:number|null;error:string|null;hint:string;identity_conflict?:boolean;notices?:string[];candidates:{id:string;name:string;inn:string|null}[];fields:Record<string,QuestionnaireField>};
     representatives:{key:string;id:string|null;target:string|null;version:number|null;error:string|null;signer:boolean;source_id?:string|null;source_row?:number|null;source_comment?:string|null;signer_hint?:boolean;conflicts?:Record<string,{passport:string;list:string}>;sources?:Record<string,'passport'|'list'>;fields:Record<string,QuestionnaireField>;candidates:{id:string;name:string}[]}[];
     vehicles:QuestionnaireRow[];documents:QuestionnaireDocument[];types:{id:string;name:string;plate_category:string}[];document_kinds:{id:string;name:string;parents:string[]}[];
     warnings:string[];filled_date:string|null;uploaded_at:string}};
@@ -63,7 +63,7 @@ export interface OwnerCommand {expected_version: number; target_kind: OwnerIdent
 export const ownerOf = (record: RecordData): OwnerIdentity => record.owner_cp_id ? {kind:'CP',id:String(record.owner_cp_id)} : record.owner_org_id ? {kind:'ORG',id:String(record.owner_org_id)} : {kind:null,id:null};
 export const sameOwner = (a: OwnerIdentity,b: OwnerIdentity) => a.kind===b.kind && a.id===b.id;
 export const setOperationalOwner = (id: string, command: OwnerCommand) => api<Vehicle & {no_op:boolean}>(`/arm2/vehicles/${encodeURIComponent(id)}/operational-owner`,'POST',command);
-export interface Party extends RecordData { status: string; primary_signer_id: string | null }
+export interface Party extends RecordData { primary_signer_id: string | null }
 export interface Representative extends RecordData { parent_id: string; user_id: number | null; state: string }
 export interface EventSummary { event_id: number; object_type: ObjectType; object_id: string; operation: string; occurred_at: string; actor_kind: string; actor_id: string; source: string; version_before: number | null; version_after: number | null }
 export interface EventDetail extends EventSummary { changes: Record<string, {before: unknown; after: unknown}> }
@@ -74,7 +74,7 @@ export const catalogs = {
   ORG: { path: '/arm2/organizations', label: 'Собственные организации', singular: 'Собственная организация', permission: 'arm2_org' },
 } as const;
 export const pageSize = 100;
-export interface SearchPage {items: RecordData[]; total: number; matched: number; limit: number; offset: number}
+export interface SearchPage {without_owner?: number; without_wialon?:number; items: RecordData[]; total: number; matched: number; limit: number; offset: number}
 export const searchPage = (path: string, params: URLSearchParams, signal?: AbortSignal) => api<SearchPage>(`${path}/search?${params}`, 'GET', undefined, signal);
 export const list = <T,>(path: string, offset = 0, signal?: AbortSignal) => api<T[]>(`${path}?limit=${pageSize}&offset=${offset}`, 'GET', undefined, signal);
 export const detail = <T,>(path: string, signal?: AbortSignal) => api<T>(path, 'GET', undefined, signal);
