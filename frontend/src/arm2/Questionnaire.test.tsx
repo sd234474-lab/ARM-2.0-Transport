@@ -68,10 +68,12 @@ async function acceptPhone(){await act(async()=>{const control=host.querySelecto
 it('CSP permits only same-origin/blob PDF workers; renderer errors retain the original download',async()=>{
   const nginx=readFileSync('nginx.conf','utf8');
   expect(nginx).toContain("worker-src 'self' blob:");
+  expect(nginx).toMatch(/location \/assets\/\s*\{[^}]*location ~ \\\.mjs\$\s*\{\s*types\s*\{\s*application\/javascript mjs;/s);
   vi.stubGlobal('fetch',vi.fn().mockResolvedValue({arrayBuffer:async()=>new ArrayBuffer(8)}));
   vi.mocked(getDocument).mockImplementation(()=>({promise:Promise.reject(new Error('renderer failed')),destroy:vi.fn()}) as never);
   await act(async()=>{root.render(<QuestionnairePreview value={{url:'blob:verified',name:'synthetic.pdf',media:'application/pdf',blob:{arrayBuffer:async()=>new ArrayBuffer(8)} as Blob}} close={()=>{}}/>);await tick();});
   expect(GlobalWorkerOptions.workerSrc).toContain('pdf.worker');
+  expect(new URL(GlobalWorkerOptions.workerSrc).searchParams.get('module')).toBe('1');
   expect(fetch).not.toHaveBeenCalled(); // Reuse the verified Blob; connect-src need not allow blob fetch.
   expect(host.textContent).toContain('Не удалось отобразить PDF во встроенном просмотре');
   expect(host.textContent).not.toContain('Не удалось связаться с сервером');
