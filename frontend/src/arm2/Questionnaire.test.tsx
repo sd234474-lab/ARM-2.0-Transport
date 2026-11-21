@@ -219,6 +219,35 @@ it('T03/T05 only explicitly selected unequal fields are persisted in the draft b
   expect(host.textContent).toContain('События истории: 17');
 });
 
+it.each([false,true])('storage failure offers an explicit separate data-only command; lost response=%s',async lostResponse=>{
+  const original=vi.mocked(api).getMockImplementation()!;
+  let saved:QuestionnaireReceipt|undefined,interrupted=false;
+  const requests:{command_id:string;revision:number;preview_id?:string;without_documents?:boolean}[]=[];
+  vi.mocked(api).mockImplementation(async(path,method='GET',body)=>{
+    if(path.endsWith('/apply')){
+      const request=body as typeof requests[number];requests.push(clone(request));
+      if(!request.without_documents)throw new ApiError(503,{code:'QUESTIONNAIRE_STORAGE_UNAVAILABLE',can_save_without_documents:true,message:'storage unavailable'});
+      saved||={...clone(receipt),command_id:request.command_id,without_documents:true,documents_pending:true};
+      if(lostResponse&&!interrupted){interrupted=true;throw new TypeError('Failed to fetch');}
+      return clone(saved);
+    }
+    if(saved&&path==='/arm2/questionnaires/'+draft.id&&method==='GET')return {...clone(draft),revision:2,documents_pending:true,receipt:clone(saved)};
+    return original(path,method,body);
+  });
+  await mount('/arm2/questionnaires?draft='+draft.id);await selectCP();await acceptPhone();
+  await click('Принять изменения');
+  expect(host.textContent).toContain('Сейчас нет доступа к хранилищу документов на Яндекс.Диске');
+  expect(requests).toHaveLength(1);expect(requests[0].without_documents).toBeUndefined();
+  await click('Сохранить выбранные данные без документов');
+  if(lostResponse)await click('Повторить ту же команду');
+  expect(requests[1].without_documents).toBe(true);
+  expect(requests[1].command_id).not.toBe(requests[0].command_id);
+  if(lostResponse)expect(requests[2]).toEqual(requests[1]);
+  expect(host.textContent).toContain('Данные сохранены без документов');
+  expect(host.textContent).toContain('Для дозагрузки проверьте привязки');
+  expect(host.querySelector('[aria-label="Сверка анкеты"]')).not.toBeNull();
+});
+
 it('T04 a lost response retries the exact same command UUID and never uses per-VEH bulk apply',async()=>{
   await mount('/arm2/questionnaires?draft='+draft.id);await selectCP();await acceptPhone();lost=true;
   await click('Принять изменения');

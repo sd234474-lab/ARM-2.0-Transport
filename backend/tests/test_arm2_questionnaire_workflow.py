@@ -89,8 +89,10 @@ def choose(c, draft, **choices):
         'choices': {**draft.get('choices', {}), **choices}}))
 
 
-def apply(c, draft, status=200, body=None):
+def apply(c, draft, status=200, body=None, *, without_documents=False):
     body = body or {'command_id': str(uuid4()), 'revision': draft['revision'], 'preview_id': draft['preview_id']}
+    if without_documents:
+        body = {**body, 'without_documents': True}
     result = check(c.post('/api/arm2/questionnaires/' + draft['id'] + '/apply', json=body), status)
     return result, body
 
@@ -118,6 +120,91 @@ def doc_kind(c, name='СТС', parent='VEH'):
 
 def file_choices(draft, kind):
     return {d['key']: {'kind_id': kind, 'accept': True} for d in draft['comparison']['documents'] if d.get('upload_id')}
+
+
+@pytest.mark.parametrize('failure', ['missing_root', 'provider'])
+def test_storage_failure_explicit_data_only_and_later_documents_have_no_duplicates(b5, monkeypatch, failure):
+    c, db, _, _, _, disk = b5
+    kind = doc_kind(c)
+    data = transport(workbook({'B5': 'ИП', 'B12': 'Data only synthetic', 'B8': 'Synthetic last',
+        'B18': 'Selected phone', 'B19': 'rejected@example.invalid', 'B20': 'Synthetic signer'},
+        [{'I': 'A987BC86', 'J': 'Synthetic truck', 'P': 'sts.pdf'}]), {'sts.pdf': pdf('pending')})
+    d = choose(c, upload(c, data, True), cp_target='new', cp_fields=['type', 'name', 'last_name', 'phone'],
+        documents={'v:5:sts': {'kind_id': kind, 'accept': True}})
+    before = snapshot(db)
+    if failure == 'missing_root':
+        monkeypatch.delenv('ARM2_DOCUMENT_DISK_ROOT')
+    else:
+        disk.fail_at = 0
+    error, failed_body = apply(c, d, status=503)
+    assert error['detail']['code'] == 'QUESTIONNAIRE_STORAGE_UNAVAILABLE'
+    assert error['detail']['can_save_without_documents'] is True
+    assert snapshot(db) == before
+    body = {'command_id': str(uuid4()), 'revision': d['revision'], 'preview_id': d['preview_id'], 'without_documents': True}
+    saved, _ = apply(c, d, body=body)
+    assert saved['without_documents'] and saved['documents_pending']
+    assert not any(o['kind'] == 'DOCUMENT' for o in saved['objects'])
+    cp = db.get(Counterparty, saved['cp_id'], populate_existing=True)
+    assert cp.phone == 'Selected phone' and cp.email is None and cp.primary_signer_id
+    initial = snapshot(db)
+    repeated, _ = apply(c, d, body=body)
+    assert repeated == saved and snapshot(db) == initial
+    apply(c, d, status=409, body={**body, 'without_documents': False})
+    apply(c, d, status=409, body=failed_body)
+    pending = reopen(c, d)
+    assert pending['status'] == 'OPEN' and pending['documents_pending'] and pending['receipt'] == saved
+    assert pending['choices']['cp_target'] == cp.id
+    assert pending['choices']['representatives']['0']['target'] == cp.primary_signer_id
+    assert not pending['choices']['vehicles']['v:5']['include']
+    assert not pending['choices']['documents']['v:5:sts']['accept']
+    assert pending['comparison']['vehicles'][0]['id'] in {o['id'] for o in saved['objects'] if o['kind'] == 'VEH'}
+    assert len(disk.uploads) == 0
+    for record in db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == d['id'])):
+        from app.arm2.document_file_storage import verified_stage
+        assert verified_stage(record).is_file()
+    before_docs = {table: initial[table] for table in ('arm2_counterparties', 'nsi_counterparty_representatives', 'arm2_vehicles')}
+    monkeypatch.setenv('ARM2_DOCUMENT_DISK_ROOT', 'ARM2_TEST/B3_C')
+    disk.fail_at = None
+    pending = choose(c, pending, documents={'v:5:sts': {'kind_id': kind, 'accept': True}})
+    complete, complete_body = apply(c, pending)
+    assert not complete['documents_pending'] and len(complete['objects']) == 1
+    assert complete['objects'][0]['kind'] == 'DOCUMENT'
+    assert count(db, DocumentFile) == 1 and len(disk.uploads) == 1
+    assert all(snapshot(db)[table] == rows for table, rows in before_docs.items())
+    assert reopen(c, pending)['status'] == 'ACCEPTED'
+    assert apply(c, pending, body=complete_body)[0] == complete
+
+
+def test_data_only_failure_still_rolls_back_all_domain_changes(b5):
+    c, db, _, parents, _, _ = b5
+    d = choose(c, upload(c, workbook({'B18': 'Must rollback'})), cp_target=parents['cp'], cp_fields=['phone'])
+    before = snapshot(db)
+    def fail(connection, cursor, statement, parameters, context, many):
+        if 'INSERT INTO arm2_history_events' in statement:
+            raise SQLAlchemyError('injected history failure')
+    event.listen(db.get_bind(), 'before_cursor_execute', fail)
+    try:
+        apply(c, d, status=409, body={'command_id': str(uuid4()), 'revision': d['revision'],
+            'preview_id': d['preview_id'], 'without_documents': True})
+        assert snapshot(db) == before and count(db, QuestionnaireReceipt) == 0
+        assert reopen(c, d)['status'] == 'OPEN'
+    finally:
+        event.remove(db.get_bind(), 'before_cursor_execute', fail)
+
+
+def test_invalid_staged_original_is_not_reported_as_disk_outage(b5):
+    c, db, _, parents, _, disk = b5
+    kind = doc_kind(c)
+    d = upload(c, transport(workbook({'B18': 'No partial save'}, [{'E': 'A123BC86', 'P': 'safe.pdf'}]),
+        {'safe.pdf': pdf()}), True)
+    d = choose(c, d, cp_target=parents['cp'], cp_fields=['phone'], documents={'v:5:sts': {'kind_id': kind, 'accept': True}})
+    before = snapshot(db)
+    record = db.scalar(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == d['id']))
+    from app.arm2.document_file_storage import private_path
+    private_path(record.id).write_bytes(b'injected invalid bytes')
+    result, _ = apply(c, d, status=503)
+    assert isinstance(result['detail'], str)
+    assert snapshot(db) == before and disk.uploads == []
 
 
 def test_t01_xlsx_no_files_preview_is_private_and_single_cp_field_save(b5):
@@ -448,13 +535,14 @@ def test_t24_selected_failure_rolls_back_whole_set_and_retries_private_upload(b5
     assert saved['event_ids'] and count(db, DocumentFile) == 1 and len(disk.uploads) == 1
 
 
-def test_t24_stale_version_and_revocation_do_not_apply_any_selected_change(b5):
+@pytest.mark.parametrize('without_documents', [False, True])
+def test_t24_stale_version_and_revocation_do_not_apply_any_selected_change(b5, without_documents):
     c, db, user, parents, *_ = b5
     d = choose(c, upload(c, workbook({'B18': 'stale'})), cp_target=parents['cp'], cp_fields=['phone'])
     original = check(c.get('/api/arm2/counterparties/' + parents['cp']))
     check(c.put('/api/arm2/counterparties/' + parents['cp'], json={'name': original['name'], 'expected_version': original['version'], 'phone': 'Other operator'}))
     before = snapshot(db)
-    apply(c, d, status=409)
+    apply(c, d, status=409, without_documents=without_documents)
     assert snapshot(db) == before
     d = reopen(c, d)
     assert d['approval_reset'] and d['choices']['cp_fields'] == []
@@ -463,7 +551,7 @@ def test_t24_stale_version_and_revocation_do_not_apply_any_selected_change(b5):
         actor = other.get(User, user.id)
         actor.role, actor.permissions = 'OPERATOR', ['arm2_cp_view']
         other.commit()
-    apply(c, d, status=403)
+    apply(c, d, status=403, without_documents=without_documents)
     assert snapshot(db) == before
 
 

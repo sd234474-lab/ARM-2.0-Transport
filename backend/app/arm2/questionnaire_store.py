@@ -55,6 +55,10 @@ from app.permissions import Permission, has_permission
 OLE_SIGNATURE = b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'
 
 
+class QuestionnaireDiskUnavailable(files.StorageUnavailable):
+    """The selected domain set was not committed because permanent storage failed."""
+
+
 def attachment_format(path):
     """Classify the outer document; a legacy OLE original may contain ZIP streams."""
     try:
@@ -125,7 +129,11 @@ def view(db, user, draft, *, reset_on_change=True):
         approval_reset = True
     draft.preview = comparison
     db.commit()  # Private review state only; no business object is touched.
+    data_receipt = db.scalar(select(QuestionnaireReceipt).where(QuestionnaireReceipt.draft_id == draft.id)
+        .order_by(QuestionnaireReceipt.accepted_at.desc(), QuestionnaireReceipt.command_id.desc())) if draft.payload.get('_documents_pending') else None
     return {'id': draft.id, 'revision': draft.revision, 'status': draft.status, 'filename': draft.filename,
+            'documents_pending': bool(draft.payload.get('_documents_pending')),
+            'receipt': data_receipt.result if data_receipt else None,
             'choices': draft.choices, 'approval_reset': approval_reset,
             'preview_id': review_hash(comparison, draft.choices), 'comparison': comparison}
 
@@ -308,7 +316,7 @@ def edit(db, user, identifier, revision, choices):
         return view(db, user, draft, reset_on_change=False)
 
 
-def selected(comparison, choices):
+def selected(comparison, choices, *, without_documents=False):
     cp = comparison['cp']
     cp_fields = {k: f['proposed'] for k, f in cp['fields'].items() if f['selected'] and not f['equal']}
     reps = [r for r in comparison['representatives'] if r['target'] and
@@ -316,7 +324,7 @@ def selected(comparison, choices):
     if any(not r['target'] and (r['signer'] or any(f['selected'] and not f['equal'] for f in r['fields'].values())) for r in comparison['representatives']):
         raise ValueError('Для принятия представителя/подписанта явно выберите существующую или новую запись')
     rows = [r for r in comparison['vehicles'] if choices.get('vehicles', {}).get(r['key'], {}).get('include')]
-    docs = [d for d in comparison['documents'] if d.get('selected')]
+    docs = [] if without_documents else [d for d in comparison['documents'] if d.get('selected')]
     if len({d.get('upload_id') for d in docs}) != len(docs):
         raise ValueError('Один загруженный файл выбран для нескольких документов; уточните привязку')
     if not (cp_fields or cp['target'] == 'new' or reps or rows or docs):
@@ -416,8 +424,12 @@ def prepare_files(db, user, draft, comparison, docs, command_id, signature):
                 parent_name = field.get('proposed') if included and field.get('selected') else parent_record.name if parent_record else row['plate_number'] if row else 'Анкета'
             name = files.safe_name(kind.file_naming_template, SimpleNamespace(name=document_name),
                 SimpleNamespace(name=parent_name), kind, file_id, stage.extension)
+            try:
+                root = files.document_root()
+            except files.StorageUnavailable as error:
+                raise QuestionnaireDiskUnavailable(str(error)) from None
             item = {'id': file_id, 'original_upload_name': files.original_name(stage.name.rsplit('/', 1)[-1]),
-                'stored_name': name, 'storage_ref': '/'.join([files.document_root(), 'questionnaires', draft.id, command_id, file_id, name]),
+                'stored_name': name, 'storage_ref': '/'.join([root, 'questionnaires', draft.id, command_id, file_id, name]),
                 'size': stage.size, 'sha256': stage.sha256, 'media_type': stage.media_type,
                 'extension': stage.extension, 'existing': False}
         item['upload_id'] = stage.id
@@ -440,8 +452,11 @@ def prepare_files(db, user, draft, comparison, docs, command_id, signature):
     return draft.staging['groups']
 
 
-def apply(db, principal, identifier, command_id, revision, preview_id, session_hash=None):
-    signature = fingerprint({'draft': identifier, 'command_id': command_id, 'revision': revision, 'preview_id': preview_id})
+def apply(db, principal, identifier, command_id, revision, preview_id, session_hash=None, *, without_documents=False):
+    request = {'draft': identifier, 'command_id': command_id, 'revision': revision, 'preview_id': preview_id}
+    if without_documents:
+        request['without_documents'] = True
+    signature = fingerprint(request)
     with attempt_lease(db, 'B5:' + identifier):
         draft = owned(db, principal, identifier, open_only=False)
         old = db.get(QuestionnaireReceipt, command_id)
@@ -457,30 +472,30 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
             authorized(db, principal, 'arm2_veh_view', 'arm2_veh_edit')
         if any('type_id' in r.get('fields', []) for r in decisions.get('vehicles', {}).values()):
             authorized(db, principal, 'arm2_type_view')
-        if any(d.get('accept') for d in decisions.get('documents', {}).values()):
+        if not without_documents and any(d.get('accept') for d in decisions.get('documents', {}).values()):
             authorized(db, principal, 'arm2_document_view', 'arm2_document_edit')
         if draft.status != 'OPEN' or draft.revision != revision:
             raise ObjectVersionConflictError('Разбор изменён или закрыт')
         comparison = build(db, principal, draft)
         if review_hash(comparison, draft.choices) != preview_id:
             raise ObjectVersionConflictError('Карточки изменены; повторно откройте сверку и подтвердите решения')
-        cp_fields, reps, rows, docs = selected(comparison, draft.choices)
-        groups = prepare_files(db, principal, draft, comparison, docs, command_id, signature)
+        cp_fields, reps, rows, docs = selected(comparison, draft.choices, without_documents=without_documents)
+        groups = [] if without_documents else prepare_files(db, principal, draft, comparison, docs, command_id, signature)
         for group in groups:
             for item in group['files']:
                 if files.verify_remote(type('Metadata', (), item)):
                     continue
                 if item['existing']:
-                    raise files.StorageUnavailable('Текущий оригинал недоступен; SQL-публикация отменена')
+                    raise QuestionnaireDiskUnavailable('Текущий оригинал недоступен; SQL-публикация отменена')
                 stage = db.get(QuestionnaireUpload, item['upload_id'])
                 path = files.verified_stage(stage)
                 db.commit()
                 try:
                     files.storage().upload(path, item['storage_ref'], item['sha256'])
                 except Exception:
-                    raise files.StorageUnavailable('Хранилище не подтвердило оригинал; повторите ту же команду') from None
+                    raise QuestionnaireDiskUnavailable('Хранилище не подтвердило оригинал; повторите ту же команду') from None
                 if not files.verify_remote(type('Metadata', (), item)):
-                    raise files.StorageUnavailable('Хранилище не подтвердило SHA/размер; карточки не изменены')
+                    raise QuestionnaireDiskUnavailable('Хранилище не подтвердило SHA/размер; карточки не изменены')
                 stage = db.get(QuestionnaireUpload, item['upload_id'])
                 stage.state = 'UPLOADED'
                 db.commit()  # Private uploaded ledger, not accepted FILE/DOCUMENT.
@@ -537,6 +552,7 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
                         raise ObjectAuthorizationError('Представитель принадлежит другому CP')
                     record = partial_update(db, user, context, 'CPREP', rep['id'], rep['version'], values).record
                 outcomes.append({'kind': 'CPREP', 'id': record.id, 'version': record.version})
+                identities['representative:' + rep['key']] = record.id
                 if rep['signer'] and cp.primary_signer_id != record.id:
                     cp = partial_update(db, user, context, 'CP', cp.id, cp.version, {'primary_signer_id': record.id}).record
             for row in rows:
@@ -600,6 +616,7 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
                 if event:
                     entry['url'] = receipt_link(event)
             result = {'command_id': command_id, 'draft_id': draft.id, 'cp_id': cp.id if cp else None,
+                'without_documents': without_documents, 'documents_pending': without_documents,
                 'filled_date': draft.filled_date.isoformat() if draft.filled_date else None,
                 'uploaded_at': draft.uploaded_at.astimezone(UTC).isoformat(), 'accepted_at': accepted.isoformat(),
                 'objects': outcomes, 'event_ids': events, 'no_op': not events, 'correlation_id': command_id,
@@ -607,8 +624,24 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
                              'fields': e.changes, 'url': receipt_link(e)} for e in event_rows]}
             db.add(QuestionnaireReceipt(command_id=command_id, draft_id=draft.id, author_id=user.id,
                 fingerprint=signature, result=result))
-            draft.status, draft.accepted_at = 'ACCEPTED', accepted
-            draft.payload, draft.choices, draft.preview, draft.staging = {}, {}, {}, {}
+            if without_documents:
+                # Keep the original uploads and explicit bindings for later document-only acceptance.
+                # These IDs come only from this successful domain transaction, never name inference.
+                draft.payload = {**draft.payload, '_documents_pending': True,
+                    'vehicles': [{**row, 'id': identities.get(row['key'], row['id'])}
+                                 for row in draft.payload.get('vehicles', [])]}
+                draft.choices = {**draft.choices, 'cp_target': cp.id if cp else draft.choices.get('cp_target'),
+                    'cp_fields': [], 'cp_clears': [], 'confirm_identity': False,
+                    'representatives': {k: {**v, 'target': identities.get('representative:' + k, v.get('target')),
+                        'fields': [], 'signer': False} for k, v in draft.choices.get('representatives', {}).items()},
+                    'vehicles': {k: {**v, 'include': False, 'fields': [], 'confirm_owner': False}
+                                 for k, v in draft.choices.get('vehicles', {}).items()},
+                    'documents': {k: {**v, 'accept': False} for k, v in draft.choices.get('documents', {}).items()}}
+                draft.revision += 1
+                draft.preview = build(db, principal, draft)
+            else:
+                draft.status, draft.accepted_at = 'ACCEPTED', accepted
+                draft.payload, draft.choices, draft.preview, draft.staging = {}, {}, {}, {}
             for stage in db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == draft.id)):
                 if any(item.get('upload_id') == stage.id for g in groups for item in g['files']):
                     stage.state = 'ACCEPTED'
@@ -616,7 +649,8 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
         except Exception:
             db.rollback()  # Every selected domain change rolls back; private upload ledger remains retryable.
             raise
-        cleanup_local(db, draft.id)
+        if not without_documents:
+            cleanup_local(db, draft.id)
         return result
 
 
