@@ -13,3 +13,4 @@
 .arm2-questionnaire .arm2-questionnaire-document { padding:.5rem; margin:.4rem 0; background:var(--panel,#f6faf8); border:1px solid var(--line,#dbe4df); border-radius:6px; }
 .arm2-questionnaire .arm2-questionnaire-document details { margin:.25rem 0; }
 .arm2-questionnaire header label { margin:0; }
+.arm2-questionnaire-preview { margin: 16px auto; padding: 0 16px; max-width: 1100px; font-family: system-ui, sans-serif; }

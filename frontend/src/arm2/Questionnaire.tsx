@@ -1,10 +1,8 @@
 import {useEffect, useRef, useState} from 'react';
-import {createPortal} from 'react-dom';
 import {Link, useSearchParams} from 'react-router-dom';
 import {api, ApiError} from '../api';
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import type {PDFDocumentProxy} from 'pdfjs-dist';
-import {previewBytes, questionnaireApi} from './api';
+import {questionnaireApi} from './api';
+export {QuestionnairePreview} from './QuestionnairePreview';
 import type {QuestionnaireChoices, QuestionnaireDocument, QuestionnaireDraft, QuestionnaireField, QuestionnaireReceipt} from './api';
 import {labels} from './model';
 import {person,legal} from './PartyFields';
@@ -47,7 +45,7 @@ function Receipt({value}:{value:QuestionnaireReceipt}) {
 
 export default function Questionnaire({can}:{can:Can}) {
   const [params,setParams]=useSearchParams(),identifier=params.get('draft');
-  const [draft,setDraft]=useState<QuestionnaireDraft>(),[list,setList]=useState<Awaited<ReturnType<typeof questionnaireApi.list>>>([]),[receipts,setReceipts]=useState<QuestionnaireReceipt[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[receipt,setReceipt]=useState<QuestionnaireReceipt>(),[retry,setRetry]=useState(false),[preview,setPreview]=useState<{url:string;name:string;media:string;blob?:Blob;tab:Window}>();
+  const [draft,setDraft]=useState<QuestionnaireDraft>(),[list,setList]=useState<Awaited<ReturnType<typeof questionnaireApi.list>>>([]),[receipts,setReceipts]=useState<QuestionnaireReceipt[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[receipt,setReceipt]=useState<QuestionnaireReceipt>(),[retry,setRetry]=useState(false);
   const command=useRef<string|undefined>(undefined),alive=useRef(true);
   const [garbage,setGarbage]=useState<Awaited<ReturnType<typeof questionnaireApi.cleanupCandidates>>>([]),[notice,setNotice]=useState('');
   const clean=async(id:string)=>{setBusy(true);try{const result=await questionnaireApi.cleanup(id);setNotice(result.pending?'Осталось временных оригиналов: '+result.pending+'. Повторите очистку после восстановления хранилища':'Временные оригиналы очищены; принятые файлы сохранены');setGarbage(await questionnaireApi.cleanupCandidates());}catch(e){setError(e);}finally{setBusy(false);}};
@@ -60,11 +58,6 @@ export default function Questionnaire({can}:{can:Can}) {
     questionnaireApi.reopen(identifier).then(value=>{if(active){setDraft(value);setReceipt(value.receipt);setRetry(false);command.current=undefined;}}).catch(e=>{if(active)setError(e);}).finally(()=>{if(active)setBusy(false);});
     return()=>{active=false;};
   },[identifier]);
-  useEffect(()=>{
-    if(!preview)return;
-    const timer=window.setInterval(()=>{if(preview.tab.closed)setPreview(current=>current===preview?undefined:current);},500);
-    return()=>{window.clearInterval(timer);URL.revokeObjectURL(preview.url);preview.tab.close();};
-  },[preview]);
   const update=async(choices:QuestionnaireChoices)=>{if(!draft||busy||retry)return;setBusy(true);setError(undefined);try{const saved=await questionnaireApi.edit(draft,choices);if(alive.current){setDraft(saved);command.current=undefined;}}catch(e){setError(e);setRetry(true);}finally{setBusy(false);}};
   const cpFields=(field:string,selected:boolean)=>{const previous=draft?.choices?.cp_fields||[];void update({...draft?.choices,cp_fields:selected?[...previous,field]:previous.filter(f=>f!==field)});};
   const vehicle=(key:string,values:NonNullable<QuestionnaireChoices['vehicles']>[string])=>void update({...draft?.choices,vehicles:{...draft?.choices?.vehicles,[key]:{...draft?.choices?.vehicles?.[key],...values}}});
@@ -76,22 +69,10 @@ export default function Questionnaire({can}:{can:Can}) {
   const cancel=async()=>{if(!draft)return;setBusy(true);try{const result=await questionnaireApi.cancel(draft.id);setNotice(result.cleanup?.pending?'Осталось временных оригиналов: '+result.cleanup.pending+'. Повторите очистку после восстановления хранилища':'');setDraft(undefined);setReceipt(undefined);setParams({});setRetry(false);await refresh();}catch(e){setError(e);}finally{setBusy(false);}};
   const show=async(path:string,name:string)=>{
     setError(undefined);setNotice('');
-    // Open synchronously from the operator's click, before the authenticated fetch.
-    const tab=window.open('about:blank','_blank');
+    const parameters=new URLSearchParams({path,name});
+    const tab=window.open('/questionnaire-preview.html#'+parameters.toString(),'_blank');
     if(!tab){setNotice('Разрешите открытие новой вкладки для просмотра вложения');return;}
-    tab.opener=null;tab.document.title=name;
-    tab.document.documentElement.lang='ru';
-    tab.document.body.textContent='Загружаем проверенный оригинал…';
-    for(const link of window.document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')){
-      const copy=tab.document.createElement('link');copy.rel='stylesheet';copy.href=link.href;tab.document.head.append(copy);
-    }
-    try{
-      const blob=await previewBytes(path,128*1024*1024);
-      if(tab.closed)return;
-      if(!alive.current){tab.close();return;}
-      tab.document.body.textContent='';
-      setPreview({url:URL.createObjectURL(blob),name,media:blob.type,blob,tab});
-    }catch(e){tab.close();if(alive.current)setError(e);}
+    tab.opener=null;
   };
   const c=draft?.comparison,disabled=busy||retry;
   const cpName=c?.cp.name||c?.cp.candidates.find(v=>v.id===c.cp.id)?.name||'Выбранный контрагент';
@@ -120,7 +101,7 @@ export default function Questionnaire({can}:{can:Can}) {
       <button className="arm2-primary" disabled={disabled||!can('arm2_cp_view')} onClick={()=>void apply()}>Принять изменения</button><p>Выбранные изменения сохраняются одним набором. Ошибка выбранного объекта отменяет весь набор; невключённые ошибки не мешают.</p>
     </section>}
     {notice&&<p role="status">{notice}</p>}{draft?.approval_reset&&<p role="alert">Связанные карточки изменились. Зависимые решения сброшены; проверьте их заново.</p>}
-    {receipt&&<Receipt value={receipt}/>}{preview&&createPortal(<QuestionnairePreview key={preview.url} value={preview} close={()=>setPreview(undefined)}/>,preview.tab.document.body)}
+    {receipt&&<Receipt value={receipt}/>}
     <details><summary>Технические протоколы и временные остатки</summary><button disabled={busy} onClick={()=>{questionnaireApi.cleanupCandidates().then(setGarbage).catch(setError);}}>Показать временные остатки закрытых пакетов</button>{garbage.map(item=><p key={item.id}>{item.filename}<button disabled={busy} onClick={()=>void clean(item.id)}>Очистить временные файлы</button></p>)}{receipt&&<button disabled={busy} onClick={()=>void clean(receipt.draft_id)}>Очистить временные файлы завершённого пакета</button>}{receipts.map(r=><Receipt key={r.command_id} value={r}/>)}</details>
   </section>;
 }
@@ -140,24 +121,4 @@ function DocumentReview({doc,draft,can,disabled,update,show}:{doc:QuestionnaireD
     {!!doc.current_files?.length&&<><label>Заменяемый оригинал<select value={doc.replace_file_id||''} onChange={e=>update({replace_file_id:e.target.value||null,append:!e.target.value})}><option value="">Добавить к комплекту</option>{doc.current_files.map(f=><option value={f.id} key={f.id}>{f.name}</option>)}</select></label>{doc.current_files.map(f=><button key={f.id} disabled={disabled} onClick={()=>void show(`/arm2/${doc.parent_type?.toLowerCase()}/${doc.parent_id}/documents/${doc.document_id}/revisions/${doc.revision_id}/files/${f.id}/preview`,f.name)}>Открыть действующий: {f.name}</button>)}</>}
     </details><details><summary>Технические сведения файла</summary>{doc.upload_id} · SHA-256 {doc.sha256}</details>
   </section>;
-}
-
-export function QuestionnairePreview({value,close}:{value:{url:string;name:string;media:string;blob?:Blob};close:()=>void}) {
-  const [pdf,setPdf]=useState<PDFDocumentProxy>(),[page,setPage]=useState(1),[error,setError]=useState<unknown>(),[busy,setBusy]=useState(false);
-  const canvas=useRef<HTMLCanvasElement>(null);
-  useEffect(()=>{
-    if(value.media!=='application/pdf')return;
-    let active=true,dispose:(()=>void)|undefined;
-    setBusy(true);
-    void(async()=>{const renderer=await import('pdfjs-dist');const workerUrl=new URL(pdfWorkerUrl,window.location.href);workerUrl.searchParams.set('module','1');renderer.GlobalWorkerOptions.workerSrc=workerUrl.href;const data=new Uint8Array(await(value.blob??await fetch(value.url)).arrayBuffer());if(!active)return;const task=renderer.getDocument({data,enableXfa:false,disableFontFace:true,useSystemFonts:true,useWorkerFetch:false,useWasm:false,stopAtErrors:true,disableWorkerRendering:true,disableAutoFetch:true,disableRange:true,disableStream:true,maxImageSize:20000000,canvasMaxAreaInBytes:16000000});dispose=()=>{void task.destroy();};const doc=await task.promise;if(doc.numPages>1000)throw new Error('PDF page limit');if(active)setPdf(doc);})().catch(e=>{if(active)setError(e);}).finally(()=>{if(active)setBusy(false);});
-    return()=>{active=false;dispose?.();};
-  },[value.url,value.media]);
-  useEffect(()=>{
-    if(!pdf||!canvas.current)return;
-    let active=true,cancel:(()=>void)|undefined;
-    setBusy(true);
-    void(async()=>{const source=await pdf.getPage(page),base=source.getViewport({scale:1});if(!active)return;if(!Number.isFinite(base.width*base.height)||base.width<=0||base.height<=0)throw new Error('Некорректный размер PDF');const scale=Math.min(1.5,1600/base.width,2400/base.height,Math.sqrt(4000000/(base.width*base.height))),viewport=source.getViewport({scale}),target=canvas.current!;target.width=Math.max(1,Math.ceil(viewport.width));target.height=Math.max(1,Math.ceil(viewport.height));const task=source.render({canvas:target,viewport});cancel=()=>task.cancel();await task.promise;})().catch(e=>{if(active)setError(e);}).finally(()=>{if(active)setBusy(false);});
-    return()=>{active=false;cancel?.();};
-  },[pdf,page]);
-  return <section aria-label="Просмотр вложения"><h3>{value.name}</h3>{!!error&&<p role="alert">Не удалось отобразить PDF во встроенном просмотре. Проверенный оригинал доступен для скачивания</p>}{busy&&<p role="status">Открываем проверенный PDF…</p>}{value.media.startsWith('image/')?<img src={value.url} alt={'Вложение '+value.name} style={{maxWidth:'100%'}}/>:value.media==='application/pdf'?<><canvas ref={canvas} aria-label={'PDF '+value.name} style={{maxWidth:'100%'}}/>{pdf&&<nav aria-label="Страницы вложения"><button disabled={busy||page<=1} onClick={()=>setPage(p=>p-1)}>Предыдущая страница</button><span>{page} / {pdf.numPages}</span><button disabled={busy||page>=pdf.numPages} onClick={()=>setPage(p=>p+1)}>Следующая страница</button></nav>}</>:<p>Формат доступен скачиванием оригинала.</p>}<a href={value.url} download={value.name}>Скачать проверенный оригинал</a><button onClick={close}>Закрыть просмотр вложения</button></section>;
 }
