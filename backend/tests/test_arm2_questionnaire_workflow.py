@@ -122,6 +122,58 @@ def file_choices(draft, kind):
     return {d['key']: {'kind_id': kind, 'accept': True} for d in draft['comparison']['documents'] if d.get('upload_id')}
 
 
+@pytest.mark.parametrize('cp_accept,rep_accept', [(True, True), (True, False), (False, True)])
+def test_v2_passport_contacts_are_independent_signer_proposals(b5, cp_accept, rep_accept):
+    c, db, _, parents, *_ = b5
+    before = check(c.get('/api/arm2/counterparties/' + parents['cp']))
+    contacts = {'phone': '+70000000001', 'email': 'synthetic@example.invalid'}
+    d = upload(c, workbook({'B18': contacts['phone'], 'B19': contacts['email'], 'B20': 'Synthetic signer'}))
+    assert len(d['comparison']['representatives']) == 1
+    for field, value in contacts.items():
+        assert d['comparison']['cp']['fields'][field]['proposed'] == value
+        assert d['comparison']['representatives'][0]['fields'][field]['proposed'] == value
+    d = choose(c, d, cp_target=parents['cp'], cp_fields=list(contacts) if cp_accept else [],
+        representatives={'0': {'target': 'new', 'fields': ['name', *(contacts if rep_accept else [])], 'signer': True}})
+    saved, _ = apply(c, d)
+    cp = check(c.get('/api/arm2/counterparties/' + parents['cp']))
+    identifiers = [o['id'] for o in saved['objects'] if o['kind'] == 'CPREP']
+    assert len(identifiers) == 1 and cp['primary_signer_id'] == identifiers[0]
+    rep = check(c.get(f"/api/arm2/counterparties/{parents['cp']}/representatives/{identifiers[0]}"))
+    assert rep['position'] is None and rep['authority_basis'] is None
+    for field, value in contacts.items():
+        assert cp[field] == (value if cp_accept else before[field])
+        assert rep[field] == (value if rep_accept else None)
+    check(c.put('/api/arm2/counterparties/' + cp['id'], json={
+        'name': cp['name'], 'expected_version': cp['version'], 'phone': '+70000000002'}))
+    unchanged = check(c.get(f"/api/arm2/counterparties/{parents['cp']}/representatives/{identifiers[0]}"))
+    assert unchanged['phone'] == rep['phone']
+
+
+def test_existing_open_v2_draft_gets_contacts_without_approving_them(b5):
+    c, db, _, parents, *_ = b5
+    d = choose(c, upload(c, workbook({'B18': '+70000000001', 'B19': 'synthetic@example.invalid', 'B20': 'Synthetic signer'})),
+        cp_target=parents['cp'], representatives={'0': {'target': 'new', 'fields': ['name'], 'signer': True}})
+    record = db.get(QuestionnaireDraft, d['id'], populate_existing=True)
+    signer = {k: v for k, v in record.payload['representatives'][0].items() if k not in {'phone', 'email'}}
+    record.payload = {**record.payload, 'representatives': [signer]}
+    preview = {**record.preview}
+    preview['representatives'] = [{**r, 'fields': {k: v for k, v in r['fields'].items() if k not in {'phone', 'email'}}}
+        for r in preview['representatives']]
+    record.preview = preview
+    db.commit()
+    before = snapshot(db)
+    restored = reopen(c, d)
+    assert snapshot(db) == before
+    assert restored['status'] == 'OPEN' and not restored['approval_reset']
+    assert restored['revision'] > d['revision']
+    assert restored['choices']['representatives']['0']['fields'] == ['name']
+    assert restored['choices']['representatives']['0']['signer']
+    signer = restored['comparison']['representatives'][0]
+    assert signer['fields']['phone']['proposed'] == '+70000000001'
+    assert signer['fields']['email']['proposed'] == 'synthetic@example.invalid'
+    assert not signer['fields']['phone']['selected'] and not signer['fields']['email']['selected']
+
+
 @pytest.mark.parametrize('failure', ['missing_root', 'provider'])
 def test_storage_failure_explicit_data_only_and_later_documents_have_no_duplicates(b5, monkeypatch, failure):
     c, db, _, _, _, disk = b5

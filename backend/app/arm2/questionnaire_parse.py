@@ -258,6 +258,8 @@ def _parse(data, filename):
                 cp_errors[field] = 'Счёт записан числом Excel: точность и нули не гарантированы. Уточните исходную текстовую запись'
         cp['name'] = cp['short_name'] or cp['full_name'] or ' '.join(cp[f] for f in ('last_name', 'first_name', 'middle_name') if cp[f])
         signer = {field: cell(passport, f'B{row}') for row, field in ((20, 'name'), (21, 'position'), (22, 'authority_basis'))}
+        if version == 'ARM_IMPORT_V2':
+            signer.update({field: cp[field] for field in ('phone', 'email')})
         result = {'schema': version, 'filled_date': completed, 'cp': cp, 'cp_errors': cp_errors, 'cp_hint': cell(passport, 'B6'),
                   'representatives': [signer] if signer['name'] else [], 'vehicles': [], 'warnings': warnings,
                   'company_file': cell(passport, 'B28'), 'company_declared': cell(passport, 'B27'),

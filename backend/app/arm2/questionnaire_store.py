@@ -93,6 +93,22 @@ def view(db, user, draft, *, reset_on_change=True):
         receipt = db.scalar(select(QuestionnaireReceipt).where(QuestionnaireReceipt.draft_id == draft.id))
         return {'id': draft.id, 'revision': draft.revision, 'status': draft.status,
                 'receipt': receipt.result if receipt else None}
+    # Existing V2 drafts predate the signer contact projection. Add proposals only;
+    # ordinary comparison/approval guards still govern every saved representative field.
+    added_contacts = {}
+    if draft.payload.get('schema') == 'ARM_IMPORT_V2':
+        representatives = draft.payload.get('representatives', [])
+        if len(representatives) == 1 and representatives[0].get('name'):
+            signer = representatives[0]
+            contacts = {field: draft.payload.get('cp', {}).get(field, '')
+                        for field in ('phone', 'email') if field not in signer}
+            if contacts:
+                draft.payload = {**draft.payload, 'representatives': [{**signer, **contacts}]}
+                added_contacts = contacts
+                draft.choices = {**draft.choices, 'representatives': {
+                    k: {**v, 'fields': [f for f in v.get('fields', []) if f not in contacts]} if k == '0' else v
+                    for k, v in draft.choices.get('representatives', {}).items()}}
+                draft.revision += 1
     # Repair only the known false ZIP classification in an existing OPEN draft.
     # Preserve file bytes/SHA, decisions, ownership and all accepted FILE history.
     for stage in db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == draft.id,
@@ -109,6 +125,16 @@ def view(db, user, draft, *, reset_on_change=True):
             except files.StorageUnavailable:
                 pass  # Keep the existing error if the original cannot be verified.
     comparison = build(db, user, draft)
+    if added_contacts and draft.preview:
+        # Extend only the previously absent projection with unchecked fields.
+        # Retain all old values/versions/approvals so genuine concurrent changes
+        # still go through the normal stale-review reset below.
+        current_signer = next((r for r in comparison['representatives'] if r['key'] == '0'), None)
+        if current_signer:
+            draft.preview = {**draft.preview, 'representatives': [
+                {**r, 'fields': {**r['fields'], **{f: current_signer['fields'][f] for f in added_contacts
+                    if f not in r['fields'] and f in current_signer['fields']}}} if r['key'] == '0' else r
+                for r in draft.preview['representatives']]}
     approval_reset = False
     if reset_on_change and draft.preview and review_hash(draft.preview, draft.choices) != review_hash(comparison, draft.choices):
         # Never reuse an old owner/field/file approval against freshly changed server data.
