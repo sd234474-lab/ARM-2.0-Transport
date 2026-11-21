@@ -1,4 +1,5 @@
 """Live, permission-aware questionnaire comparison; never writes domain objects."""
+import posixpath
 import re
 import unicodedata
 
@@ -270,7 +271,7 @@ def build(db, principal, draft):
             seen[plate] = plan
     attachments = list(db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == draft.id)
                                  .order_by(QuestionnaireUpload.name, QuestionnaireUpload.id)))
-    by_name = {}
+    by_name, by_stem = {}, {}
     def reference(name):
         return unicodedata.normalize('NFC', name.replace('\\', '/').strip()).casefold()
     for attachment in attachments:
@@ -290,18 +291,35 @@ def build(db, principal, draft):
                     pass
         for name in {reference(n) for v in variants for n in (v, v.rsplit('/', 1)[-1])}:
             by_name.setdefault(name, []).append(attachment)
+            stem, extension = posixpath.splitext(name)
+            if extension:
+                by_stem.setdefault(stem, []).append(attachment)
     declarations = [('company', 'CP', 'Карточка предприятия', payload.get('company_file'))]
     for row in payload.get('vehicles', []):
         declarations.extend([(row['key'] + ':sts', row['key'], 'СТС', row.get('sts_file')),
                              (row['key'] + ':calibration', row['key'], 'Тарировка', row.get('calibration_file'))])
     documents, bound = [], set()
-    resolved = {}
+    automatic, automatic_claims = {}, {}
     for key, _, _, name in declarations:
         if not name:
             continue
+        ref = reference(name)
+        matches = by_name.get(ref, [])
+        if not matches:
+            # Exact whole cell equals the physical name minus ONE extension.
+            # No punctuation stripping, similarity score, parent/kind inference.
+            matches = by_stem.get(ref, [])
+        automatic[key] = list({a.id: a for a in matches}.values())
+        if len(automatic[key]) == 1:
+            automatic_claims.setdefault(automatic[key][0].id, []).append(key)
+    resolved = {}
+    for key, matches in automatic.items():
         override = choices.get('documents', {}).get(key, {}).get('upload_id')
-        resolved[key] = ([a for a in attachments if a.id == override] if override else
-                         list({a.id: a for a in by_name.get(reference(name), [])}.values()))
+        # A now-unambiguous declared reference also repairs an earlier manual
+        # workaround for the missing-extension bug. view()/apply() invalidate
+        # the old approval when the physical upload/SHA changes; never auto-save.
+        unique = len(matches) == 1 and len(automatic_claims[matches[0].id]) == 1
+        resolved[key] = matches if unique or not override else [a for a in attachments if a.id == override]
     claimed = {}
     for key, matches in resolved.items():
         if len(matches) == 1:

@@ -100,6 +100,16 @@ it('409 preserves safe backend detail while unknown client errors are not called
   expect(errorText(new TypeError('Failed to fetch'))).toContain('Не удалось связаться с сервером');
 });
 
+it('physical-file selector shows the resolved file rather than an obsolete manual workaround',async()=>{
+  draft.choices!.documents={calibration:{upload_id:'old-sts',accept:false}};
+  draft.comparison!.documents=[{key:'calibration',name:'calibration.pdf',parent_key:'CP',role:'Тарировка',
+    upload_id:'resolved-calibration',selected:false,error:'Choose kind',attachment_options:[
+      {id:'old-sts',name:'sts.pdf'},{id:'resolved-calibration',name:'calibration.pdf'}]}];
+  await mount('/arm2/questionnaires?draft='+draft.id);
+  expect(host.querySelector<HTMLSelectElement>('select[aria-label="Физический файл Тарировка"]')!.value).toBe('resolved-calibration');
+  expect(vi.mocked(api).mock.calls.some(([,method])=>method==='PUT'||method==='POST')).toBe(false);
+});
+
 it('new package groups documents with each vehicle, keeps decisions and warns if every vehicle is excluded',async()=>{
   const fields={name:{current:null,proposed:'Truck',selected:true,equal:false,error:null},owner:{current:null,proposed:['CP','$CP'],proposed_display:'Synthetic CP',selected:true,equal:false,error:null}};
   draft.choices={cp_target:'new',vehicles:{'v:5':{include:true,fields:['name','owner']},'v:6':{include:true,fields:['name','owner']}},documents:{a:{accept:true},b:{accept:true}}};

@@ -978,3 +978,74 @@ def test_catalogue_mode_does_not_prevent_new_vehicle_or_matching_by_plate(b5, so
     assert not second['choices'].get('vehicles', {}).get('v:5', {}).get('include')
     result, _ = apply(c, second)
     assert result['no_op'] and snapshot(db) == before
+
+
+def test_extensionless_references_bind_once_per_row_and_reset_obsolete_file_approval(b5):
+    import copy
+    c, db, _, parents, *_ = b5
+    doc_kind(c)
+    doc_kind(c, 'Тарировка')
+    originals = {'стс 333.pdf': pdf('truck sts'), 'тарировка 333.pdf': pdf('truck calibration'),
+                 'стс 0972.pdf': pdf('loader sts'), 'notes.txt': b'genuinely unbound'}
+    rows = [{'C': 'ИЗ СПРАВОЧНИКА', 'E': 'A789BC86', 'F': 'Truck', 'N': 'тарировка 333', 'P': 'стс 333'},
+            {'C': 'ИЗ СПРАВОЧНИКА', 'E': '1234AB86', 'F': 'Loader', 'P': 'стс 0972'}]
+    d = choose(c, upload(c, transport(workbook(rows=rows), originals), True), cp_target=parents['cp'])
+    documents = d['comparison']['documents']
+    assert [doc['name'] for doc in documents if doc['parent_key'] == 'v:5'] == ['стс 333.pdf', 'тарировка 333.pdf']
+    assert [doc['name'] for doc in documents if doc['parent_key'] == 'v:6'] == ['стс 0972.pdf']
+    assert [doc['name'] for doc in documents if doc['role'] == 'Непривязанный файл'] == ['notes.txt']
+    assert len({doc['upload_id'] for doc in documents}) == len(documents) == 4
+    assert sum(doc['selected'] for doc in documents) == 3
+    assert not any(doc['error'] for doc in documents if doc['parent_key'])
+    # An old manual workaround pointed calibration at the STS upload. The newly
+    # unambiguous declaration wins, but old approval MUST be invalidated first.
+    saved = db.get(QuestionnaireDraft, d['id'])
+    old_preview = copy.deepcopy(saved.preview)
+    wrong = next(doc for doc in old_preview['documents'] if doc['key'] == 'v:5:sts')
+    calibration = next(doc for doc in old_preview['documents'] if doc['key'] == 'v:5:calibration')
+    calibration.update(upload_id=wrong['upload_id'], sha256=wrong['sha256'], name=wrong['name'])
+    saved.preview = old_preview
+    decisions = copy.deepcopy(saved.choices)
+    decisions['documents']['v:5:calibration']['upload_id'] = wrong['upload_id']
+    saved.choices = decisions
+    db.commit()
+    before = snapshot(db)
+    d = reopen(c, d)
+    assert d['approval_reset'] and snapshot(db) == before
+    plans = {doc['key']: doc for doc in d['comparison']['documents']}
+    assert plans['v:5:calibration']['name'] == 'тарировка 333.pdf'
+    assert not plans['v:5:calibration']['selected'] and plans['v:5:sts']['selected']
+    assert len([doc for doc in plans.values() if doc['role'] == 'Непривязанный файл']) == 1
+    d = choose(c, d, documents={**d['choices']['documents'], 'v:5:calibration': {
+        **d['choices']['documents']['v:5:calibration'], 'accept': True}})
+    receipt, _ = apply(c, d)
+    vehicles = {v.name: v for v in db.scalars(select(Vehicle).where(Vehicle.owner_cp_id == parents['cp']))}
+    assert set(vehicles) == {'Truck', 'Loader'}
+    for doc in db.scalars(select(Document)):
+        f = db.scalar(select(DocumentFile).where(DocumentFile.document_id == doc.id))
+        assert doc.parent_id == vehicles['Loader' if '0972' in f.original_upload_name else 'Truck'].id
+        url = f'/api/arm2/veh/{doc.parent_id}/documents/{doc.id}/revisions/{doc.current_revision_id}/files/{f.id}/download'
+        assert c.get(url).content == originals[f.original_upload_name]
+    assert sum(o['kind'] == 'DOCUMENT' for o in receipt['objects']) == 3
+
+
+@pytest.mark.parametrize('reference_name,names,matched', [
+    ('abc', ['abc.pdf', 'abc.doc'], None),
+    ('abc', ['one/abc.pdf', 'two/abc.pdf'], None),
+    ('one/abc', ['one/abc.pdf', 'two/abc.pdf'], 'one/abc.pdf'),
+    ('abc.pdf', ['abc.pdf', 'abc.pdf.doc'], 'abc.pdf'),
+    ('abc.doc', ['abc.pdf'], None),
+])
+def test_extensionless_match_is_exact_unique_and_preserves_complete_filename(b5, reference_name, names, matched):
+    c, db, _, parents, *_ = b5
+    doc_kind(c)
+    source = transport(workbook(rows=[{'C': 'НОВАЯ', 'I': 'A890BC86', 'P': reference_name}]),
+                       {name: pdf('original '+name) for name in names})
+    d = choose(c, upload(c, source, True), cp_target=parents['cp'])
+    plan = next(doc for doc in d['comparison']['documents'] if doc['key'] == 'v:5:sts')
+    if matched:
+        assert plan['name'] == matched and plan['selected'] and not plan['error']
+    else:
+        assert plan['error'] and not plan['selected'] and not plan.get('upload_id')
+    physical = [doc['upload_id'] for doc in d['comparison']['documents'] if doc.get('upload_id')]
+    assert len(physical) == len(set(physical)) == len(names)
