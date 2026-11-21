@@ -48,6 +48,7 @@ export default function Questionnaire({can}:{can:Can}) {
   const [draft,setDraft]=useState<QuestionnaireDraft>(),[list,setList]=useState<Awaited<ReturnType<typeof questionnaireApi.list>>>([]),[receipts,setReceipts]=useState<QuestionnaireReceipt[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[receipt,setReceipt]=useState<QuestionnaireReceipt>(),[retry,setRetry]=useState(false);
   const command=useRef<string|undefined>(undefined),alive=useRef(true);
   const commandMode=useRef(false),commandDraft=useRef<QuestionnaireDraft|undefined>(undefined);
+  const storageDialog=useRef<HTMLDialogElement>(null);
   const [garbage,setGarbage]=useState<Awaited<ReturnType<typeof questionnaireApi.cleanupCandidates>>>([]),[notice,setNotice]=useState('');
   const clean=async(id:string)=>{setBusy(true);try{const result=await questionnaireApi.cleanup(id);setNotice(result.pending?'Осталось временных оригиналов: '+result.pending+'. Повторите очистку после восстановления хранилища':'Временные оригиналы очищены; принятые файлы сохранены');setGarbage(await questionnaireApi.cleanupCandidates());}catch(e){setError(e);}finally{setBusy(false);}};
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
@@ -88,6 +89,13 @@ export default function Questionnaire({can}:{can:Can}) {
   };
   const c=draft?.comparison,disabled=busy||retry;
   const storageFailure=error instanceof ApiError&&error.status===503&&typeof error.detail==='object'&&error.detail!==null&&'code' in error.detail&&error.detail.code==='QUESTIONNAIRE_STORAGE_UNAVAILABLE';
+  useEffect(()=>{
+    const dialog=storageDialog.current;
+    if(storageFailure&&dialog&&!dialog.open){
+      if(dialog.showModal)dialog.showModal();else dialog.setAttribute('open','');
+    }
+  },[storageFailure]);
+  const returnToReview=()=>{setError(undefined);setRetry(false);command.current=undefined;};
   const cpName=c?.cp.name||c?.cp.candidates.find(v=>v.id===c.cp.id)?.name||'Выбранный контрагент';
   const selectedVehicles=c?.vehicles.filter(v=>draft?.choices?.vehicles?.[v.key]?.include)||[];
   const chosenDocs=c?.documents.filter(d=>d.selected)||[];
@@ -96,12 +104,14 @@ export default function Questionnaire({can}:{can:Can}) {
     <details><summary>Незавершённые загрузки ({list.length})</summary>{list.map(item=><p key={item.id}><button disabled={busy} onClick={()=>{setDraft(undefined);setParams({draft:item.id});if(identifier===item.id)void open();}}>{item.filename}</button></p>)}</details>
     {draft?.status==='OPEN'&&c&&<section aria-label="Сверка анкеты"><div className="arm2-actions"><span role="status">Черновик сохранён на сервере</span><button disabled={busy} onClick={()=>void open()}>Повторно открыть сверку</button><button disabled={busy} onClick={()=>void cancel()}>{draft.documents_pending?'Отказаться от дозагрузки документов':'Отклонить загрузку целиком'}</button></div><details><summary>Технические сведения загрузки</summary>{draft.id} · Редакция {draft.revision} · Заполнение {c.filled_date||'Не указано'} · Загрузка {c.uploaded_at}</details>{c.warnings.map((w,i)=><p role="alert" key={i}>{w}</p>)}
       {retry&&!storageFailure&&<div role="alert"><p>Проверьте результат запроса: повторите ту же команду при потере ответа или откройте актуальную сверку при конфликте.</p><button disabled={busy||!command.current} onClick={()=>void apply()}>Повторить ту же команду</button></div>}
-      {storageFailure&&<section role="alert" aria-label="Яндекс.Диск недоступен">
+      {storageFailure&&<dialog ref={storageDialog} className="arm2-storage-dialog" aria-labelledby="arm2-storage-title" onCancel={e=>{e.preventDefault();if(!busy)returnToReview();}}><section role="alert" aria-label="Яндекс.Диск недоступен">
+        <h3 id="arm2-storage-title">Не удалось сохранить документы на Яндекс.Диск</h3>
         <p>Сейчас нет доступа к хранилищу документов на Яндекс.Диске. Выбранные данные и документы не сохранены.</p>
         <p>Можно повторить попытку или сохранить выбранные данные без документов. Вложения останутся в черновике для последующей загрузки.</p>
         <button disabled={busy} onClick={()=>void apply(false)}>Повторить сохранение с документами</button>
         <button disabled={busy} onClick={()=>void apply(true)}>Сохранить выбранные данные без документов</button>
-      </section>}
+        <button disabled={busy} onClick={returnToReview}>Вернуться к сверке</button>
+      </section></dialog>}
       {draft.documents_pending&&<p role="status">Данные сохранены без документов. Вложения сохранены в черновике. Для дозагрузки проверьте привязки и выберите документы повторно.</p>}
       <fieldset disabled={disabled}><legend>Контрагент</legend><label>Действие<select aria-label="Решение о контрагенте" value={draft.choices?.cp_target||''} onChange={e=>void update({...draft.choices,cp_target:e.target.value||null})}><option value="">Пропустить / выбрать контрагента</option><option value="new">Создать нового контрагента</option>{c.cp.candidates.map(cp=><option key={cp.id} value={cp.id}>Обновить: {cp.name} · {cp.inn||'ИНН не указан'}</option>)}{c.cp.id&&!c.cp.candidates.some(cp=>cp.id===c.cp.id)&&<option value={c.cp.id}>Обновить: {cpName}</option>}</select></label>
         <OwnerPicker cp={draft.choices?.cp_target==='new'?null:draft.choices?.cp_target||null} org={null} can={p=>!p.startsWith('arm2_org_')&&can(p)} editable={!disabled} label="Найти существующего контрагента" change={cp=>void update({...draft.choices,cp_target:cp})}/>

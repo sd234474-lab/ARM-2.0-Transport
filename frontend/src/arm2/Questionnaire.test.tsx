@@ -237,6 +237,7 @@ it.each([false,true])('storage failure offers an explicit separate data-only com
   await mount('/arm2/questionnaires?draft='+draft.id);await selectCP();await acceptPhone();
   await click('Принять изменения');
   expect(host.textContent).toContain('Сейчас нет доступа к хранилищу документов на Яндекс.Диске');
+  expect(host.querySelector<HTMLDialogElement>('dialog')?.open).toBe(true);
   expect(requests).toHaveLength(1);expect(requests[0].without_documents).toBeUndefined();
   await click('Сохранить выбранные данные без документов');
   if(lostResponse)await click('Повторить ту же команду');
@@ -246,6 +247,26 @@ it.each([false,true])('storage failure offers an explicit separate data-only com
   expect(host.textContent).toContain('Данные сохранены без документов');
   expect(host.textContent).toContain('Для дозагрузки проверьте привязки');
   expect(host.querySelector('[aria-label="Сверка анкеты"]')).not.toBeNull();
+});
+
+it('leaves the storage failure dialog without saving or losing choices and unlocks review',async()=>{
+  const original=vi.mocked(api).getMockImplementation()!;
+  vi.mocked(api).mockImplementation(async(path,method='GET',body)=>{
+    if(path.endsWith('/apply'))throw new ApiError(503,{code:'QUESTIONNAIRE_STORAGE_UNAVAILABLE'});
+    return original(path,method,body);
+  });
+  await mount('/arm2/questionnaires?draft='+draft.id);await selectCP();await acceptPhone();
+  await click('Принять изменения');
+  expect(host.querySelector<HTMLDialogElement>('dialog')?.open).toBe(true);
+  await click('Вернуться к сверке');
+  expect(host.querySelector('dialog')).toBeNull();
+  const save=[...host.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent==='Принять изменения')!;
+  expect(save.disabled).toBe(false);expect(draft.choices?.cp_fields).toContain('phone');
+  expect(vi.mocked(api).mock.calls.filter(([p])=>p.endsWith('/apply'))).toHaveLength(1);
+  await click('Принять изменения');
+  const dialog=host.querySelector<HTMLDialogElement>('dialog')!;
+  await act(async()=>{dialog.dispatchEvent(new Event('cancel',{cancelable:true}));await tick();});
+  expect(host.querySelector('dialog')).toBeNull();expect(save.disabled).toBe(false);
 });
 
 it('T04 a lost response retries the exact same command UUID and never uses per-VEH bulk apply',async()=>{
