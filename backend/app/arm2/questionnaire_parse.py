@@ -170,6 +170,20 @@ def _parse(data, filename):
     if filename.lower().endswith('.zip'):
         with archive_entries(data) as archive:
             books = [e for e in archive.infolist() if e.filename.lower().endswith('.xlsx') and not e.is_dir()]
+            if len(books) > 1:
+                questionnaires = []
+                for entry in books:
+                    try:
+                        candidate, cached_candidate = safe_workbook(archive.read(entry), MAX_EXPANDED // len(books))
+                    except ValueError:
+                        continue
+                    try:
+                        if {PASSPORT, VEHICLES} <= set(candidate.sheetnames):
+                            questionnaires.append(entry)
+                    finally:
+                        candidate.close()
+                        cached_candidate.close()
+                books = questionnaires
             if len(books) != 1:
                 raise ValueError('ZIP должен содержать ровно одну XLSX анкету')
             workbook = archive.read(books[0])
@@ -244,6 +258,8 @@ def _parse(data, filename):
                 cp_errors[field] = 'Счёт записан числом Excel: точность и нули не гарантированы. Уточните исходную текстовую запись'
         cp['name'] = cp['short_name'] or cp['full_name'] or ' '.join(cp[f] for f in ('last_name', 'first_name', 'middle_name') if cp[f])
         signer = {field: cell(passport, f'B{row}') for row, field in ((20, 'name'), (21, 'position'), (22, 'authority_basis'))}
+        if version == 'ARM_IMPORT_V2':
+            signer.update({field: cp[field] for field in ('phone', 'email')})
         result = {'schema': version, 'filled_date': completed, 'cp': cp, 'cp_errors': cp_errors, 'cp_hint': cell(passport, 'B6'),
                   'representatives': [signer] if signer['name'] else [], 'vehicles': [], 'warnings': warnings,
                   'company_file': cell(passport, 'B28'), 'company_declared': cell(passport, 'B27'),
@@ -256,11 +272,14 @@ def _parse(data, filename):
                 continue
             selector = values['B']
             identifier = re.search(r'\bVEH-\d{6,}\b', selector)
+            mode = values['C'].strip().upper()
+            columns = ('I', 'H', 'J', 'K') if mode == 'НОВАЯ' else ('E', 'D', 'F', 'G')
+            plate, typ, name, model = (values[c] for c in columns) if mode in {'НОВАЯ', 'ИЗ СПРАВОЧНИКА', 'ВЫБЫЛО'} else ('', '', '', '')
             result['vehicles'].append({'key': f'v:{row}', 'row': row, 'id': identifier[0] if identifier else '',
-                'plate_number': values['I'] or values['E'], 'type_hint': values['H'] or values['D'],
-                'name': values['J'] or values['F'], 'model': values['K'] or values['G'], 'state_hint': values['C'],
+                'plate_number': plate, 'type_hint': typ,
+                'name': name, 'model': model, 'state_hint': mode,
                 'status_error': ('Выберите режим строки: ИЗ СПРАВОЧНИКА, НОВАЯ или ВЫБЫЛО'
-                    if version in {'ARM_IMPORT_V3', EXPORT_VERSION} and values['C'].upper() not in {'ИЗ СПРАВОЧНИКА', 'НОВАЯ', 'ВЫБЫЛО'} else None),
+                    if mode not in {'ИЗ СПРАВОЧНИКА', 'НОВАЯ', 'ВЫБЫЛО'} else None),
                 'volume_proposal': values['L'], 'calibration_declared': values['M'], 'calibration_file': values['N'],
                 'sts_declared': values['O'], 'sts_file': values['P'], 'owner_hint': values['S'],
                 'diagnostic_hint': ' · '.join(v for v in (values['Q'], values['R'], values['T'], values['U']) if v),
@@ -278,6 +297,9 @@ def _parse(data, filename):
             else:
                 result['representative_meta'] = [{'id': (result.get('manifest') or {}).get('primary_signer_id'),
                     'row': None, 'signer_hint': True, 'conflicts': {}} for _ in result['representatives']]
+        else:
+            result['representative_meta'] = [{'id': None, 'row': None, 'signer_hint': True, 'conflicts': {}}
+                                             for _ in result['representatives']]
         return result, blobs
     finally:
         book.close()

@@ -45,8 +45,9 @@ export function payload(kind: Kind | 'REP', draft: RecordData, original: RecordD
   return body;
 }
 export function errorText(error: unknown): string {
-  if (!(error instanceof ApiError)) return 'Не удалось связаться с сервером. Повторите попытку.';
+  if (!(error instanceof ApiError)) return error instanceof TypeError && /failed to fetch|networkerror|network request failed|load failed/i.test(error.message) ? 'Не удалось связаться с сервером. Повторите попытку.' : 'Не удалось выполнить операцию';
   if (error.status === 409 && error.detail === 'ARM2 object already exists') return 'Запись с такими данными уже существует. Измените имя или уникальные реквизиты.';
+  if (error.status === 409 && typeof error.detail === 'string' && error.detail.length <= 500 && !/[<>\x00-\x1f]|https?:|postgresql:|traceback|secret|password|token|credential|database|storage_ref|sha256/i.test(error.detail)) return error.detail;
   if (error.status === 422 && typeof error.detail === 'string' && /^(Правила не сохранены|Превышено допустимое|Тип документа)/.test(error.detail)) return error.detail;
   const messages: Record<number, string> = {401: 'Сессия завершена. Войдите снова.', 403: 'Недостаточно прав. Доступен только разрешённый просмотр.', 404: 'Запись или родитель не найдены.', 409: 'Данные изменены другим оператором либо запись уже существует. Сравните с сервером или перезагрузите карточку. Автоматического перезаписывания нет.', 422: 'Проверьте заполненные поля.'};
   if (error.status >= 500) return 'Ошибка сервера. Данные формы сохранены на экране; повторите попытку.';

@@ -61,6 +61,7 @@ class VehicleChoice(Command):
 
 
 class DocumentChoice(Command):
+    upload_id: str | None = None
     parent_key: str | None = None
     kind_id: str | None = None
     document_id: str | None = None
@@ -89,6 +90,7 @@ class Apply(Command):
     command_id: UUID
     revision: Annotated[StrictInt, Field(gt=0)]
     preview_id: Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
+    without_documents: StrictBool = False
 
 
 class Export(Command):
@@ -96,7 +98,7 @@ class Export(Command):
     incomplete_reason: str | None = Field(default=None, min_length=1, max_length=500)
 
 
-def translated(db, operation):
+def translated(db, operation, *, questionnaire_apply=False):
     try:
         return operation()
     except (ObjectAuthorizationError, ObjectNotFoundError) as error:
@@ -110,6 +112,9 @@ def translated(db, operation):
         raise HTTPException(409, 'Версии, права или уникальные связи изменены. Весь выбранный набор не сохранён; откройте сверку заново') from None
     except files.StorageUnavailable as error:
         db.rollback()
+        if questionnaire_apply and isinstance(error, store.QuestionnaireDiskUnavailable):
+            raise HTTPException(503, {'code': 'QUESTIONNAIRE_STORAGE_UNAVAILABLE',
+                'message': str(error), 'can_save_without_documents': True}) from None
         raise HTTPException(503, str(error)) from None
     except ValueError as error:
         db.rollback()
@@ -180,7 +185,8 @@ def edit(identifier: UUID, body: Edit, db: Db, user: CurrentUser):
 def apply(identifier: UUID, body: Apply, request: Request, db: Db, user: CurrentUser):
     session = getattr(request.state, 'login_session', None)
     return translated(db, lambda: store.apply(db, user, str(identifier), str(body.command_id), body.revision,
-                                             body.preview_id, session_hash=session.token_hash if session else None))
+        body.preview_id, session_hash=session.token_hash if session else None,
+        without_documents=body.without_documents), questionnaire_apply=True)
 
 
 @router.delete('/{identifier}')
@@ -206,7 +212,10 @@ def preview(identifier: UUID, upload_id: str, db: Db, user: CurrentUser):
         if stage is None or stage.draft_id != str(identifier) or stage.error:
             raise ValueError('Проверенный файл не найден в вашем черновике')
         path = files.staged_preview(stage)
-        return FileResponse(path, media_type=stage.media_type, headers={'Content-Security-Policy': 'sandbox',
+        download = not (stage.media_type == 'application/pdf' or (stage.media_type or '').startswith('image/'))
+        return FileResponse(path, media_type=stage.media_type,
+            filename=stage.name.rsplit('/', 1)[-1] if download else None, content_disposition_type='attachment',
+            headers={'Content-Security-Policy': 'sandbox',
             'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'},
             background=BackgroundTask(path.unlink, missing_ok=True))
     return translated(db, operation)
