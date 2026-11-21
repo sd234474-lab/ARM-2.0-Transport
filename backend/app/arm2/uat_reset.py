@@ -60,7 +60,7 @@ def validate(db, attestation, file_root, data_root, *, execute):
     database = db.scalar(text('SELECT current_database()'))
     if database != 'arm2_r2_uat' and not re.fullmatch(r'arm2_(?:[0-9a-f]{32}|int_issue72_[0-9a-f]{32})_test', database):
         raise ValueError('Not the selected R2/disposable test database')
-    if db.scalar(text('SELECT version_num FROM alembic_version')) not in ('0069', '0070'):
+    if db.scalar(text('SELECT version_num FROM alembic_version')) not in ('0069', '0070', '0071'):
         raise ValueError('Unexpected R2 revision')
     names = set(inspect(db).get_table_names())
     business = {n for n in names if n.startswith('arm2_') or n in TABLES}

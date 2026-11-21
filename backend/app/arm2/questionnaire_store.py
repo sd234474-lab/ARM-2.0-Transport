@@ -522,11 +522,17 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
                 else:
                     if row['withdrawal']:
                         raise ValueError('Нельзя создать новую VEH из строки «ВЫБЫЛО»')
+                    own = row['fields']['owner']
+                    target = own['proposed'] if own['selected'] else None
+                    if target == ['CP', '$CP']:
+                        target = ['CP', cp.id]
                     record = create_vehicle(db, values.pop('name', None) or row['plate_number'], row['plate_number'],
+                        owner_cp_id=target[1] if target and target[0] == 'CP' else None,
+                        owner_org_id=target[1] if target and target[0] == 'ORG' else None,
                         principal=user, context=context, **values)
                 identities[row['key']] = record.id
                 own = row['fields']['owner']
-                if own['selected'] and not own['equal']:
+                if row['id'] and own['selected'] and not own['equal']:
                     target = own['proposed']
                     if target == ['CP', '$CP']:
                         target = ['CP', cp.id]
