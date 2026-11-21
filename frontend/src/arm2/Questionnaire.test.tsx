@@ -5,6 +5,7 @@ import {MemoryRouter} from 'react-router-dom';
 import {afterEach, beforeEach, expect, it, vi} from 'vitest';
 import {api, ApiError} from '../api';
 import type {QuestionnaireDraft, QuestionnaireReceipt} from './api';
+import * as questionnaireTransport from './api';
 import Questionnaire, {QuestionnaireExport, QuestionnairePreview} from './Questionnaire';
 import {errorText} from './model';
 import {readFileSync} from 'node:fs';
@@ -93,6 +94,38 @@ it('PDF rendering uses verified bytes and opaque files offer download without in
   expect(host.textContent).toContain('Формат доступен скачиванием оригинала');
   expect(host.querySelector('canvas,iframe,object')).toBeNull();
   vi.unstubAllGlobals();
+});
+
+it('opens the verified candidate in a separate tab without moving the questionnaire, and releases it on close',async()=>{
+  draft.comparison!.documents=[{key:'file',name:'synthetic.doc',parent_key:'CP',role:'Карточка',upload_id:'upload',selected:false,media_type:'application/octet-stream'}];
+  const tabDocument=document.implementation.createHTMLDocument('');
+  const close=vi.fn();const tab={document:tabDocument,closed:false,close,opener:window} as unknown as Window;
+  const open=vi.spyOn(window,'open').mockReturnValue(tab);
+  const bytes=vi.spyOn(questionnaireTransport,'previewBytes').mockImplementation(async()=>{
+    expect(open).toHaveBeenCalledWith('about:blank','_blank');
+    return new Blob(['synthetic'],{type:'application/octet-stream'});
+  });
+  Object.defineProperty(URL,'createObjectURL',{configurable:true,writable:true,value:vi.fn().mockReturnValue('blob:verified-tab')});
+  Object.defineProperty(URL,'revokeObjectURL',{configurable:true,writable:true,value:vi.fn()});
+  await mount('/arm2/questionnaires?draft='+draft.id);
+  await click('Открыть кандидат');
+  expect(bytes).toHaveBeenCalledWith(`/arm2/questionnaires/${draft.id}/files/upload/preview`,128*1024*1024);
+  expect(tab.opener).toBeNull();expect(tabDocument.title).toBe('synthetic.doc');
+  expect(host.querySelector('[aria-label="Просмотр вложения"]')).toBeNull();
+  expect(tabDocument.querySelector('a[download="synthetic.doc"]')?.getAttribute('href')).toBe('blob:verified-tab');
+  expect(tabDocument.querySelector('iframe,object')).toBeNull();
+  await act(async()=>{tabDocument.querySelector<HTMLButtonElement>('button')!.click();await tick();});
+  expect(close).toHaveBeenCalled();expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:verified-tab');
+  expect(tabDocument.querySelector('[aria-label="Просмотр вложения"]')).toBeNull();
+});
+
+it('reports a blocked preview tab without fetching the file',async()=>{
+  draft.comparison!.documents=[{key:'file',name:'synthetic.pdf',parent_key:'CP',role:'Карточка',upload_id:'upload',selected:false,media_type:'application/pdf'}];
+  vi.spyOn(window,'open').mockReturnValue(null);
+  const bytes=vi.spyOn(questionnaireTransport,'previewBytes');
+  await mount('/arm2/questionnaires?draft='+draft.id);await click('Открыть кандидат');
+  expect(bytes).not.toHaveBeenCalled();
+  expect(host.textContent).toContain('Разрешите открытие новой вкладки');
 });
 
 it('409 preserves safe backend detail while unknown client errors are not called network failures',()=>{

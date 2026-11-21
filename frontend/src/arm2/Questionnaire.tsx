@@ -1,4 +1,5 @@
 import {useEffect, useRef, useState} from 'react';
+import {createPortal} from 'react-dom';
 import {Link, useSearchParams} from 'react-router-dom';
 import {api, ApiError} from '../api';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -46,7 +47,7 @@ function Receipt({value}:{value:QuestionnaireReceipt}) {
 
 export default function Questionnaire({can}:{can:Can}) {
   const [params,setParams]=useSearchParams(),identifier=params.get('draft');
-  const [draft,setDraft]=useState<QuestionnaireDraft>(),[list,setList]=useState<Awaited<ReturnType<typeof questionnaireApi.list>>>([]),[receipts,setReceipts]=useState<QuestionnaireReceipt[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[receipt,setReceipt]=useState<QuestionnaireReceipt>(),[retry,setRetry]=useState(false),[preview,setPreview]=useState<{url:string;name:string;media:string;blob?:Blob}>();
+  const [draft,setDraft]=useState<QuestionnaireDraft>(),[list,setList]=useState<Awaited<ReturnType<typeof questionnaireApi.list>>>([]),[receipts,setReceipts]=useState<QuestionnaireReceipt[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[receipt,setReceipt]=useState<QuestionnaireReceipt>(),[retry,setRetry]=useState(false),[preview,setPreview]=useState<{url:string;name:string;media:string;blob?:Blob;tab:Window}>();
   const command=useRef<string|undefined>(undefined),alive=useRef(true);
   const [garbage,setGarbage]=useState<Awaited<ReturnType<typeof questionnaireApi.cleanupCandidates>>>([]),[notice,setNotice]=useState('');
   const clean=async(id:string)=>{setBusy(true);try{const result=await questionnaireApi.cleanup(id);setNotice(result.pending?'Осталось временных оригиналов: '+result.pending+'. Повторите очистку после восстановления хранилища':'Временные оригиналы очищены; принятые файлы сохранены');setGarbage(await questionnaireApi.cleanupCandidates());}catch(e){setError(e);}finally{setBusy(false);}};
@@ -59,7 +60,11 @@ export default function Questionnaire({can}:{can:Can}) {
     questionnaireApi.reopen(identifier).then(value=>{if(active){setDraft(value);setReceipt(value.receipt);setRetry(false);command.current=undefined;}}).catch(e=>{if(active)setError(e);}).finally(()=>{if(active)setBusy(false);});
     return()=>{active=false;};
   },[identifier]);
-  useEffect(()=>()=>{if(preview)URL.revokeObjectURL(preview.url);},[preview]);
+  useEffect(()=>{
+    if(!preview)return;
+    const timer=window.setInterval(()=>{if(preview.tab.closed)setPreview(current=>current===preview?undefined:current);},500);
+    return()=>{window.clearInterval(timer);URL.revokeObjectURL(preview.url);preview.tab.close();};
+  },[preview]);
   const update=async(choices:QuestionnaireChoices)=>{if(!draft||busy||retry)return;setBusy(true);setError(undefined);try{const saved=await questionnaireApi.edit(draft,choices);if(alive.current){setDraft(saved);command.current=undefined;}}catch(e){setError(e);setRetry(true);}finally{setBusy(false);}};
   const cpFields=(field:string,selected:boolean)=>{const previous=draft?.choices?.cp_fields||[];void update({...draft?.choices,cp_fields:selected?[...previous,field]:previous.filter(f=>f!==field)});};
   const vehicle=(key:string,values:NonNullable<QuestionnaireChoices['vehicles']>[string])=>void update({...draft?.choices,vehicles:{...draft?.choices?.vehicles,[key]:{...draft?.choices?.vehicles?.[key],...values}}});
@@ -69,7 +74,25 @@ export default function Questionnaire({can}:{can:Can}) {
   const upload=async(file:File)=>{setBusy(true);setError(undefined);try{const value=await questionnaireApi.upload(file);if(alive.current){setDraft(value);setReceipt(undefined);setRetry(false);setParams({draft:value.id});await refresh();}}catch(e){setError(e);}finally{setBusy(false);}};
   const apply=async()=>{if(!draft)return;command.current ||= crypto.randomUUID();setBusy(true);setError(undefined);try{const saved=await questionnaireApi.apply(draft,command.current);if(alive.current){setReceipt(saved);setDraft({...draft,status:'ACCEPTED',receipt:saved});setRetry(false);await refresh();}}catch(e){setError(e);setRetry(true);}finally{setBusy(false);}};
   const cancel=async()=>{if(!draft)return;setBusy(true);try{const result=await questionnaireApi.cancel(draft.id);setNotice(result.cleanup?.pending?'Осталось временных оригиналов: '+result.cleanup.pending+'. Повторите очистку после восстановления хранилища':'');setDraft(undefined);setReceipt(undefined);setParams({});setRetry(false);await refresh();}catch(e){setError(e);}finally{setBusy(false);}};
-  const show=async(path:string,name:string)=>{setError(undefined);try{const blob=await previewBytes(path,128*1024*1024);setPreview({url:URL.createObjectURL(blob),name,media:blob.type,blob});}catch(e){setError(e);}};
+  const show=async(path:string,name:string)=>{
+    setError(undefined);setNotice('');
+    // Open synchronously from the operator's click, before the authenticated fetch.
+    const tab=window.open('about:blank','_blank');
+    if(!tab){setNotice('Разрешите открытие новой вкладки для просмотра вложения');return;}
+    tab.opener=null;tab.document.title=name;
+    tab.document.documentElement.lang='ru';
+    tab.document.body.textContent='Загружаем проверенный оригинал…';
+    for(const link of window.document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')){
+      const copy=tab.document.createElement('link');copy.rel='stylesheet';copy.href=link.href;tab.document.head.append(copy);
+    }
+    try{
+      const blob=await previewBytes(path,128*1024*1024);
+      if(tab.closed)return;
+      if(!alive.current){tab.close();return;}
+      tab.document.body.textContent='';
+      setPreview({url:URL.createObjectURL(blob),name,media:blob.type,blob,tab});
+    }catch(e){tab.close();if(alive.current)setError(e);}
+  };
   const c=draft?.comparison,disabled=busy||retry;
   const cpName=c?.cp.name||c?.cp.candidates.find(v=>v.id===c.cp.id)?.name||'Выбранный контрагент';
   const selectedVehicles=c?.vehicles.filter(v=>draft?.choices?.vehicles?.[v.key]?.include)||[];
@@ -97,7 +120,7 @@ export default function Questionnaire({can}:{can:Can}) {
       <button className="arm2-primary" disabled={disabled||!can('arm2_cp_view')} onClick={()=>void apply()}>Принять изменения</button><p>Выбранные изменения сохраняются одним набором. Ошибка выбранного объекта отменяет весь набор; невключённые ошибки не мешают.</p>
     </section>}
     {notice&&<p role="status">{notice}</p>}{draft?.approval_reset&&<p role="alert">Связанные карточки изменились. Зависимые решения сброшены; проверьте их заново.</p>}
-    {receipt&&<Receipt value={receipt}/>}{preview&&<QuestionnairePreview key={preview.url} value={preview} close={()=>setPreview(undefined)}/>}
+    {receipt&&<Receipt value={receipt}/>}{preview&&createPortal(<QuestionnairePreview key={preview.url} value={preview} close={()=>setPreview(undefined)}/>,preview.tab.document.body)}
     <details><summary>Технические протоколы и временные остатки</summary><button disabled={busy} onClick={()=>{questionnaireApi.cleanupCandidates().then(setGarbage).catch(setError);}}>Показать временные остатки закрытых пакетов</button>{garbage.map(item=><p key={item.id}>{item.filename}<button disabled={busy} onClick={()=>void clean(item.id)}>Очистить временные файлы</button></p>)}{receipt&&<button disabled={busy} onClick={()=>void clean(receipt.draft_id)}>Очистить временные файлы завершённого пакета</button>}{receipts.map(r=><Receipt key={r.command_id} value={r}/>)}</details>
   </section>;
 }
