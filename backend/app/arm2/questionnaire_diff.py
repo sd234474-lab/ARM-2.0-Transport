@@ -202,13 +202,11 @@ def build(db, principal, draft):
             plate = normalize_plate_number(re.sub(r'\s+', '', raw['plate_number']))
             by_plate = db.scalar(select(Vehicle).where(Vehicle.plate_number == plate).execution_options(populate_existing=True))
             by_id = db.get(Vehicle, raw['id'], populate_existing=True) if raw['id'] else None
-            if raw['id'] and by_id is None:
-                raise ValueError('Указанный VEH-ID отсутствует')
             if by_id and by_id.plate_number != plate:
                 raise ValueError('VEH-ID и госномер не совпадают; исправьте исходную строку')
             current = by_id or by_plate
-            if current is None and raw.get('state_hint') in ('ИЗ СПРАВОЧНИКА', 'ВЫБЫЛО'):
-                raise ValueError('Машина из справочника не найдена; для создания выберите режим НОВАЯ в анкете')
+            if current is None and raw.get('state_hint') == 'ВЫБЫЛО':
+                raise ValueError('Машина не найдена: снять связь владельца по отметке ВЫБЫЛО невозможно')
             if plate in seen:
                 errors.append('Повтор госномера в строках анкеты')
                 seen[plate]['errors'].append('Повтор госномера в строках анкеты')

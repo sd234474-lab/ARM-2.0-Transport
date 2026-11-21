@@ -52,6 +52,26 @@ from app.arm2.vehicle_type_models import VehicleType
 from app.models import LoginSession, User
 from app.permissions import Permission, has_permission
 
+OLE_SIGNATURE = b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'
+
+
+def attachment_format(path):
+    """Classify the outer document; a legacy OLE original may contain ZIP streams."""
+    try:
+        media, extension = files.content_type(path)
+        return media, extension, None
+    except ValueError as failure:
+        unrecognized = str(failure).startswith('Содержимое файла не соответствует')
+        with path.open('rb') as source:
+            header = source.read(8)
+        if unrecognized and header == OLE_SIGNATURE:
+            return 'application/octet-stream', 'bin', None
+        if zipfile.is_zipfile(path):
+            return None, None, 'Вложенный ZIP нельзя принять как документ; приложите отдельный файл'
+        if header and unrecognized:
+            return 'application/octet-stream', 'bin', None
+        return None, None, str(failure)
+
 
 def owned(db, user, identifier, *, open_only=True):
     authorized(db, user, 'arm2_cp_view')
@@ -69,6 +89,21 @@ def view(db, user, draft, *, reset_on_change=True):
         receipt = db.scalar(select(QuestionnaireReceipt).where(QuestionnaireReceipt.draft_id == draft.id))
         return {'id': draft.id, 'revision': draft.revision, 'status': draft.status,
                 'receipt': receipt.result if receipt else None}
+    # Repair only the known false ZIP classification in an existing OPEN draft.
+    # Preserve file bytes/SHA, decisions, ownership and all accepted FILE history.
+    for stage in db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == draft.id,
+            QuestionnaireUpload.state == 'STAGED')):
+        if stage.error and stage.error.startswith('Вложенный ZIP'):
+            try:
+                path = files.verified_stage(stage)
+                with path.open('rb') as source:
+                    ole = source.read(8) == OLE_SIGNATURE
+                if ole:
+                    media, extension, error = attachment_format(path)
+                    if error is None:
+                        stage.media_type, stage.extension, stage.error = media, extension, None
+            except files.StorageUnavailable:
+                pass  # Keep the existing error if the original cannot be verified.
     comparison = build(db, user, draft)
     approval_reset = False
     if reset_on_change and draft.preview and review_hash(draft.preview, draft.choices) != review_hash(comparison, draft.choices):
@@ -136,15 +171,7 @@ def upload(db, user, content, filename):
                 error = 'Файл превышает штатный предел B3'
             else:
                 path.write_bytes(data)
-                try:
-                    media, extension = files.content_type(path)
-                except ValueError as failure:
-                    if zipfile.is_zipfile(path):
-                        error = 'Вложенный ZIP нельзя принять как документ; приложите отдельный файл'
-                    elif data and str(failure).startswith('Содержимое файла не соответствует'):
-                        media, extension = 'application/octet-stream', 'bin'
-                    else:
-                        error = str(failure)
+                media, extension, error = attachment_format(path)
             db.add(QuestionnaireUpload(id=token, draft_id=draft.id, name=name, size=len(data),
                 sha256=hashlib.sha256(data).hexdigest(), media_type=media, extension=extension,
                 error=error, state='STAGED', prepared={}))

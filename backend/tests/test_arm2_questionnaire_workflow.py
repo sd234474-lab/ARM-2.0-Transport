@@ -919,3 +919,62 @@ def test_issue78_repeated_file_declaration_has_one_physical_item_and_no_silent_b
     saved, _ = apply(c, d)
     vehicle = db.scalar(select(Vehicle).where(Vehicle.plate_number == 'А679ВС86'))
     assert vehicle.owner_cp_id == saved['cp_id'] and db.scalar(select(Document)).parent_id == vehicle.id
+
+
+def test_ole_document_with_internal_zip_is_opaque_and_open_draft_is_repaired(b5):
+    from app.arm2 import document_file_storage as storage
+    c, db, _, parents, *_ = b5
+    doc_kind(c, 'Карточка предприятия', 'CP')
+    stream = io.BytesIO()
+    stream.write(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1' + b'\0' * 504)
+    with zipfile.ZipFile(stream, 'a') as z:
+        z.writestr('[Content_Types].xml', '<Types/>')
+        z.writestr('customXml/item.xml', '<synthetic/>')
+    original = stream.getvalue()
+    assert zipfile.is_zipfile(io.BytesIO(original))
+    d = upload(c, transport(workbook({'B28': 'company.doc'}), {'company.doc': original}), True)
+    stage_row = db.scalar(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == d['id']))
+    assert (stage_row.media_type, stage_row.extension, stage_row.error) == ('application/octet-stream', 'bin', None)
+    # Simulate the previous release's private ledger; reopen repairs this exact
+    # false classification without reupload, domain writes or original changes.
+    stage_row.media_type = stage_row.extension = None
+    stage_row.error = 'Вложенный ZIP нельзя принять как документ; приложите отдельный файл'
+    db.commit()
+    before = snapshot(db)
+    d = reopen(c, d)
+    assert snapshot(db) == before
+    db.refresh(stage_row)
+    assert stage_row.extension == 'bin' and stage_row.error is None
+    assert storage.private_path(stage_row.id).read_bytes() == original
+    d = choose(c, d, cp_target=parents['cp'], documents={'company': {'accept': True}})
+    saved, _ = apply(c, d)
+    document = db.scalar(select(Document))
+    f = db.scalar(select(DocumentFile))
+    assert document.parent_id == parents['cp'] and f.original_upload_name == 'company.doc'
+    url = f'/api/arm2/cp/{parents["cp"]}/documents/{document.id}/revisions/{document.current_revision_id}/files/{f.id}'
+    response = c.get(url + '/download')
+    assert response.content == original and hashlib.sha256(response.content).hexdigest() == f.sha256
+    assert c.get(url + '/preview').headers['content-disposition'].startswith('attachment')
+    assert len(saved['objects']) == 1
+
+
+@pytest.mark.parametrize('source_id', ['', 'VEH-999999'])
+def test_catalogue_mode_does_not_prevent_new_vehicle_or_matching_by_plate(b5, source_id):
+    c, db, _, parents, *_ = b5
+    rows = [{'C': 'ИЗ СПРАВОЧНИКА', 'B': source_id, 'E': 'A789BC86', 'F': 'Catalogue truck', 'G': 'Model',
+             'I': 'B999BC86', 'J': 'Wrong columns'}]
+    d = choose(c, upload(c, workbook(rows=rows)), cp_target=parents['cp'])
+    row = d['comparison']['vehicles'][0]
+    assert row['id'] is None and not row['errors'] and row['plate_number'] == 'А789ВС86'
+    assert d['choices']['vehicles']['v:5']['include']
+    assert row['fields']['name']['proposed'] == 'Catalogue truck'
+    saved, _ = apply(c, d)
+    vehicle = db.scalar(select(Vehicle).where(Vehicle.plate_number == 'А789ВС86'))
+    assert (vehicle.name, vehicle.model, vehicle.owner_cp_id, vehicle.version) == ('Catalogue truck', 'Model', parents['cp'], 1)
+    assert len(saved['event_ids']) == 1
+    before = snapshot(db)
+    second = choose(c, upload(c, workbook(rows=rows)), cp_target=parents['cp'])
+    assert second['comparison']['vehicles'][0]['id'] == vehicle.id
+    assert not second['choices'].get('vehicles', {}).get('v:5', {}).get('include')
+    result, _ = apply(c, second)
+    assert result['no_op'] and snapshot(db) == before
