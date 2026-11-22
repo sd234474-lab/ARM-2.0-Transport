@@ -100,6 +100,11 @@ class DiskTests(unittest.TestCase):
                 proxy.destination('cloud-api.yandex.net:443', hosts)
         with patch.object(proxy.socket, 'getaddrinfo', return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('77.88.55.88', 443))]):
             self.assertEqual(proxy.destination('cloud-api.yandex.net:443', hosts)[3], ('77.88.55.88', 443))
+            self.assertEqual(proxy.destination('uploader456kpmgme.disk.yandex.net:443', hosts)[3], ('77.88.55.88', 443))
+            with self.assertRaises(ValueError):
+                proxy.destination('uploader456kpmgme.disk.yandex.net.evil.invalid:443', hosts)
+            with self.assertRaises(ValueError):
+                proxy.destination('uploader456kpmgme.disk.yandex.net:443', {'cloud-api.yandex.net'})
         for host in ['yandex.ru', 'maps.yandex.ru', 'evil.yandex.net', '*.yandex.net', 'example.org']:
             with self.assertRaises(ValueError):
                 proxy.allowed_hosts({'allowed_hosts': ['cloud-api.yandex.net', host]})

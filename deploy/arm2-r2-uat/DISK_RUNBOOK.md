@@ -31,8 +31,10 @@ read-only, to the API. Do not mount it in the web or gateway container.
 
 `config.json` in that same directory contains only `account_uid`, `resource_id`,
 `document_root`, and `allowed_hosts`. It contains no token or signed URL. Its
-hostname list consists of `cloud-api.yandex.net` and exact upload/download hosts
-returned by the test Disk API; no wildcard destinations. It must be readable by
+hostname list consists of `cloud-api.yandex.net` and upload/download hosts
+returned by the test Disk API. A verified `uploader` host enables only Yandex
+Disk's rotating `uploader[a-z0-9]{1,24}.disk.yandex.net` pool: separate link
+requests return different nodes. There is no broad `*.yandex.net` rule. It must be readable by
 the unprivileged service and not writable by group/other users.
 
 Keep the existing base env-file and its empty `YANDEX_DISK_TOKEN`. The R2-only
@@ -50,7 +52,8 @@ root filesystem. Only it joins `r2_disk_egress`. API and DB stay on `r2_internal
 the web retains only its original networks and loopback port. No host firewall,
 NAT, Windows forwarding, B1, or other project changes are required.
 
-The gateway accepts only bounded CONNECT requests to configured Disk hostnames
+The gateway accepts only bounded CONNECT requests to configured Disk endpoints
+and the narrowly validated upload pool
 on TCP 443, rejects private/loopback/link-local resolutions, pins the checked
 destination IP, and relays TLS without decrypting or logging it. The existing
 adapter keeps TLS certificate verification and URL/redirect/content/SHA checks.

@@ -11,6 +11,7 @@ from pathlib import Path
 
 CONFIG = Path('/run/r2-disk/config.json')
 SLOTS = threading.BoundedSemaphore(16)
+UPLOAD_POOL = re.compile(r'uploader[a-z0-9]{1,24}\.disk\.yandex\.net')
 
 
 def provider_host(host):
@@ -28,7 +29,8 @@ def allowed_hosts(config):
 
 def destination(authority, allowlist):
     match = re.fullmatch(r'([a-z0-9.-]{1,253}):443', authority)
-    if not match or match[1] not in allowlist:
+    if not match or not (match[1] in allowlist or (
+            UPLOAD_POOL.fullmatch(match[1]) and any(UPLOAD_POOL.fullmatch(h) for h in allowlist))):
         raise ValueError('Destination denied')
     addresses = socket.getaddrinfo(match[1], 443, type=socket.SOCK_STREAM)
     if not addresses or any(not ipaddress.ip_address(a[4][0]).is_global for a in addresses):
