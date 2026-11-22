@@ -27,12 +27,11 @@ from app.arm2.document_file_store import (
     attempt_lease,
     bundles,
     document_access,
+    export_name,
     instant,
     owned_stage,
     staging_quota,
 )
-from app.arm2.document_kind_models import DocumentKind
-from app.arm2.document_store import PARENTS
 from app.arm2.http_errors import CONTROLLED_ERRORS, controlled_error, rollback
 from app.arm2.ids import next_id
 from app.arm2.object_save import ObjectAuthorizationError, ObjectNotFoundError, ObjectVersionConflictError
@@ -90,11 +89,16 @@ def translated(db, operation):
         raise HTTPException(503, "Сохранение не подтверждено; повторите запрос с тем же ключом") from None
 
 
-def stage_data(stage):
-    return {
+def stage_data(stage, db=None, document=None):
+    data = {
         key: getattr(stage, key)
         for key in ["id", "original_upload_name", "size", "sha256", "media_type", "extension", "state"]
     }
+
+    if stage.extension and document is not None:
+        from types import SimpleNamespace
+        data['download_name'] = export_name(db, document, SimpleNamespace(id=stage.file_id, extension=stage.extension), revision_id=None)
+    return data
 
 
 @router.get(base + "/files")
@@ -149,9 +153,9 @@ def get_stage(
     user: CurrentUser,
 ):
     def operation():
-        document_access(db, user, parent_type.upper(), parent_id, document_id)
+        document = document_access(db, user, parent_type.upper(), parent_id, document_id)
         return stage_data(
-            owned_stage(db, user, request.state.login_session.token_hash, document_id, stage_id, ready=False)
+            owned_stage(db, user, request.state.login_session.token_hash, document_id, stage_id, ready=False), db, document
         )
 
     return translated(db, operation)
@@ -207,7 +211,7 @@ async def upload_stage(
             stage.sha256 = result.hexdigest()
             stage.media_type, stage.extension, stage.state = media, extension, "ready"
             db.commit()
-            return stage_data(stage)
+            return stage_data(stage, db, document_access(db, user, parent_type.upper(), parent_id, document_id))
     except (
         HTTPException,
         ValueError,
@@ -261,11 +265,11 @@ def preview_stage(
     user: CurrentUser,
 ):
     def operation():
-        document_access(db, user, parent_type.upper(), parent_id, document_id)
+        document = document_access(db, user, parent_type.upper(), parent_id, document_id)
         stage = owned_stage(db, user, request.state.login_session.token_hash, document_id, stage_id)
         path = files.staged_preview(stage)
         # The original client filename is never used as a path or an executable extension.
-        name = "Проверка-" + stage.file_id + "." + stage.extension
+        name = stage_data(stage, db, document)["download_name"]
         return protected_response(path, name, stage.media_type, action == "preview", temporary=True)
 
     return translated(db, operation)
@@ -325,9 +329,7 @@ def read_file(
         )
         if revision is None or revision.document_id != document_id or row is None or db.get(DocumentFileCorrection, file_id):
             raise ObjectNotFoundError("Файл не входит в указанную редакцию этого документа")
-        kind = db.get(DocumentKind, document.kind_ref)
-        parent = db.get(PARENTS[document.parent_type][0], document.parent_id)
-        name = files.safe_name(kind.file_naming_template, document, parent, kind, row.id, row.extension)
+        name = export_name(db, document, row, revision_id=revision_id)
         path = files.download(row)
         return protected_response(path, name, row.media_type, action == "preview", temporary=True)
 

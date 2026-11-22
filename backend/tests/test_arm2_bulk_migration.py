@@ -81,7 +81,7 @@ def test_bulk_downgrade_never_discards_workspace_protocol_or_cleanup_audit(migra
         command.downgrade(config, "0067")
     assert snapshot(engine) == before
     with engine.connect() as conn:
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0072"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0073"
         table = {"workspace": "arm2_bulk_sessions", "receipt": "arm2_bulk_receipts", "cleanup": "arm2_bulk_cleanup"}[existing]
         assert conn.scalar(text(f"SELECT count(*) FROM {table}")) == 1
 
@@ -97,4 +97,4 @@ def test_type_category_history_blocks_lossy_downgrade_even_after_clear(migrated)
         command.downgrade(config, "0066")
     assert snapshot(engine) == before
     with engine.connect() as conn:
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0072"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0073"

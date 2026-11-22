@@ -53,7 +53,7 @@ def seal(body):
 def unseal(value):
     try:
         signed = json.loads(value)
-        if not hmac.compare_digest(seal(signed['body']), canonical(signed)):
+        if not hmac.compare_digest(seal(signed['body']).encode('utf-8'), canonical(signed).encode('utf-8')):
             return None
         return signed['body'] if signed['body'].get('schema') == 'ARM2_QUESTIONNAIRE_1' else None
     except (ValueError, TypeError, KeyError):

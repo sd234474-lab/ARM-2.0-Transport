@@ -51,7 +51,7 @@ class DocumentKindCreate(StrictModel):
     name: str
     applicable_object_types: list[str]
     max_current_documents: StrictInt | None
-    file_naming_template: Literal["DOCUMENT_NAME", "PARENT_AND_KIND"] | None = None
+    file_naming_template: Literal["DOCUMENT_NAME", "PARENT_AND_KIND", "VEH_CALIBRATION"] | None = None
 
 
 class DocumentKindUpdate(DocumentKindCreate):
@@ -59,7 +59,7 @@ class DocumentKindUpdate(DocumentKindCreate):
 
 
 class DocumentKindResponse(StrictModel):
-    file_naming_template: Literal["DOCUMENT_NAME", "PARENT_AND_KIND"] | None
+    file_naming_template: Literal["DOCUMENT_NAME", "PARENT_AND_KIND", "VEH_CALIBRATION"] | None
     id: str
     name: str
     applicable_object_types: list[str]

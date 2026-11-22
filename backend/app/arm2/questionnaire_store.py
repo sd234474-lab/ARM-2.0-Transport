@@ -15,6 +15,7 @@ from app.arm2.counterparty_store import create_counterparty
 from app.arm2.document_file_models import DocumentFile, DocumentFileCorrection
 from app.arm2.document_file_store import (
     attempt_lease,
+    export_name,
     publish_prepared_revision_in_transaction,
     revision_files,
 )
@@ -448,8 +449,8 @@ def prepare_files(db, user, draft, comparison, docs, command_id, signature):
                 parent_record = db.get(Vehicle, doc['parent_id']) if doc['parent_id'] else None
                 included = draft.choices.get('vehicles', {}).get(doc['parent_key'], {}).get('include')
                 parent_name = field.get('proposed') if included and field.get('selected') else parent_record.name if parent_record else row['plate_number'] if row else 'Анкета'
-            name = files.safe_name(kind.file_naming_template, SimpleNamespace(name=document_name),
-                SimpleNamespace(name=parent_name), kind, file_id, stage.extension)
+            name = files.safe_name(kind.file_naming_template, SimpleNamespace(name=document_name, parent_type=doc['parent_type']),
+                SimpleNamespace(name=parent_name, plate_number=(row['plate_number'] if row else parent_record.plate_number if parent_record else None) if doc['parent_type']=='VEH' else None), kind, file_id, stage.extension)
             try:
                 root = files.document_root()
             except files.StorageUnavailable as error:
@@ -750,7 +751,7 @@ def export(db, user, cp_id, *, with_files=False, incomplete_reason=None):
             for doc in db.scalars(select(Document).where(Document.parent_type == ptype, Document.parent_id == pid,
                                                          Document.archive_state == 'Неархивный').order_by(Document.id)):
                 for file in revision_files(db, doc.id, doc.current_revision_id):
-                    name = f'files/{ptype}_{pid}_{doc.id}_{file.id}.{file.extension}'
+                    name = 'files/' + export_name(db, doc, file)
                     try:
                         if db.get(DocumentFileCorrection, file.id):
                             raise files.StorageUnavailable('Исправленная ошибочная загрузка')

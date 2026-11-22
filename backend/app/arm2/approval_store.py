@@ -31,6 +31,7 @@ from app.arm2.object_save import (
     update_object,
 )
 from app.arm2.vehicle_models import Vehicle
+from app.arm2.vehicle_models import calibration_matches_document as _confirmed_proof
 from app.arm2.vehicle_type_models import VehicleType
 from app.models import LoginSession
 
@@ -187,17 +188,6 @@ def calibration_document(db, user, vehicle_id, document_id, *, edit=False, lock=
     if not originals or any(db.get(DocumentFileCorrection, f.id) for f in originals):
         raise ValueError("У тарировки нет актуального комплекта правильных файлов")
     return document, originals
-
-
-def _confirmed_proof(vehicle, document):
-    return bool(
-        vehicle.calibration_m3
-        and vehicle.calibration_confirmed_at
-        and vehicle.calibration_confirmed_by
-        and vehicle.calibration_document_id == document.id
-        and vehicle.calibration_revision_id == document.current_revision_id
-        and vehicle.calibration_plate_number == vehicle.plate_number
-    )
 
 
 def customer_state(db, vehicle):
@@ -456,7 +446,9 @@ def issue_letter(db, user, session_hash, command):
                     original_upload_name="Согласование техники.pdf",
                 )
                 plans.append(letter)
-                render_package(package_path, letter_path, letter["stored_name"], snapshots, originals)
+                from app.arm2.document_file_store import export_name
+                emitted_names = {original.id: export_name(db, db.get(Document, original.document_id), original) for original in originals}
+                render_package(package_path, letter_path, letter["stored_name"], snapshots, originals, emitted_names=emitted_names)
                 plans.append(
                     files.prepare_original(
                         package_path,

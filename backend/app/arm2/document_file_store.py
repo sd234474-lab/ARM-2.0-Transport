@@ -96,11 +96,19 @@ def display_state(db, document):
     )
 
 
-def public_file(row, position, correction=None):
+def export_name(db, document, original, *, revision_id=files.CURRENT_REVISION):
+    """Current external name only; never modifies the accepted FILE or its physical path."""
+    kind = db.get(DocumentKind, document.kind_ref, populate_existing=True)
+    parent = db.get(PARENTS[document.parent_type][0], document.parent_id, populate_existing=True)
+    return files.safe_name(kind.file_naming_template, document, parent, kind, original.id, original.extension,
+                           revision_id=revision_id)
+
+
+def public_file(row, position, correction=None, *, download_name=None):
     return {
         key: getattr(row, key)
         for key in ["id", "original_upload_name", "stored_name", "size", "sha256", "media_type", "extension"]
-    } | {"position": position, "correction": ({
+    } | ({"download_name": download_name} if download_name is not None else {}) | {"position": position, "correction": ({
         "reason_code": correction.reason_code, "operation": correction.operation,
         "actor_id": correction.actor_id, "occurred_at": correction.occurred_at.isoformat(),
         "history_event_id": correction.history_event_id,
@@ -129,7 +137,8 @@ def bundles(db, document, include_history=True):
                 "occurred_at": revision.occurred_at.isoformat(),
                 "source": revision.source,
                 "files": [
-                    public_file(row, i, db.get(DocumentFileCorrection, row.id))
+                    public_file(row, i, db.get(DocumentFileCorrection, row.id),
+                                download_name=export_name(db, document, row, revision_id=revision.id))
                     for i, row in enumerate(revision_files(db, document.id, revision.id))
                 ],
             }
@@ -246,7 +255,8 @@ def prepare(db, user, session_hash, document, expected_version, key, selection, 
             }
         else:
             name = files.safe_name(
-                kind.file_naming_template, document, parent, kind, stage.file_id, stage.extension
+                kind.file_naming_template, document, parent, kind, stage.file_id, stage.extension,
+                revision_id=revision_id
             )
             target = "/".join(
                 [

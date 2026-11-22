@@ -30,6 +30,14 @@ it('fetches verified bytes in its own page and keeps opaque originals download-o
   await act(async()=>root.render(null));
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:verified-tab');
 });
+it('uses the current server filename instead of a stale caller label',async()=>{
+  const name='Тарировка Е679РН186 25м3-FILE-000001.pdf';
+  vi.mocked(previewBytes).mockResolvedValue(new File(['verified'],name,{type:'application/octet-stream'}));
+  await mount();
+  expect(document.title).toBe(name);
+  expect(host.querySelector('a[download]')?.getAttribute('download')).toBe(name);
+  expect(host.textContent).not.toContain('synthetic.doc');
+});
 it.each(['https://example.invalid/file','//example.invalid/file','/api/auth/login','/arm2/questionnaires/x/files/y/preview?redirect=1'])('rejects a non-preview source: %s',async source=>{
   await mount(source);expect(previewBytes).not.toHaveBeenCalled();
   expect(host.textContent).toContain('Некорректная ссылка');

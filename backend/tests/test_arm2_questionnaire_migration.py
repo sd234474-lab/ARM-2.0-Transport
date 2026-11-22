@@ -31,7 +31,7 @@ def test_0069_upgrade_preserves_0068_rows_ids_versions_history_and_sequence(isol
     monkeypatch.setenv('DATABASE_URL', isolated_arm2_database_url)
     settings.cache_clear()
     scripts = ScriptDirectory.from_config(config())
-    assert scripts.get_heads() == ['0072'] and scripts.get_revision('0069').down_revision == '0068'
+    assert scripts.get_heads() == ['0073'] and scripts.get_revision('0069').down_revision == '0068'
     command.downgrade(config(), '0068')
     engine = create_engine(isolated_arm2_database_url)
     with engine.begin() as db:
@@ -81,7 +81,7 @@ def test_0069_guard_never_discards_names_history_or_questionnaire_ledgers(b5, re
     with pytest.raises(RuntimeError, match='0070.*downgrade refused'):
         command.downgrade(config(), '0068')
     assert snapshot(db) == before
-    assert db.scalar(text('SELECT version_num FROM alembic_version')) == '0072'
+    assert db.scalar(text('SELECT version_num FROM alembic_version')) == '0073'
 
 
 def test_0071_preserves_existing_files_and_enables_only_opaque_bin(isolated_arm2_database_url, monkeypatch):

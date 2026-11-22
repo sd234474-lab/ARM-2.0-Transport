@@ -33,8 +33,8 @@ class _DocumentKindAdapter:
         if maximum is not None and (type(maximum) is not int or maximum <= 0):
             raise ValueError("max_current_documents must be a positive integer or None")
         preset = values["file_naming_template"]
-        if preset not in (None, "DOCUMENT_NAME", "PARENT_AND_KIND"):
-            raise ValueError("Unsupported document file naming template")
+        from app.arm2.document_file_storage import validate_naming_template
+        validate_naming_template(preset, name, [parent for parent in connected if parent in parents])
         return {"file_naming_template": preset, "name": name, "applicable_object_types": [parent for parent in connected if parent in parents],
                 "max_current_documents": maximum}
 
