@@ -14,7 +14,7 @@ from test_arm2_calibration_approval import ok
 from test_arm2_document_api import api as api
 from test_arm2_document_file_api import accept, bundle, pdf, stage
 from test_arm2_document_file_api import qa as qa
-from test_arm2_questionnaire_workflow import apply, choose, exported, upload
+from test_arm2_questionnaire_workflow import apply, choose, exported, transport, upload, workbook
 from test_arm2_questionnaire_workflow import b5 as b5
 
 from app.arm2 import document_file_storage as files
@@ -116,6 +116,25 @@ def test_new_approval_package_uses_common_names_old_package_is_immutable(qa):
     confirm(c, vehicle_id, path, 27.0)
     assert c.get(url).content == original
     assert ok(c.get('/api/arm2/approvals/' + request_id)) == request
+
+
+def test_b5_explicit_existing_vehicle_binding_without_row_uses_same_plate_and_missing_volume(b5):
+    c, db, user, parents, *_ = b5
+    vehicle_id, path, kind_id = setup_case(b5)
+    confirm(c, vehicle_id, path, 25)
+    original = bundle(c, path)
+    draft = upload(c, transport(workbook(), {'new.pdf':pdf('new file from questionnaire')}), True)
+    attachment = draft['comparison']['documents'][0]
+    draft = choose(c, draft, cp_target=parents['cp'], documents={attachment['key']:{
+        'parent_key':vehicle_id, 'kind_id':kind_id, 'document_id':path.split('/')[-1], 'append':True, 'accept':True}})
+    receipt, _ = apply(c, draft)
+    assert not receipt['no_op']
+    after = bundle(c, path)
+    previous_ids = {f['id'] for f in original['revisions'][0]['files']}
+    new = [f for f in after['revisions'][0]['files'] if f['id'] not in previous_ids]
+    assert len(new) == 1
+    assert 'Е679РН186' in new[0]['stored_name'] and 'НЕТ ДАННЫХ' in new[0]['stored_name']
+    assert all('НЕТ ДАННЫХ' in f['download_name'] for f in after['revisions'][0]['files'])
 
 
 @pytest.mark.parametrize('parents,label', [(['CP'], 'Тарировка'), (['ORG'], 'Тарировка'),

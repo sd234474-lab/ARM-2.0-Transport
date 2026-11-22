@@ -65,7 +65,8 @@ fail-closed, если новый пресет есть в настройке л�
 
 ## Авторские проверки
 
-- Новые backend D tests: **25 PASS**, включая реальный pg_dump/pg_restore
+- Новые backend D tests: **26 PASS** (25 + адресная проверка явной B5-привязки
+  к VEH без строки техники), включая реальный pg_dump/pg_restore
   с matching-major PostgreSQL clients, FILE/runtime и продолжение сохранения ответа.
   После restore сравниваются DOC-KIND, VEH proof, FILE и HISTORY.
 - Frontend: **501 PASS**, обе production builds PASS; отдельный повторный прогон

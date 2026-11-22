@@ -450,7 +450,7 @@ def prepare_files(db, user, draft, comparison, docs, command_id, signature):
                 included = draft.choices.get('vehicles', {}).get(doc['parent_key'], {}).get('include')
                 parent_name = field.get('proposed') if included and field.get('selected') else parent_record.name if parent_record else row['plate_number'] if row else 'Анкета'
             name = files.safe_name(kind.file_naming_template, SimpleNamespace(name=document_name, parent_type=doc['parent_type']),
-                SimpleNamespace(name=parent_name, plate_number=(row['plate_number'] if row else None) if doc['parent_type']=='VEH' else None), kind, file_id, stage.extension)
+                SimpleNamespace(name=parent_name, plate_number=(row['plate_number'] if row else parent_record.plate_number if parent_record else None) if doc['parent_type']=='VEH' else None), kind, file_id, stage.extension)
             try:
                 root = files.document_root()
             except files.StorageUnavailable as error:
