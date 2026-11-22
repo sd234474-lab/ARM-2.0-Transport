@@ -67,6 +67,10 @@
 .arm2-document-operations fieldset {border:0;padding:0;min-width:0;}
 
 /* Shared ARM2 document card: compact presentation, unchanged operation contracts. */
+.arm2:has(.arm2-document) > h1 { font-size:1.25rem; margin:0 0 8px; }
+.arm2:has(.arm2-document) .arm2-sections { display:flex; flex-wrap:wrap; gap:6px 16px; margin:8px 0; }
+.arm2:has(.arm2-document) .arm2-section { min-height:0; padding:4px 0; border:0; border-radius:0; }
+.arm2:has(.arm2-document) .arm2-section small { display:none; }
 .arm2-document { max-width:1100px; min-width:0; }
 .arm2-document .arm2-document-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; margin:14px 0 6px; }
 .arm2-document .arm2-document-heading h2 { margin:0; overflow-wrap:anywhere; }
