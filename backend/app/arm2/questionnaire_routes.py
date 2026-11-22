@@ -1,10 +1,10 @@
 """Isolated B5 HTTP surface using existing authentication, CSRF and ARM2 permissions."""
+
 import base64
 from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -14,29 +14,14 @@ from starlette.responses import FileResponse
 
 from app.arm2 import document_file_storage as files
 from app.arm2 import questionnaire_store as store
-from app.arm2.object_save import ObjectAuthorizationError, ObjectNotFoundError, ObjectVersionConflictError
+from app.arm2.http_errors import CONTROLLED_ERRORS, controlled_error, rollback
+from app.arm2.http_limits import bounded_route
 from app.arm2.questionnaire_diff import authorized
 from app.arm2.questionnaire_models import QuestionnaireDraft, QuestionnaireReceipt, QuestionnaireUpload
 from app.arm2.questionnaire_parse import MAX_COMPRESSED
 from app.auth import CurrentUser, Db
 
-
-class BoundedRoute(APIRoute):
-    def get_route_handler(self):
-        handler = super().get_route_handler()
-
-        async def bounded(request):
-            if request.method not in {'GET', 'HEAD'}:
-                chunks, size = [], 0
-                async for chunk in request.stream():
-                    size += len(chunk)
-                    if size > MAX_COMPRESSED:
-                        raise HTTPException(413, 'Транспорт больше 32 МиБ')
-                    chunks.append(chunk)
-                request._body = b''.join(chunks)
-            return await handler(request)
-        return bounded
-
+BoundedRoute = bounded_route(MAX_COMPRESSED, "Транспорт больше 32 МиБ")
 
 router = APIRouter(prefix='/questionnaires', route_class=BoundedRoute)
 
@@ -101,26 +86,20 @@ class Export(Command):
 def translated(db, operation, *, questionnaire_apply=False):
     try:
         return operation()
-    except (ObjectAuthorizationError, ObjectNotFoundError) as error:
-        db.rollback()
-        raise HTTPException(403 if isinstance(error, ObjectAuthorizationError) else 404, str(error)) from None
-    except ObjectVersionConflictError as error:
-        db.rollback()
-        raise HTTPException(409, str(error)) from None
+    except CONTROLLED_ERRORS as error:
+        rollback(db)
+        raise controlled_error(error) from None
     except IntegrityError:
-        db.rollback()
+        rollback(db)
         raise HTTPException(409, 'Версии, права или уникальные связи изменены. Весь выбранный набор не сохранён; откройте сверку заново') from None
     except files.StorageUnavailable as error:
-        db.rollback()
+        rollback(db)
         if questionnaire_apply and isinstance(error, store.QuestionnaireDiskUnavailable):
             raise HTTPException(503, {'code': 'QUESTIONNAIRE_STORAGE_UNAVAILABLE',
                 'message': str(error), 'can_save_without_documents': True}) from None
         raise HTTPException(503, str(error)) from None
-    except ValueError as error:
-        db.rollback()
-        raise HTTPException(422, str(error)) from None
     except SQLAlchemyError:
-        db.rollback()
+        rollback(db)
         raise HTTPException(409, 'SQL не подтвердил набор. Ни одно выбранное изменение не принято') from None
 
 

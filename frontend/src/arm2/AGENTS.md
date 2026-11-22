@@ -15,3 +15,7 @@ Naming, storage and publication already share the backend ARM2 document file mod
 Reuse their contracts; preserve IDs, versions, history and original names.
 Check affected consumers and failure cases when changing a shared mechanism.
 Changes to ARM2 must not modify the host Metka application or ARM1.
+
+Mounted ARM2 form navigation uses `useDraftGuard.ts`. Consumers own their draft,
+park/discard callbacks and messages. The owner's same-path replace exception is
+an explicit option, not a second guard. Do not install this on legacy screens.

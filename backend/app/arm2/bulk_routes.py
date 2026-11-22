@@ -1,10 +1,10 @@
 """Private durable B4 workspaces; one confirmed VEH per transaction."""
+
 import base64
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
-from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -24,6 +24,7 @@ from app.arm2.bulk_tables import (
     xlsx,
 )
 from app.arm2.history_models import HistoryEvent
+from app.arm2.http_limits import bounded_route
 from app.arm2.object_save import (
     ObjectAuthorizationError,
     ObjectVersionConflictError,
@@ -35,23 +36,7 @@ from app.arm2.vehicle_models import Vehicle
 from app.auth import AdminUser, CurrentUser, Db
 from app.models import User
 
-
-class BoundedRoute(APIRoute):
-    def get_route_handler(self):
-        handler = super().get_route_handler()
-
-        async def bounded(request):
-            if request.method not in {"GET", "HEAD"}:
-                chunks, size = [], 0
-                async for chunk in request.stream():
-                    size += len(chunk)
-                    if size > MAX_BYTES:
-                        raise HTTPException(413, "Запрос больше 5 МиБ")
-                    chunks.append(chunk)
-                request._body = b"".join(chunks)
-            return await handler(request)
-        return bounded
-
+BoundedRoute = bounded_route(MAX_BYTES, "Запрос больше 5 МиБ")
 
 router = APIRouter(prefix="/bulk", route_class=BoundedRoute)
 Cell = Annotated[str, Field(max_length=MAX_CELL)]

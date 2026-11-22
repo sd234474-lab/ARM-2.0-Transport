@@ -1,6 +1,7 @@
+import {useDraftGuard} from './useDraftGuard';
 import type {ReactNode} from 'react';
-import { useContext, useEffect, useRef, useState } from 'react';
-import { Link, UNSAFE_NavigationContext, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError } from '../api';
 import { catalogs, searchPage } from './api';
 import { apiUrl } from '../workspace';
@@ -187,53 +188,6 @@ interface OperationDraft {action: 'archive' | 'restore' | 'retype' | 'move'; exp
 interface Parked {original?: DocumentRecord; draft: Draft; denied: boolean; error: unknown; files?: FileDraft; operation?: OperationDraft}
 const parkedDrafts = new Map<string, Parked>();
 const draftOf = (record?: DocumentRecord): Draft => ({kind_ref: record?.kind_ref || '', name: record?.name || '', description: record?.description ?? null});
-
-function useDraftGuard(blocked: boolean, park: () => void, discard: () => void) {
-  const {navigator} = useContext(UNSAFE_NavigationContext);
-  const location = useLocation();
-  const dirty = useRef(blocked); dirty.current = blocked;
-  const callbacks = useRef({park, discard}); callbacks.current = {park, discard};
-  const index = useRef<number | undefined>(window.history.state?.idx);
-  useEffect(() => {index.current = window.history.state?.idx;}, [location.key]);
-  useEffect(() => {
-    const mountedHref = window.location.href;
-    const leave = () => !dirty.current || window.confirm('Покинуть карточку и потерять несохранённые изменения?');
-    const push = navigator.push, replace = navigator.replace, go = navigator.go;
-    const guardedPush: typeof push = (...args) => {if (leave()) {dirty.current = false; push.apply(navigator, args);}};
-    const guardedReplace: typeof replace = (...args) => {if (leave()) {dirty.current = false; replace.apply(navigator, args);}};
-    const guardedGo: typeof go = (...args) => {if (leave()) {dirty.current = false; go.apply(navigator, args);}};
-    navigator.push = guardedPush; navigator.replace = guardedReplace; navigator.go = guardedGo;
-    let restoring = false, unmounted = false;
-    const remove = () => {window.removeEventListener('popstate', pop, true); window.removeEventListener('beforeunload', unload);};
-    const pop = (event: PopStateEvent) => {
-      if (restoring) {restoring = false; if (unmounted) remove(); else event.stopImmediatePropagation(); return;}
-      const next = event.state?.idx;
-      if (dirty.current && typeof next === 'number' && typeof index.current === 'number' && next !== index.current) {
-        if (!leave()) {event.stopImmediatePropagation(); restoring = true; window.history.go(index.current - next); return;}
-        dirty.current = false; callbacks.current.discard();
-      }
-      index.current = next;
-    };
-    const unload = (event: BeforeUnloadEvent) => {if (dirty.current) {event.preventDefault(); event.returnValue = '';}};
-    window.addEventListener('popstate', pop, true); window.addEventListener('beforeunload', unload);
-    return () => {
-      unmounted = true;
-      if (navigator.push === guardedPush) navigator.push = push;
-      if (navigator.replace === guardedReplace) navigator.replace = replace;
-      if (navigator.go === guardedGo) navigator.go = go;
-      if (dirty.current && window.location.href !== mountedHref) {
-        callbacks.current.park();
-        // A Window POP can synchronously unmount us in Router's earlier listener.
-        // Finish this event before removing our listener; a refused POP remounts
-        // from parked state, while an accepted POP discards it.
-        window.setTimeout(() => {if (!restoring) {remove(); callbacks.current.discard();}}, 0);
-      } else remove();
-    };
-  }, [navigator]);
-  return dirty;
-}
-
-
 
 function KindPicker({path, value, change, can}: {path: string; value: string; change: (id: string) => void; can: Can}) {
   const [q, setQ] = useState(''), [offset, setOffset] = useState(0);

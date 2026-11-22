@@ -32,6 +32,7 @@ from app.arm2.document_file_store import (
 )
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_store import PARENTS
+from app.arm2.http_errors import CONTROLLED_ERRORS, controlled_error, rollback
 from app.arm2.ids import next_id
 from app.arm2.object_save import ObjectAuthorizationError, ObjectNotFoundError, ObjectVersionConflictError
 from app.auth import CurrentUser, Db
@@ -70,30 +71,18 @@ def translated(db, operation):
     try:
         return operation()
     except HTTPException:
-        db.rollback()
+        rollback(db)
         raise
-    except ObjectAuthorizationError as error:
-        db.rollback()
-        raise HTTPException(403, str(error)) from None
-    except ObjectNotFoundError as error:
-        db.rollback()
-        raise HTTPException(404, str(error)) from None
-    except ObjectVersionConflictError as error:
-        db.rollback()
-        raise HTTPException(409, str(error)) from None
-    except ValueError as error:
-        db.rollback()
-        raise HTTPException(422, str(error)) from None
+    except CONTROLLED_ERRORS as error:
+        rollback(db)
+        raise controlled_error(error) from None
     except files.StorageUnavailable as error:
-        db.rollback()
+        rollback(db)
         raise HTTPException(503, str(error)) from None
     except SQLAlchemyError:
         # SQL errors may carry private storage parameters. An uncertain commit is
         # resolved by the same idempotency key, never by blind publication/reupload.
-        try:
-            db.rollback()
-        except SQLAlchemyError:
-            pass
+        rollback(db)
         raise HTTPException(503, "Сохранение не подтверждено; повторите запрос с тем же ключом") from None
 
 
