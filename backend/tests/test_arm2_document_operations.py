@@ -1,5 +1,6 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import unquote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -75,7 +76,22 @@ def test_document_lifecycle_retype_move_correction_and_reopen_preserve_originals
     new_kind = kind(c)
     assert operation(c, url, "retype", 4, kind_ref=new_kind).json()["version"] == 5
     assert operation(c, url, "retype", 5, kind_ref=new_kind).json()["version"] == 5
-    assert bundle(c, url)["revisions"] == [first]
+    def check_history_and_current_names(current_url, current_parent_name):
+        revisions = bundle(c, current_url)['revisions']
+        # All pre-D historical fields must remain byte-for-byte equal. Only the
+        # newly exposed computed download_name follows current RETYPE/MOVE data.
+        def historical(items):
+            return [{**r, 'files':[{k:v for k,v in f.items() if k != 'download_name'} for f in r['files']]}
+                    for r in items]
+        assert historical(revisions) == historical([first])
+        kind_name = c.get('/api/arm2/document-kinds/' + new_kind).json()['name']
+        for row, original_bytes in zip(revisions[0]['files'], data, strict=True):
+            expected = f"{current_parent_name} {kind_name}-{row['id']}.pdf"
+            assert row['download_name'] == expected
+            downloaded = c.get(current_url + f"/revisions/{first['id']}/files/{row['id']}/download")
+            assert downloaded.status_code == 200 and downloaded.content == original_bytes
+            assert unquote(downloaded.headers['content-disposition'].split("filename*=utf-8''")[-1]) == expected
+    check_history_and_current_names(url, token.upper())
     target = parent(c, token)
     moved = operation(c, url, "move", 5, target_type=token.upper(), target_id=target)
     assert moved.status_code == 200 and moved.json()["id"] == docid and moved.json()["version"] == 6
@@ -84,7 +100,8 @@ def test_document_lifecycle_retype_move_correction_and_reopen_preserve_originals
     assert (
         c.get(url + f"/revisions/{first['id']}/files/{first['files'][0]['id']}/download").status_code == 404
     )
-    assert bundle(c, newurl)["revisions"] == [first]  # Historical parent snapshot did not follow MOVE.
+    route = {'cp':'counterparties', 'org':'organizations', 'veh':'vehicles'}[token]
+    check_history_and_current_names(newurl, c.get('/api/arm2/' + route + '/' + target).json()['name'])
     for pid in (parents[token], target):
         events = c.get(f"/api/arm2/history/{token.upper()}/{pid}/document-moves")
         assert events.status_code == 200 and len(events.json()) == 1

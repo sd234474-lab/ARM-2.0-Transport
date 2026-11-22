@@ -72,6 +72,10 @@ fail-closed, если новый пресет есть в настройке л�
 - Frontend: **501 PASS**, обе production builds PASS; отдельный повторный прогон
   49 тестов изменённых UI/transport потребителей PASS.
 - Ruff backend и `git diff --check`: PASS.
+- Прежние lifecycle tests CP/ORG/VEH дополнены разделением immutable history
+  и нового вычисляемого `download_name`. Сравниваются все прежние поля редакции;
+  дополнительно проверяются текущее имя из metadata/Content-Disposition и байты
+  каждого скачивания после RETYPE/MOVE. Адресный повтор: **3 PASS**.
 - Локальный Edge/Playwright smoke: PASS. Синтетическая загрузка PDF → новая revision
   с `НЕТ ДАННЫХ` → подтверждение оператором 25 м³ → общий предпросмотр в отдельной
   вкладке с PDF canvas → скачивание `Тарировка Е679РН186 25м3-FILE-000004.pdf`.
