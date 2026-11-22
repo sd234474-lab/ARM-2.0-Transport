@@ -2,7 +2,8 @@ name: CI
 on: [push, pull_request]
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    # Pin the test runner: ubuntu-latest can move beyond the PostgreSQL 16 client repository.
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgis/postgis:16-3.5
