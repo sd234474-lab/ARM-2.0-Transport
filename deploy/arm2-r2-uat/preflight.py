@@ -181,6 +181,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--env-file', required=True, type=Path)
     parser.add_argument('--phase', choices=('fresh', 'ready'), required=True)
+    parser.add_argument('--disk', action='store_true', help='Issue 81: exact private Disk overlay for existing R2')
     args = parser.parse_args()
     try:
         require(os.name == 'posix' and Path('/proc/meminfo').exists(), 'host: Ubuntu/Linux operational preflight required')
@@ -205,9 +206,16 @@ def main():
         validate_capacity(int(ram[1]) * 1024, shutil.disk_usage(ROOT).free, shutil.disk_usage(info['DockerRootDir']).free)
         # Environment allowlist prevents ambient shell values overriding the private env-file.
         compose_env = {k: os.environ[k] for k in ('PATH', 'HOME') if k in os.environ}
+        overlay = ['-f', 'compose.arm2-r2-disk.yaml'] if args.disk else []
         config = json.loads(capture(['docker', 'compose', '--env-file', str(args.env_file.resolve()), '-p', PROJECT,
-                                    '-f', 'compose.arm2-r2-uat.yaml', 'config', '--format', 'json'], env=compose_env))
-        validate_config(config, e)
+            '-f', 'compose.arm2-r2-uat.yaml', *overlay, 'config', '--format', 'json'], env=compose_env))
+        if args.disk:
+            import disk_preflight
+            require(args.phase == 'ready', 'disk: only the existing R2 is permitted')
+            disk_preflight.validate_files()
+            disk_preflight.validate_config(config, e)
+        else:
+            validate_config(config, e)
         ids = capture(['docker', 'ps', '-aq']).split()
         template = ('{"Id":{{json .Id}},"Labels":{{json .Config.Labels}},"Mounts":{{json .Mounts}},'
                     '"Networks":{{json .NetworkSettings.Networks}},"Ports":{{json .NetworkSettings.Ports}}}')
@@ -218,7 +226,8 @@ def main():
             names = capture(['docker', kind, 'ls', '-q']).split()
             return json.loads(capture(['docker', kind, 'inspect', *names])) if names else []
         volumes, networks = resources('volume'), resources('network')
-        selected = validate_state(containers, volumes, networks, args.phase, int(e['R2_HTTP_PORT']))
+        selected = (disk_preflight.validate_state if args.disk else validate_state)(
+            containers, volumes, networks, args.phase, int(e['R2_HTTP_PORT']))
         own_binding = any(b for c in selected for bs in c['Ports'].values() for b in bs or []
                           if b['HostPort'] == e['R2_HTTP_PORT'])
         if not own_binding:
@@ -229,6 +238,8 @@ def main():
                     raise NoGo('port: host listener/collision; select another verified port') from exc
         if args.phase == 'ready':
             details = json.loads(capture(['docker', 'inspect', *[c['Id'] for c in selected]]))
+            if args.disk:
+                disk_preflight.validate_runtime(details, config)
             for c in details:
                 service = c['Config']['Labels']['com.docker.compose.service']
                 require(c['State'].get('Health', {}).get('Status') == 'healthy', 'ready: unhealthy/not-running R2 service')
@@ -241,7 +252,11 @@ def main():
                     require('api' in c['NetworkSettings']['Networks'][NETWORKS['r2_internal']]['Aliases'], 'ready: DNS alias mismatch')
             dbid = next(c['Id'] for c in selected if c['Labels']['com.docker.compose.service'] == 'r2-db')
             query = ['docker', 'exec', dbid, 'psql', '-XAt', '-U', 'arm2r2', '-d', 'arm2_r2_uat', '-v', 'ON_ERROR_STOP=1', '-c']
-            validate_revision(capture([*query, 'SELECT version_num FROM alembic_version']))
+            revision = capture([*query, 'SELECT version_num FROM alembic_version'])
+            if args.disk:
+                require(revision.strip() == '0071', 'disk: exact existing Alembic 0071 required')
+            else:
+                validate_revision(revision)
             require(capture([*query, 'SELECT current_database()']).strip() == 'arm2_r2_uat', 'ready: database identity mismatch')
         print(json.dumps({'status': 'GO', 'phase': args.phase, 'project': PROJECT, 'directory': str(ROOT),
                           'database': 'arm2_r2_uat', 'volumes': VOLUMES, 'networks': NETWORKS,
