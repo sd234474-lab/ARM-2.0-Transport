@@ -343,13 +343,25 @@ def confirm_calibration(db, user, session_hash, vehicle_id, command):
 
 
 def describe(db, user, request_id):
+    from app.arm2.document_file_store import public_file
+
     row = access(db, user, request_id)
     decisions = db.scalars(
         select(ApprovalDecision).where(ApprovalDecision.request_id == row.id).order_by(ApprovalDecision.id)
     ).all()
+    file_ids = [row.letter_file_id, row.package_file_id, *row.response_file_ids]
+    originals = {
+        original.id: original
+        for original in db.scalars(
+            select(DocumentFile).where(DocumentFile.process_id == row.id, DocumentFile.id.in_(file_ids))
+        )
+    }
+    if set(file_ids) != set(originals):
+        raise files.StorageUnavailable("Метаданные оригиналов заявки неполны")
     return {
         **{key: getattr(row, key) for key in OBJECT_REGISTRY.require("APPROVAL").history_fields},
         "id": row.id,
+        "files": [public_file(originals[file_id], index) for index, file_id in enumerate(file_ids)],
         "decisions": [
             {
                 **{key: getattr(d, key) for key in OBJECT_REGISTRY.require("APPROVAL-ITEM").history_fields},
@@ -544,7 +556,12 @@ def stage_response(db, user, session_hash, request_id, key, name, data):
         old, digest = attempt(db, user, key, "response-stage", request_id, payload)
         if old:
             response_stage(db, user, session_hash, request_id, key)
-            return {"stage_id": key, "name": name, "media_type": old.plan["file"]["media_type"]}
+            return {
+                "stage_id": key,
+                "name": name,
+                "media_type": old.plan["file"]["media_type"],
+                "stored_name": old.plan["file"]["stored_name"],
+            }
         staging_quota(db, user.id, len(data))
         local = files.fresh_path()
         try:
@@ -572,7 +589,7 @@ def stage_response(db, user, session_hash, request_id, key, name, data):
             db.commit()
         finally:
             local.unlink(missing_ok=True)
-        return {"stage_id": key, "name": name, "media_type": media}
+        return {"stage_id": key, "name": name, "media_type": media, "stored_name": plan["stored_name"]}
 
 
 def response_stage(db, user, session_hash, request_id, stage_id):

@@ -2,13 +2,14 @@ import {useEffect, useRef, useState} from 'react';
 import {Link, useNavigate, useParams} from 'react-router-dom';
 import {api, ApiError} from '../api';
 import {apiUrl} from '../workspace';
+import type {DocumentFile} from './api';
 import type {CalibrationState} from './Calibration';
 import {openFilePreview} from './filePreviewWindow';
 import {ErrorMessage, History, Pagination, useAlive, useLoad} from './shared';
 import {useDraftCache, useDraftGuard} from './useDraftGuard';
 
 interface Decision {id: string; vehicle_id: string; plate_number: string; volume_m3: number; state: string; version: number; response_file_id: string | null; decided_at: string | null; decided_by: number | null}
-interface Approval {id: string; version: number; contract_number_1: string; contract_number_2: string; created_at: string; author_id: number; letter_file_id: string; package_file_id: string; response_file_ids: string[]; decisions: Decision[]}
+interface Approval {id: string; version: number; contract_number_1: string; contract_number_2: string; created_at: string; author_id: number; letter_file_id: string; package_file_id: string; response_file_ids: string[]; files: DocumentFile[]; decisions: Decision[]}
 const endpoint = '/arm2/approvals';
 const stateName = (value: string) => ({PENDING: 'Ожидает ответа', APPROVED: 'Согласовано', REJECTED: 'Отклонено'}[value] ?? value);
 export default function Approvals({editable}: {editable: boolean}) {
@@ -71,8 +72,8 @@ function ApprovalCard({row, editable, reload}: {row: Approval; editable: boolean
     let preview: ReturnType<typeof openFilePreview> | undefined;
     try {
       preview = openFilePreview();
-      await api(path + '/response-stages/' + draft.stageId + '?name=' + encodeURIComponent(draft.file.name), 'PUT', draft.file);
-      preview.navigate(path + '/response-stages/' + draft.stageId + '/preview', draft.file.name);
+      const staged = await api<{stored_name: string}>(path + '/response-stages/' + draft.stageId + '?name=' + encodeURIComponent(draft.file.name), 'PUT', draft.file);
+      preview.navigate(path + '/response-stages/' + draft.stageId + '/preview', staged.stored_name);
     } catch (error) {preview?.close(); if (alive.current) setError(error);}
     finally {inFlight.current = false; if (alive.current) setBusy(false);}
   };
@@ -88,7 +89,7 @@ function ApprovalCard({row, editable, reload}: {row: Approval; editable: boolean
     } catch (error) {if (alive.current) setError(error);}
     finally {inFlight.current = false; if (alive.current) setBusy(false);}
   };
-  const file = (id: string, label: string, preview = true) => <span className="arm2-actions" key={id}>{preview && <button type="button" onClick={() => openFilePreview(`${path}/files/${id}/preview`, label)}>{label}</button>}<a href={apiUrl(`${path}/files/${id}/download`)} download>{preview ? 'Скачать оригинал' : label}</a></span>;
+  const file = (id: string, label: string, preview = true) => <span className="arm2-actions" key={id}>{preview && <button type="button" onClick={() => openFilePreview(`${path}/files/${id}/preview`, row.files.find(file => file.id === id)!.stored_name)}>{label}</button>}<a href={apiUrl(`${path}/files/${id}/download`)} download>{preview ? 'Скачать оригинал' : label}</a></span>;
   return <section><h2>{row.id}</h2><p>Контракты: {row.contract_number_1} / {row.contract_number_2} · Автор {row.author_id} · {new Date(row.created_at).toLocaleString('ru-RU')} · Версия {row.version}</p>
     <div className="arm2-actions">{file(row.letter_file_id, 'Открыть письмо')}{file(row.package_file_id, 'Скачать ZIP со справками', false)}</div>
     <ErrorMessage error={error}/><fieldset disabled={!editable || busy}><table><thead><tr><th>Машина / госномер</th><th>Объём</th><th>Текущее решение</th><th>Принять из ответа</th></tr></thead><tbody>{row.decisions.map(d => <tr key={d.id}><td><Link to={'/arm2/veh/' + d.vehicle_id}>{d.vehicle_id} · {d.plate_number}</Link></td><td>{d.volume_m3} м³</td><td>{stateName(d.state)}{d.decided_at && <small> · {new Date(d.decided_at).toLocaleString('ru-RU')} · Автор {d.decided_by}</small>}</td><td><select aria-label={'Решение ' + d.plate_number} value={draft.choices[d.vehicle_id] ?? ''} onChange={e => {const choices = {...draft.choices}; if (e.target.value) choices[d.vehicle_id] = e.target.value; else delete choices[d.vehicle_id]; setDraft({...draft, choices, key: crypto.randomUUID()});}}><option value="">Не изменять</option><option value="APPROVED">Согласовано</option><option value="REJECTED">Отклонено</option></select></td></tr>)}</tbody></table>

@@ -93,6 +93,8 @@ def test_one_letter_two_numbers_response_roundtrip_and_idempotency(qa):
     request_id = result["request_id"]
     assert ok(c.post("/api/arm2/approvals/letter", json=body), 201) == result
     request = ok(c.get("/api/arm2/approvals/" + request_id))
+    assert {file['id'] for file in request['files']} == {request['letter_file_id'], request['package_file_id']}
+    assert all(not {'storage_ref', 'token', 'process_id'} & set(file) for file in request['files'])
     assert [request["contract_number_1"], request["contract_number_2"]] == ["К-001", "К-002"]
     assert len(request["decisions"]) == 2
     assert all(d["state"] == "PENDING" for d in request["decisions"])
@@ -108,6 +110,7 @@ def test_one_letter_two_numbers_response_roundtrip_and_idempotency(qa):
     endpoint = f"/api/arm2/approvals/{request_id}"
     uploaded = ok(c.put(endpoint + f"/response-stages/{stage_id}?name=response.png", content=response_file))
     assert uploaded["stage_id"] == stage_id
+    assert uploaded['stored_name'].endswith('.png') and '-FILE-' in uploaded['stored_name']
     preview = c.get(endpoint + f"/response-stages/{stage_id}/preview")
     assert preview.content == response_file
     command = {

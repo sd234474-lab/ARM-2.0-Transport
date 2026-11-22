@@ -19,7 +19,7 @@ const ready = {vehicle_id: 'VEH-000001', name: '679HOWO', plate_number: 'Е679Р
   work_readiness_notice: 'Полный допуск к работе не подтверждён'};
 const request = {id: 'APPROVAL-000001', version: 1, contract_number_1: 'К-1', contract_number_2: 'К-2',
   author_id: 1, created_at: '2026-11-22T08:00:00Z', letter_file_id: 'FILE-000002', package_file_id: 'FILE-000003',
-  response_file_ids: [], decisions: [
+  response_file_ids: [], files: [{id: 'FILE-000002', stored_name: 'Письмо-FILE-000002.pdf'}, {id: 'FILE-000003', stored_name: 'Комплект-FILE-000003.zip'}, {id: 'FILE-000004', stored_name: 'Ответ-FILE-000004.png'}], decisions: [
     {id: 'APPROVAL-ITEM-000001', vehicle_id: 'VEH-000001', plate_number: 'Е679РН186', volume_m3: 25, state: 'PENDING', version: 1},
     {id: 'APPROVAL-ITEM-000002', vehicle_id: 'VEH-000002', plate_number: 'А001АА186', volume_m3: 27, state: 'PENDING', version: 1}]};
 beforeEach(() => {
@@ -59,8 +59,10 @@ it('takes eligibility only from the server and sends one letter with two header 
 
 it('saves explicit per-machine decisions with one bounded original and reopens through the platform viewer', async () => {
   let saved = false;
+  const candidate = {navigate: vi.fn(), close: vi.fn()};
+  vi.mocked(openFilePreview).mockReturnValue(candidate);
   vi.mocked(api).mockImplementation(async (path, method) => {
-    if (method === 'PUT') return {stage_id: 'stage'};
+    if (method === 'PUT') return {stage_id: 'stage', stored_name: 'Ответ-FILE-000004.png'};
     if (method === 'POST') {saved = true; return {request_id: request.id};}
     return {...request, version: saved ? 2 : 1, response_file_ids: saved ? ['FILE-000004'] : [],
       decisions: request.decisions.map((row, i) => ({...row, state: saved ? ['APPROVED', 'REJECTED'][i] : 'PENDING'}))};
@@ -69,6 +71,8 @@ it('saves explicit per-machine decisions with one bounded original and reopens t
   const choices = host.querySelectorAll('select'); await change(choices[0], 'APPROVED'); await change(choices[1], 'REJECTED');
   const file = new File(['%PDF-test'], 'Ответ.pdf', {type: 'application/pdf'});
   await act(async () => {const input = host.querySelector<HTMLInputElement>('input[type=file]')!; Object.defineProperty(input, 'files', {value: [file]}); input.dispatchEvent(new Event('change', {bubbles: true})); await tick();});
+  await click('Проверить оригинал ответа');
+  expect(candidate.navigate).toHaveBeenCalledWith(expect.stringMatching(/\/response-stages\/[^/]+\/preview$/), 'Ответ-FILE-000004.png');
   await click('Сохранить ответ и решения');
   const sent = vi.mocked(api).mock.calls.find(call => call[0].endsWith('/response') && call[1] === 'POST')!;
   expect(sent[2]).toMatchObject({expected_version: 1, decisions: [
@@ -76,7 +80,7 @@ it('saves explicit per-machine decisions with one bounded original and reopens t
     {vehicle_id: 'VEH-000002', expected_version: 1, state: 'REJECTED'}]});
   expect(host.textContent).toContain('Согласовано'); expect(host.textContent).toContain('Отклонено');
   await click('Открыть ответ заказчика');
-  expect(openFilePreview).toHaveBeenCalledWith('/arm2/approvals/APPROVAL-000001/files/FILE-000004/preview', 'Открыть ответ заказчика');
+  expect(openFilePreview).toHaveBeenCalledWith('/arm2/approvals/APPROVAL-000001/files/FILE-000004/preview', 'Ответ-FILE-000004.png');
   expect(host.querySelector('iframe')).toBeNull();
 });
 
@@ -85,13 +89,13 @@ it('shows volume as read-only and confirms only after the operator checks an exp
     parent_type: 'VEH' as const, parent_id: ready.vehicle_id, description: null, archive_state: 'Неархивный' as const, display_state: 'Доступен' as const};
   vi.mocked(api).mockImplementation(async (path, method) => {
     if (method === 'POST') return {no_op: false};
-    if (path.includes('/files?')) return {current_revision_id: ready.revision_id, document_version: 2, revisions: [{id: ready.revision_id, files: [{id: 'FILE-000001', original_upload_name: 'Справка.pdf'}]}]};
+    if (path.includes('/files?')) return {current_revision_id: ready.revision_id, document_version: 2, revisions: [{id: ready.revision_id, files: [{id: 'FILE-000001', original_upload_name: 'Справка.pdf', stored_name: 'Тарировка-FILE-000001.pdf'}]}]};
     return ready;
   });
   await mount(<><CalibrationSummary vehicleId={ready.vehicle_id}/><CalibrationConfirmation vehicleId={ready.vehicle_id} document={document} editable blocked={false}/></>);
   expect(host.textContent).toContain('25 м³'); expect(host.textContent).toContain('Полный допуск');
   await click('Открыть Справка.pdf');
-  expect(openFilePreview).toHaveBeenCalledOnce();
+  expect(openFilePreview).toHaveBeenCalledWith('/arm2/veh/VEH-000001/documents/DOCUMENT-000001/revisions/DOCUMENT-REV-000001/files/FILE-000001/preview', 'Тарировка-FILE-000001.pdf');
   const button = [...host.querySelectorAll('button')].find(b => b.textContent === 'Подтвердить тарировку')!;
   expect(button.disabled).toBe(true);
   await change(host.querySelector<HTMLInputElement>('input[type=number]')!, '27');
