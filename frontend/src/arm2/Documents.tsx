@@ -1,29 +1,14 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import { Link, UNSAFE_NavigationContext, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiError } from '../api';
-import { catalogs, previewBytes, searchPage } from './api';
+import { catalogs, searchPage } from './api';
 import { apiUrl } from '../workspace';
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import type { PDFDocumentProxy, PDFDocumentLoadingTask } from 'pdfjs-dist';
+import {openFilePreview} from './filePreviewWindow';
 import type { DocumentKind, DocumentParent, DocumentRecord, RecordData, DocumentFile, EventDetail, FileBundle, FileStage } from './api';
 import type { Can } from './Workspace';
 import { ErrorMessage, History, Pagination, useAlive, useLoad } from './shared';
 
 interface Scope {parentType: DocumentParent; parentId: string; can: Can}
-interface FilePreview {url: string; name: string; media: string; blob?: string; pdf?: PDFDocumentProxy; load?: PDFDocumentLoadingTask; page?: number}
-
-async function pdfPage(document: PDFDocumentProxy, number: number): Promise<Blob> {
-  const page = await document.getPage(number), base = page.getViewport({scale:1});
-  if (![base.width,base.height].every(value => Number.isFinite(value) && value > 0)) throw new Error('Invalid PDF page size');
-  const scale = Math.min(1.5,1600/base.width,2400/base.height,Math.sqrt(4000000/(base.width*base.height)));
-  const viewport = page.getViewport({scale}), canvas = window.document.createElement('canvas');
-  canvas.width = Math.max(1,Math.ceil(viewport.width)); canvas.height = Math.max(1,Math.ceil(viewport.height));
-  try {
-    // Raster only. No viewer, annotations, links, forms, XFA or scripting manager.
-    await page.render({canvas,viewport,annotationMode:0}).promise;
-    return await new Promise<Blob>((resolve,reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('PDF raster failed')),'image/png'));
-  } finally {page.cleanup(); canvas.width = 0; canvas.height = 0;}
-}
 const endpoint = (type: DocumentParent, id: string) => `/arm2/${type.toLowerCase()}/${encodeURIComponent(id)}/documents`;
 const parentLink = (type: DocumentParent, id: string) => `/arm2/${type.toLowerCase()}/${encodeURIComponent(id)}?tab=documents`;
 const view = ({parentType, can}: Pick<Scope, 'parentType' | 'can'>) => can(catalogs[parentType].permission + '_view') && can('arm2_document_view');
@@ -43,45 +28,12 @@ function DocumentFiles({path, original, editable, blocked, draft, setDraft, refr
   const current = result.data?.revisions?.find(row => row.id === result.data?.current_revision_id);
   const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(), [status, setStatus] = useState('');
   const [denied, setDenied] = useState(false), [comparison, setComparison] = useState<FileBundle>();
-  const [preview, setPreview] = useState<FilePreview>();
-  const previewTicket = useRef(0);
-  useEffect(() => {const url = preview?.blob; return () => {if (url) URL.revokeObjectURL(url);};}, [preview?.blob]);
-  useEffect(() => {const task = preview?.load; return () => {if (task) void task.destroy().catch(() => {});};}, [preview?.load]);
-  const showPreview = async (value: {url: string; name: string; media: string}) => {
-    const ticket = ++previewTicket.current;
-    if (value.media === 'application/pdf') {
-      const blob = await previewBytes(value.url, result.data?.max_file_bytes || 0);
-      const pdfjs = await import('pdfjs-dist');
-      const workerUrl = new URL(pdfWorkerUrl, window.location.href);
-      workerUrl.searchParams.set('module', '1');
-      pdfjs.GlobalWorkerOptions.workerSrc = workerUrl.href;
-      // Only the low-level canvas API is used: PDF scripting/annotation managers
-      // are never instantiated. Parse bytes in the pinned local worker, with no URL fetching.
-      const task = pdfjs.getDocument({data:new Uint8Array(await blob.arrayBuffer()),enableXfa:false,
-        disableFontFace:true,useSystemFonts:true,useWorkerFetch:false,useWasm:false,stopAtErrors:true,
-        disableWorkerRendering:true,disableAutoFetch:true,disableRange:true,disableStream:true,maxImageSize:20000000,canvasMaxAreaInBytes:16000000});
-      try {
-        const doc = await task.promise;
-        if (doc.numPages > 1000) throw new Error('PDF page limit');
-        const raster = await pdfPage(doc,1);
-        if (alive.current && ticket === previewTicket.current) setPreview({...value,pdf:doc,load:task,page:1,blob:URL.createObjectURL(raster)});
-        else await task.destroy();
-      } catch {
-        await task.destroy().catch(() => {});
-        if (ticket !== previewTicket.current) return;
-        throw new ApiError(422,'Не удалось безопасно отобразить PDF. Исходный файл доступен для скачивания.');
-      }
-    } else if (value.media.startsWith('image/')) {
-      const blob = await previewBytes(value.url, result.data?.max_file_bytes || 0);
-      if (alive.current && ticket === previewTicket.current) setPreview({...value, blob:URL.createObjectURL(blob)});
-    } else if (alive.current) setPreview(value);
-  };
   const input = useRef<HTMLInputElement>(null), replacing = useRef<number | undefined>(undefined), inFlight = useRef(false), alive = useAlive();
   const allowed = editable && !denied;
-  const begin = () => {setError(undefined); setStatus(''); setPreview(undefined); setDraft({key: crypto.randomUUID(), expectedVersion: original.version, candidates: (current?.files || []).map(file => ({key: file.id, current: file}))});};
+  const begin = () => {setError(undefined); setStatus(''); setDraft({key: crypto.randomUUID(), expectedVersion: original.version, candidates: (current?.files || []).map(file => ({key: file.id, current: file}))});};
   const beginCorrect = (file: DocumentFile) => {
     if (!allowed || blocked || busy || !current) return;
-    setPreview(undefined); setError(undefined); setStatus('');
+    setError(undefined); setStatus('');
     setDraft({key:crypto.randomUUID(),expectedVersion:original.version,
       candidates:current.files.map(row=>({key:row.id,current:row})),
       correction:{fileId:file.id,position:file.position,action:'replace'}});
@@ -104,11 +56,23 @@ function DocumentFiles({path, original, editable, blocked, draft, setDraft, refr
     try {await action();} catch (e) {if (alive.current) {setError(e); if (e instanceof ApiError && e.status === 403) {setDenied(true);onDenied();}}}
     finally {inFlight.current = false; if (alive.current) setBusy(false);}
   };
-  const openCandidate = (candidate: FileCandidate) => void operation(async () => {
-    if (candidate.current && current) {await showPreview({url: `${path}/revisions/${current.id}/files/${candidate.current.id}/preview`, name: candidate.current.original_upload_name, media: candidate.current.media_type}); return;}
-    const stage = await staged(candidate);
-    if (alive.current) await showPreview({url: `${path}/stages/${stage.id}/preview`, name: stage.original_upload_name, media: stage.media_type || ''});
-  });
+  const openCandidate = (candidate: FileCandidate) => {
+    if (candidate.current && current) {
+      try {openFilePreview(`${path}/revisions/${current.id}/files/${candidate.current.id}/preview`, candidate.current.original_upload_name);}
+      catch (e) {setError(e);}
+      return;
+    }
+    if (inFlight.current) return;
+    // Reserve the tab in the click handler, before staging performs any await.
+    let tab: ReturnType<typeof openFilePreview>;
+    try {tab = openFilePreview();} catch (e) {setError(e); return;}
+    void operation(async () => {
+      try {
+        const stage = await staged(candidate);
+        tab.navigate(`${path}/stages/${stage.id}/preview`, stage.original_upload_name);
+      } catch (e) {tab.close(); throw e;}
+    });
+  };
   const accept = () => void operation(async () => {
     if (!draft || !allowed || blocked) return;
     if (draft.correction) {
@@ -118,26 +82,20 @@ function DocumentFiles({path, original, editable, blocked, draft, setDraft, refr
       const stageId = draft.correction.action === 'replace' ? (await staged(candidate)).id : null;
       await api(path+'/corrections','POST',{expected_version:draft.expectedVersion,idempotency_key:draft.key,file_id:draft.correction.fileId,stage_id:stageId});
       if (!alive.current) return;
-      await refreshed(); result.reload(); setPreview(undefined); setComparison(undefined); setStatus('Ошибочная загрузка исправлена сервером');
+      await refreshed(); result.reload(); setComparison(undefined); setStatus('Ошибочная загрузка исправлена сервером');
       return;
     }
     const selection = [];
     for (const candidate of draft.candidates) selection.push(candidate.current ? {file_id: candidate.current.id} : {stage_id: (await staged(candidate)).id});
     const response = await api<{no_op: boolean; document_version: number}>(path + '/accept', 'POST', {expected_version: draft.expectedVersion, idempotency_key: draft.key, files: selection});
     if (!alive.current) return;
-    await refreshed(); result.reload(); setPreview(undefined); setComparison(undefined);
+    await refreshed(); result.reload(); setComparison(undefined);
     setStatus(response.no_op ? `Состав не изменился — версия ${response.document_version}` : `Комплект принят — версия ${response.document_version}`);
   });
   const compare = () => void operation(async () => {const page = await api<FileBundle>(path + '/files'); if (alive.current) setComparison(page);}, true);
-  const turnPdf = (number: number) => void operation(async () => {
-    if (!preview?.pdf || number < 1 || number > preview.pdf.numPages) return;
-    const ticket = previewTicket.current, previous = preview;
-    try {const blob = await pdfPage(preview.pdf,number); if (alive.current && ticket === previewTicket.current) setPreview({...previous,page:number,blob:URL.createObjectURL(blob)});}
-    catch {if (ticket === previewTicket.current) throw new ApiError(422,'Не удалось отобразить страницу PDF. Исходный файл доступен для скачивания.');}
-  }, true);
   const reload = () => {
     if (!window.confirm('Заменить несохранённый состав и сведения документа данными сервера?')) return;
-    void operation(async () => {await refreshed(); if (alive.current) {setDraft(undefined); setPreview(undefined); setComparison(undefined); result.reload();}});
+    void operation(async () => {await refreshed(); if (alive.current) {setDraft(undefined); setComparison(undefined); result.reload();}});
   };
   const selectFile = (file: File) => {
     if (!draft || !allowed || busy) return;
@@ -154,7 +112,7 @@ function DocumentFiles({path, original, editable, blocked, draft, setDraft, refr
     else if (draft.candidates.length < (result.data?.max_files || 32)) change([...draft.candidates, candidate]);
     else setError(new ApiError(422, 'Достигнут предел файлов в комплекте'));
   };
-  const fileRows = (files: DocumentFile[], revisionId: string) => <ol className="arm2-file-list">{files.map(file => <li key={file.id}><span>{file.original_upload_name} · {file.size} байт</span>{file.correction ? <span className="arm2-correction">Исправленная ошибочная загрузка · {new Date(file.correction.occurred_at).toLocaleString('ru-RU')} · Автор {file.correction.actor_id} · Событие {file.correction.history_event_id}</span> : <><button type="button" onClick={() => void operation(() => showPreview({url: `${path}/revisions/${revisionId}/files/${file.id}/preview`, name: file.original_upload_name, media: file.media_type}), true)}>Открыть файл</button><a href={apiUrl(`${path}/revisions/${revisionId}/files/${file.id}/download`)}>Скачать файл</a>{allowed && revisionId === current?.id && <button type="button" disabled={busy || blocked || !!draft} onClick={()=>beginCorrect(file)}>Исправить ошибочную загрузку</button>}</>}<small>{file.id} · SHA-256: {file.sha256}</small></li>)}</ol>;
+  const fileRows = (files: DocumentFile[], revisionId: string) => <ol className="arm2-file-list">{files.map(file => <li key={file.id}><span>{file.original_upload_name} · {file.size} байт</span>{file.correction ? <span className="arm2-correction">Исправленная ошибочная загрузка · {new Date(file.correction.occurred_at).toLocaleString('ru-RU')} · Автор {file.correction.actor_id} · Событие {file.correction.history_event_id}</span> : <><button type="button" onClick={() => {try {openFilePreview(`${path}/revisions/${revisionId}/files/${file.id}/preview`, file.original_upload_name);} catch (e) {setError(e);}}}>Открыть файл</button><a href={apiUrl(`${path}/revisions/${revisionId}/files/${file.id}/download`)}>Скачать файл</a>{allowed && revisionId === current?.id && <button type="button" disabled={busy || blocked || !!draft} onClick={()=>beginCorrect(file)}>Исправить ошибочную загрузку</button>}</>}<small>{file.id} · SHA-256: {file.sha256}</small></li>)}</ol>;
   return <section className="arm2-files" aria-label="Файлы и редакции"><h3>Файлы и редакции</h3>
     <ErrorMessage error={result.error} retry={result.reload}/>{result.loading && <p role="status">Загружаем состав документа…</p>}<ErrorMessage error={error}/>{status && <p role="status">{status}</p>}
     {blocked && <p>Сначала сохраните изменения сведений документа.</p>}{!allowed && <p>Файлы доступны только для просмотра.</p>}
@@ -166,14 +124,14 @@ function DocumentFiles({path, original, editable, blocked, draft, setDraft, refr
         <ol className="arm2-file-list">{draft.candidates.map((candidate,index) => <li key={candidate.key}><span>{candidate.file?.name || candidate.current?.original_upload_name}</span><button type="button" disabled={busy} onClick={() => openCandidate(candidate)}>Открыть файл</button>
           {allowed && !draft.correction && <><button type="button" disabled={busy} onClick={() => {replacing.current = index; input.current?.click();}}>Заменить файл</button><button type="button" disabled={busy} onClick={() => change(draft.candidates.filter((_,i) => i !== index))}>Исключить файл</button></>}</li>)}</ol>
         {allowed && <>{!draft.correction && <button type="button" disabled={busy || draft.candidates.length >= result.data.max_files} onClick={() => {replacing.current = undefined; input.current?.click();}}>+ Добавить файл</button>}<button type="button" disabled={busy || blocked} onClick={accept}>{busy ? 'Сохраняем комплект…' : draft.correction ? 'Исправить и сохранить' : current ? 'Сохранить новую редакцию' : 'Сохранить и принять'}</button></>}
-        <button type="button" disabled={busy} onClick={() => {if (window.confirm('Отменить несохранённые изменения состава?')) {setDraft(undefined); setPreview(undefined); setError(undefined);}}}>Отменить изменение состава</button>
+        <button type="button" disabled={busy} onClick={() => {if (window.confirm('Отменить несохранённые изменения состава?')) {setDraft(undefined); setError(undefined);}}}>Отменить изменение состава</button>
       </div>}
       {error instanceof ApiError && error.status === 409 && <div className="arm2-actions"><button type="button" onClick={compare}>Сравнить состав с сервером</button><button type="button" onClick={reload}>Перезагрузить состав</button></div>}
       {comparison && <section aria-label="Состав на сервере"><h4>Состав на сервере — версия {comparison.document_version}; ваш черновик сохранён</h4>{comparison.revisions.find(row => row.id === comparison.current_revision_id)?.files.map(file => <p key={file.id}>{file.original_upload_name}</p>)}</section>}
       <button type="button" aria-expanded={fileHistory} onClick={()=>setFileHistory(value=>!value)}>{fileHistory?'Закрыть предыдущие редакции':'Предыдущие редакции'}</button>
       {fileHistory && result.data.revisions.filter(row => row.id !== result.data?.current_revision_id).map(revision => <details key={revision.id}><summary>Предыдущая редакция {revision.number} · {new Date(revision.occurred_at).toLocaleString('ru-RU')} · Автор {revision.author_id}</summary><p>{revision.id} · {revision.source === 'arm2-api-correct' ? 'Исправление ошибочной загрузки' : revision.source} · Родитель при создании: {revision.parent_id}</p>{fileRows(revision.files,revision.id)}</details>)}
     </>}
-    {preview && <section aria-label="Предпросмотр файла"><h4>{preview.name}</h4>{preview.pdf && <nav className="arm2-actions" aria-label="Страницы PDF"><button type="button" disabled={busy || preview.page === 1} onClick={() => turnPdf((preview.page || 1)-1)}>Предыдущая страница PDF</button><span>Страница PDF {preview.page} из {preview.pdf.numPages}</span><button type="button" disabled={busy || preview.page === preview.pdf.numPages} onClick={() => turnPdf((preview.page || 1)+1)}>Следующая страница PDF</button></nav>}{preview.blob ? <iframe title={'Предпросмотр: ' + preview.name} sandbox="" src={preview.blob}/> : <p>Этот формат открывается скачиванием в подходящей программе.</p>}<a href={apiUrl(preview.url.replace(/\/preview$/, '/download'))}>Скачать для просмотра</a><button type="button" onClick={() => {previewTicket.current++; setPreview(undefined);}}>Закрыть просмотр</button></section>}
+
   </section>;
 }
 function DocumentList(scope: Scope) {

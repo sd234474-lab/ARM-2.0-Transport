@@ -8,7 +8,6 @@ import Workspace from './Workspace';
 import type { Can } from './Workspace';
 import type { DocumentRecord, FileBundle, FileStage } from './api';
 import { previewBytes } from './api';
-import { GlobalWorkerOptions } from 'pdfjs-dist';
 
 vi.mock('../api', async original => ({...await original<typeof import('../api')>(), api: vi.fn()}));
 vi.mock('./api', async original => ({...await original<typeof import('./api')>(), previewBytes: vi.fn(async () => new Blob(['test-content'],{type:'image/png'}))}));
@@ -24,6 +23,7 @@ beforeEach(() => {
   (globalThis as {IS_REACT_ACT_ENVIRONMENT?: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   records = []; failures = [];
+  vi.spyOn(window,'open').mockReturnValue({opener:null,closed:false,location:{replace:vi.fn()},close:vi.fn()} as unknown as Window);
   Object.defineProperty(URL,'createObjectURL',{configurable:true,value:vi.fn(()=> 'blob:http://localhost/qa-preview')});
   Object.defineProperty(URL,'revokeObjectURL',{configurable:true,value:vi.fn()});
   fileFailures=[];
@@ -153,7 +153,12 @@ async function pickCandidate(file=new File(['test-content'],'candidate.png',{typ
 it('selects locally, stages only on explicit preview, accepts once and refreshes DOCUMENT version without metadata PUT',async()=>{
   await create();await click('+ Добавить файл');await pickCandidate();
   expect(vi.mocked(api).mock.calls.filter(([path])=>path.includes('/stages'))).toHaveLength(0);
-  await click('Открыть файл');const frame=host.querySelector('iframe')!;expect(frame.getAttribute('sandbox')).toBe('');expect(frame.src).toBe('blob:http://localhost/qa-preview');expect(previewBytes).toHaveBeenCalledWith(base+'/DOCUMENT-000001/stages/'+staged.id+'/preview',1048576);
+  await click('Открыть файл');
+  expect(window.open).toHaveBeenCalledWith('about:blank','_blank');
+  const tab=vi.mocked(window.open).mock.results[0].value!;
+  const destination=new URL(vi.mocked(tab.location.replace).mock.calls[0][0] as string,'http://localhost');
+  expect(new URLSearchParams(destination.hash.slice(1)).get('path')).toBe(base+'/DOCUMENT-000001/stages/'+staged.id+'/preview');
+  expect(host.querySelector('iframe,canvas')).toBeNull();expect(previewBytes).not.toHaveBeenCalled();
   expect(vi.mocked(api).mock.calls.find(([path])=>path.endsWith('/content'))![2]).toBeInstanceOf(File);
   await click('Сохранить и принять');expect(host.textContent).toContain('Комплект принят — версия 2');expect(host.textContent).toContain('Текущая редакция 1');expect(host.textContent).toContain('Версия: 2');
   const command=vi.mocked(api).mock.calls.find(([path])=>path.endsWith('/accept'))!;
@@ -175,19 +180,13 @@ it('keeps stale file draft on 409 and compares/reloads only on confirmation; 403
   await click('+ Добавить файл');await pickCandidate();fileFailures.push(new ApiError(403,'revoked'));await click('Сохранить и принять');expect(host.textContent).toContain('Файлы доступны только для просмотра');expect([...host.querySelectorAll('button')].some(button=>button.textContent==='Сохранить и принять')).toBe(false);
 });
 
-it('rasterizes PDF pages without scripting/annotations, keeps sandbox and destroys the local parser on close',async()=>{
-  await create();await click('+ Добавить файл');await pickCandidate(new File(['pdf'],'sample.pdf',{type:'application/pdf'}));
-  staged={...staged,state:'ready',media_type:'application/pdf',extension:'pdf',original_upload_name:'sample.pdf'};
-  const blob=new Blob(['pdf']);Object.defineProperty(blob,'arrayBuffer',{value:async()=>new Uint8Array([37,80,68,70]).buffer});vi.mocked(previewBytes).mockResolvedValueOnce(blob);
-  pdfMocks.destroy.mockClear();pdfMocks.render.mockClear();pdfMocks.getPage.mockReset();
-  pdfMocks.getPage.mockImplementation(async()=>({getViewport:({scale}:{scale:number})=>({width:300*scale,height:200*scale}),render:pdfMocks.render,cleanup:vi.fn()}));
-  pdfMocks.getDocument.mockReturnValue({promise:Promise.resolve({numPages:2,getPage:pdfMocks.getPage}),destroy:pdfMocks.destroy});
-  vi.spyOn(HTMLCanvasElement.prototype,'toBlob').mockImplementation(callback=>callback(new Blob(['png'],{type:'image/png'})));
-  await click('Открыть файл');expect(host.textContent).toContain('Страница PDF 1 из 2');expect(host.querySelector('iframe')!.getAttribute('sandbox')).toBe('');
-  expect(new URL(GlobalWorkerOptions.workerSrc).searchParams.get('module')).toBe('1');
-  expect(pdfMocks.getDocument).toHaveBeenCalledWith(expect.objectContaining({enableXfa:false,disableFontFace:true,useWorkerFetch:false,disableAutoFetch:true,disableRange:true,disableStream:true}));
-  expect(pdfMocks.render).toHaveBeenCalledWith(expect.objectContaining({annotationMode:0}));await click('Следующая страница PDF');expect(host.textContent).toContain('Страница PDF 2 из 2');expect(pdfMocks.getPage).toHaveBeenLastCalledWith(2);
-  await click('Закрыть просмотр');expect(pdfMocks.destroy).toHaveBeenCalledTimes(1);expect(host.querySelector('iframe')).toBeNull();expect(records[0].version).toBe(1);expect(vi.mocked(api).mock.calls.filter(([path])=>path.endsWith('/accept'))).toHaveLength(0);
+it('does not stage a candidate when the common preview tab is blocked',async()=>{
+  await create();await click('+ Добавить файл');await pickCandidate();
+  vi.mocked(window.open).mockReturnValue(null);
+  await click('Открыть файл');
+  expect(host.textContent).toContain('Разрешите открытие новой вкладки');
+  expect(vi.mocked(api).mock.calls.filter(([path])=>path.includes('/stages'))).toHaveLength(0);
+  expect(records[0].version).toBe(1);
 });
 
 it('archives and restores the same document with explicit confirmation, server version and real filters',async()=>{

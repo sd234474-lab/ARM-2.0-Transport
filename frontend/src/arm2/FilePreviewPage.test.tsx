@@ -3,7 +3,7 @@ import {act} from 'react';
 import {createRoot} from 'react-dom/client';
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {previewBytes} from './api';
-import {QuestionnairePreviewPage} from './QuestionnairePreviewPage';
+import {FilePreviewPage} from './FilePreviewPage';
 import {ApiError} from '../api';
 
 vi.mock('./api',()=>({previewBytes:vi.fn()}));
@@ -18,7 +18,7 @@ beforeEach(()=>{
 afterEach(async()=>{await act(async()=>root.unmount());host.remove();window.history.replaceState(null,'','/');vi.restoreAllMocks();vi.unstubAllGlobals();});
 async function mount(source=path){
   window.history.replaceState(null,'','/questionnaire-preview.html#'+new URLSearchParams({path:source,name:'synthetic.doc'}));
-  await act(async()=>{root.render(<QuestionnairePreviewPage/>);await new Promise(resolve=>setTimeout(resolve,5));});
+  await act(async()=>{root.render(<FilePreviewPage/>);await new Promise(resolve=>setTimeout(resolve,5));});
 }
 it('fetches verified bytes in its own page and keeps opaque originals download-only',async()=>{
   vi.mocked(previewBytes).mockResolvedValue(new Blob(['synthetic'],{type:'application/octet-stream'}));
@@ -38,4 +38,13 @@ it('shows a failed authenticated fetch instead of a permanent loading indicator'
   vi.mocked(previewBytes).mockRejectedValue(new ApiError(403,'Forbidden'));
   await mount();expect(host.querySelector('[role="alert"]')).not.toBeNull();
   expect(host.querySelector('[role="status"]')).toBeNull();expect(URL.createObjectURL).not.toHaveBeenCalled();
+});
+
+it.each(['cp','org','veh','cprep'])('uses the common page for %s stages',async parent=>{
+  vi.mocked(previewBytes).mockResolvedValue(new Blob(['image'],{type:'image/png'}));
+  const source=`/arm2/${parent}/P-000001/documents/DOCUMENT-000001/stages/abc123/preview`;
+  await mount(source);
+  expect(previewBytes).toHaveBeenCalledWith(source,128*1024*1024);
+  expect(host.querySelector('img')?.getAttribute('src')).toBe('blob:verified-tab');
+  expect(host.querySelector('iframe')).toBeNull();
 });

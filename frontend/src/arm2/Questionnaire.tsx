@@ -1,8 +1,9 @@
+import {openFilePreview} from './filePreviewWindow';
 import {useEffect, useRef, useState} from 'react';
 import {Link, useSearchParams} from 'react-router-dom';
 import {api, ApiError} from '../api';
 import {questionnaireApi} from './api';
-export {QuestionnairePreview} from './QuestionnairePreview';
+
 import type {QuestionnaireChoices, QuestionnaireDocument, QuestionnaireDraft, QuestionnaireField, QuestionnaireReceipt} from './api';
 import {labels} from './model';
 import {person,legal} from './PartyFields';
@@ -82,10 +83,7 @@ export default function Questionnaire({can}:{can:Can}) {
   const cancel=async()=>{if(!draft)return;setBusy(true);try{const result=await questionnaireApi.cancel(draft.id);setNotice(result.cleanup?.pending?'Осталось временных оригиналов: '+result.cleanup.pending+'. Повторите очистку после восстановления хранилища':'');setDraft(undefined);setReceipt(undefined);setParams({});setRetry(false);await refresh();}catch(e){setError(e);}finally{setBusy(false);}};
   const show=async(path:string,name:string)=>{
     setError(undefined);setNotice('');
-    const parameters=new URLSearchParams({path,name});
-    const tab=window.open('/questionnaire-preview.html#'+parameters.toString(),'_blank');
-    if(!tab){setNotice('Разрешите открытие новой вкладки для просмотра вложения');return;}
-    tab.opener=null;
+    try {openFilePreview(path,name);} catch(e) {setNotice(e instanceof Error?e.message:'Не удалось открыть просмотр');}
   };
   const c=draft?.comparison,disabled=busy||retry;
   const storageFailure=error instanceof ApiError&&error.status===503&&typeof error.detail==='object'&&error.detail!==null&&'code' in error.detail&&error.detail.code==='QUESTIONNAIRE_STORAGE_UNAVAILABLE';

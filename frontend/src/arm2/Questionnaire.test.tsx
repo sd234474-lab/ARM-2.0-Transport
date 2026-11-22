@@ -1,3 +1,4 @@
+import {FilePreview} from './FilePreview';
 // @vitest-environment jsdom
 import {act} from 'react';
 import {createRoot} from 'react-dom/client';
@@ -6,7 +7,7 @@ import {afterEach, beforeEach, expect, it, vi} from 'vitest';
 import {api, ApiError} from '../api';
 import type {QuestionnaireDraft, QuestionnaireReceipt} from './api';
 import * as questionnaireTransport from './api';
-import Questionnaire, {QuestionnaireExport, QuestionnairePreview} from './Questionnaire';
+import Questionnaire, {QuestionnaireExport} from './Questionnaire';
 import {errorText} from './model';
 import {readFileSync} from 'node:fs';
 import {getDocument, GlobalWorkerOptions} from 'pdfjs-dist';
@@ -72,7 +73,7 @@ it('CSP permits only same-origin/blob PDF workers; renderer errors retain the or
   expect(nginx).toMatch(/location \/assets\/\s*\{[^}]*location ~ \\\.mjs\$\s*\{\s*types\s*\{\s*application\/javascript mjs;/s);
   vi.stubGlobal('fetch',vi.fn().mockResolvedValue({arrayBuffer:async()=>new ArrayBuffer(8)}));
   vi.mocked(getDocument).mockImplementation(()=>({promise:Promise.reject(new Error('renderer failed')),destroy:vi.fn()}) as never);
-  await act(async()=>{root.render(<QuestionnairePreview value={{url:'blob:verified',name:'synthetic.pdf',media:'application/pdf',blob:{arrayBuffer:async()=>new ArrayBuffer(8)} as Blob}} close={()=>{}}/>);await tick();});
+  await act(async()=>{root.render(<FilePreview value={{url:'blob:verified',name:'synthetic.pdf',media:'application/pdf',blob:{arrayBuffer:async()=>new ArrayBuffer(8)} as Blob}} close={()=>{}}/>);await tick();});
   expect(GlobalWorkerOptions.workerSrc).toContain('pdf.worker');
   expect(new URL(GlobalWorkerOptions.workerSrc).searchParams.get('module')).toBe('1');
   expect(fetch).not.toHaveBeenCalled(); // Reuse the verified Blob; connect-src need not allow blob fetch.
@@ -85,12 +86,17 @@ it('CSP permits only same-origin/blob PDF workers; renderer errors retain the or
 it('PDF rendering uses verified bytes and opaque files offer download without inline rendering',async()=>{
   vi.stubGlobal('fetch',vi.fn().mockResolvedValue({arrayBuffer:async()=>new ArrayBuffer(8)}));
   const render=vi.fn().mockReturnValue({promise:Promise.resolve(),cancel:vi.fn()});
-  vi.mocked(getDocument).mockReturnValue({promise:Promise.resolve({numPages:1,getPage:async()=>({getViewport:()=>({width:100,height:100}),render})}),destroy:vi.fn()} as never);
-  await act(async()=>{root.render(<QuestionnairePreview value={{url:'blob:verified',name:'synthetic.pdf',media:'application/pdf'}} close={()=>{}}/>);await tick();});
+  const getPage=vi.fn(async()=>({getViewport:()=>({width:100,height:100}),render}));
+  vi.mocked(getDocument).mockReturnValue({promise:Promise.resolve({numPages:2,getPage}),destroy:vi.fn()} as never);
+  await act(async()=>{root.render(<FilePreview value={{url:'blob:verified',name:'synthetic.pdf',media:'application/pdf',blob:{arrayBuffer:async()=>new ArrayBuffer(8)} as Blob}} close={()=>{}}/>);await tick();});
   await act(async()=>{await tick();});
-  expect(render).toHaveBeenCalled();
+  expect(render).toHaveBeenCalledWith(expect.objectContaining({annotationMode:0}));
+  await act(async()=>{[...host.querySelectorAll('button')].find(b=>b.textContent==='Следующая страница')!.click();await tick();});
+  expect(getPage).toHaveBeenLastCalledWith(2);
+  expect(host.querySelector('nav')?.textContent).toContain('2 / 2');
+  expect(fetch).not.toHaveBeenCalled();
   expect(host.querySelector('[role="alert"]')).toBeNull();
-  await act(async()=>{root.render(<QuestionnairePreview key="opaque" value={{url:'blob:opaque',name:'qqq.doc',media:'application/octet-stream'}} close={()=>{}}/>);await tick();});
+  await act(async()=>{root.render(<FilePreview key="opaque" value={{url:'blob:opaque',name:'qqq.doc',media:'application/octet-stream',blob:new Blob(['opaque'])}} close={()=>{}}/>);await tick();});
   expect(host.textContent).toContain('Формат доступен скачиванием оригинала');
   expect(host.querySelector('canvas,iframe,object')).toBeNull();
   vi.unstubAllGlobals();
