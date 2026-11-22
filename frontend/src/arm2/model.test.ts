@@ -43,9 +43,15 @@ describe('ARM2 write contracts', () => {
     expect(await all('/arm2/types')).toHaveLength(101);
     expect(api).toHaveBeenLastCalledWith('/arm2/types?limit=100&offset=100', 'GET', undefined, undefined);
   });
-  it.each([401, 403, 404, 409, 422, 500])('gives safe actionable messages for HTTP %s', status => {
+  it.each([401, 403, 404, 409, 413, 422, 500])('gives safe actionable messages for HTTP %s', status => {
     const text = errorText(new ApiError(status, 'database secret'));
     expect(text.length).toBeGreaterThan(20);
     if (status !== 422) expect(text).not.toContain('database secret');
+  });
+  it('explains both proxy and backend B5 size failures without exposing arbitrary server details', () => {
+    for (const detail of [{code:'ARM2_QUESTIONNAIRE_TOO_LARGE'},'Транспорт больше 32 МиБ']) {
+      expect(errorText(new ApiError(413,detail))).toContain('Файл анкеты превышает 32 МиБ');
+    }
+    expect(errorText(new ApiError(413,'<html>private token</html>'))).not.toMatch(/html|token|32/);
   });
 });

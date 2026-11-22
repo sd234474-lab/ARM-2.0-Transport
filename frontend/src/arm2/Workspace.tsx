@@ -1,6 +1,7 @@
+import {useDraftGuard} from './useDraftGuard';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import { Link, NavLink, Navigate, Route, Routes, UNSAFE_NavigationContext, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../api';
 import { catalogs, detail, list, ownerOf, sameOwner, save, searchPage, setOperationalOwner } from './api';
 import type { Kind, OwnerIdentity, RecordData, Scalar, Vehicle } from './api';
@@ -71,7 +72,7 @@ function Card({kind, initial, can, reload}: {kind: Kind; initial: RecordData; ca
   const [ownerRefresh,setOwnerRefresh]=useState(0);
   useEffect(()=>{ownerDrafts.delete(key);},[key]);
   const discardOwnerDraft=()=>{ownerDrafts.delete(key);if(alive.current){setOwnerChoice(undefined);setOwnerSelecting(false);setDraft(original);}};
-  const ownerGuard=useOwnerDraftGuard(!!ownerChoice||ownerSelecting||(kind==='VEH'&&!sameOwner(ownerOf(draft),ownerOf(original))),()=>ownerDrafts.set(key,{original,draft,tab,choice:ownerChoice,selecting:ownerSelecting,query:ownerQuery,offset:ownerOffset}),discardOwnerDraft);
+  const ownerGuard=useDraftGuard(!!ownerChoice||ownerSelecting||(kind==='VEH'&&!sameOwner(ownerOf(draft),ownerOf(original))),()=>ownerDrafts.set(key,{original,draft,tab,choice:ownerChoice,selecting:ownerSelecting,query:ownerQuery,offset:ownerOffset}),discardOwnerDraft,{allowSamePathReplace:true});
   const navigate = useNavigate();
   const ownerChanged=async(cp:string|null,org:string|null)=>{
     const previous=ownerOf(original),target:OwnerIdentity=cp?{kind:'CP',id:cp}:org?{kind:'ORG',id:org}:{kind:null,id:null};
@@ -207,49 +208,4 @@ function RepresentativeUser({selected, change, canEdit}: {selected: Scalar | und
     if (value == null) change(null);
     else {const user = rows.find(row => String(row.id) === value); if (user && Number.isSafeInteger(user.id)) change(user.id);}
   }} options={[{value: '', label: 'Не связан'}, ...(selected != null && !rows.some(row => row.id === selected) ? [{value: String(selected), label: 'Текущая связь (данные пользователя недоступны)', disabled: true}] : []), ...matches.map(row => ({value: String(row.id), label: row.name}))]}/></fieldset></section>;
-}
-
-function useOwnerDraftGuard(blocked: boolean, park: () => void, discard: () => void) {
-  const {navigator} = useContext(UNSAFE_NavigationContext);
-  const location = useLocation();
-  const dirty = useRef(blocked); dirty.current = blocked;
-  const callbacks = useRef({park, discard}); callbacks.current = {park, discard};
-  const index = useRef<number | undefined>(window.history.state?.idx);
-  useEffect(() => {index.current = window.history.state?.idx;}, [location.key]);
-  useEffect(() => {
-    const mountedHref = window.location.href, mountedPathname = location.pathname;
-    const leave = () => !dirty.current || window.confirm('Покинуть карточку и потерять несохранённые изменения?');
-    const push = navigator.push, replace = navigator.replace, go = navigator.go;
-    const guardedPush: typeof push = (...args) => {if (leave()) {dirty.current = false; push.apply(navigator, args);}};
-    const guardedReplace: typeof replace = (...args) => {const to=args[0];if(typeof to!=='string'&&(!to.pathname||to.pathname===mountedPathname)){replace.apply(navigator,args);return;}if (leave()) {dirty.current = false; replace.apply(navigator, args);}};
-    const guardedGo: typeof go = (...args) => {if (leave()) {dirty.current = false; go.apply(navigator, args);}};
-    navigator.push = guardedPush; navigator.replace = guardedReplace; navigator.go = guardedGo;
-    let restoring = false, unmounted = false;
-    const remove = () => {window.removeEventListener('popstate', pop, true); window.removeEventListener('beforeunload', unload);};
-    const pop = (event: PopStateEvent) => {
-      if (restoring) {restoring = false; if (unmounted) remove(); else event.stopImmediatePropagation(); return;}
-      const next = event.state?.idx;
-      if (dirty.current && typeof next === 'number' && typeof index.current === 'number' && next !== index.current) {
-        if (!leave()) {event.stopImmediatePropagation(); restoring = true; window.history.go(index.current - next); return;}
-        dirty.current = false; callbacks.current.discard();
-      }
-      index.current = next;
-    };
-    const unload = (event: BeforeUnloadEvent) => {if (dirty.current) {event.preventDefault(); event.returnValue = '';}};
-    window.addEventListener('popstate', pop, true); window.addEventListener('beforeunload', unload);
-    return () => {
-      unmounted = true;
-      if (navigator.push === guardedPush) navigator.push = push;
-      if (navigator.replace === guardedReplace) navigator.replace = replace;
-      if (navigator.go === guardedGo) navigator.go = go;
-      if (dirty.current && window.location.href !== mountedHref) {
-        callbacks.current.park();
-        // A Window POP can synchronously unmount us in Router's earlier listener.
-        // Finish this event before removing our listener; a refused POP remounts
-        // from parked state, while an accepted POP discards it.
-        window.setTimeout(() => {if (!restoring) {remove(); callbacks.current.discard();}}, 0);
-      } else remove();
-    };
-  }, [navigator]);
-  return dirty;
 }

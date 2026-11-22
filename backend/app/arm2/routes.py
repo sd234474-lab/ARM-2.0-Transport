@@ -3,7 +3,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.arm2.bulk_routes import router as bulk_router
 from app.arm2.counterparty_models import Counterparty
@@ -15,6 +15,7 @@ from app.arm2.document_models import Document
 from app.arm2.document_routes import router as document_router
 from app.arm2.document_store import parent_access
 from app.arm2.history_models import HistoryEvent
+from app.arm2.http_errors import CONTROLLED_ERRORS, controlled_error, rollback
 from app.arm2.object_registry import OBJECT_REGISTRY, ObjectRegistryError
 from app.arm2.object_save import (
     ObjectAuthorizationError,
@@ -300,23 +301,21 @@ def _save(db: Db, operation: Callable[[], Any]):
         record = operation()
         db.commit()
         return record
-    except ObjectAuthorizationError as error:
-        db.rollback()
-        raise HTTPException(403, "ARM2 write permission denied") from error
-    except ObjectNotFoundError as error:
-        db.rollback()
-        raise HTTPException(404, "ARM2 object not found") from error
-    except ObjectVersionConflictError as error:
-        db.rollback()
-        raise HTTPException(409, "ARM2 object version conflict") from error
+    except CONTROLLED_ERRORS as error:
+        rollback(db)
+        raise controlled_error(error, {
+            ObjectAuthorizationError: "ARM2 write permission denied",
+            ObjectNotFoundError: "ARM2 object not found",
+            ObjectVersionConflictError: "ARM2 object version conflict",
+        }) from None
     except IntegrityError as error:
-        db.rollback()
+        rollback(db)
         if _constraint_name(error) in _EXPECTED_UNIQUE_CONSTRAINTS:
-            raise HTTPException(409, "ARM2 object already exists") from error
-        raise HTTPException(500, "Unexpected ARM2 database error") from error
-    except ValueError as error:
-        db.rollback()
-        raise HTTPException(422, str(error)) from error
+            raise HTTPException(409, "ARM2 object already exists") from None
+        raise HTTPException(500, "Unexpected ARM2 database error") from None
+    except SQLAlchemyError:
+        rollback(db)
+        raise HTTPException(500, "Unexpected ARM2 database error") from None
 
 
 @router.get("/status")

@@ -45,6 +45,12 @@ export function payload(kind: Kind | 'REP', draft: RecordData, original: RecordD
   return body;
 }
 export function errorText(error: unknown): string {
+  if (error instanceof ApiError && error.status === 413) {
+    const questionnaire = error.detail === 'Транспорт больше 32 МиБ' ||
+      (typeof error.detail === 'object' && error.detail !== null && 'code' in error.detail && error.detail.code === 'ARM2_QUESTIONNAIRE_TOO_LARGE');
+    return questionnaire ? 'Файл анкеты превышает 32 МиБ. Выберите XLSX или ZIP меньшего размера.' :
+      'Размер загружаемого файла превышает допустимый предел. Выберите файл меньшего размера.';
+  }
   if (!(error instanceof ApiError)) return error instanceof TypeError && /failed to fetch|networkerror|network request failed|load failed/i.test(error.message) ? 'Не удалось связаться с сервером. Повторите попытку.' : 'Не удалось выполнить операцию';
   if (error.status === 409 && error.detail === 'ARM2 object already exists') return 'Запись с такими данными уже существует. Измените имя или уникальные реквизиты.';
   if (error.status === 409 && typeof error.detail === 'string' && error.detail.length <= 500 && !/[<>\x00-\x1f]|https?:|postgresql:|traceback|secret|password|token|credential|database|storage_ref|sha256/i.test(error.detail)) return error.detail;
