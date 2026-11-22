@@ -52,7 +52,9 @@ function DocumentFiles({path, original, editable, blocked, draft, setDraft, refr
     if (value.media === 'application/pdf') {
       const blob = await previewBytes(value.url, result.data?.max_file_bytes || 0);
       const pdfjs = await import('pdfjs-dist');
-      pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+      const workerUrl = new URL(pdfWorkerUrl, window.location.href);
+      workerUrl.searchParams.set('module', '1');
+      pdfjs.GlobalWorkerOptions.workerSrc = workerUrl.href;
       // Only the low-level canvas API is used: PDF scripting/annotation managers
       // are never instantiated. Parse bytes in the pinned local worker, with no URL fetching.
       const task = pdfjs.getDocument({data:new Uint8Array(await blob.arrayBuffer()),enableXfa:false,

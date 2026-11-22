@@ -8,6 +8,7 @@ import Workspace from './Workspace';
 import type { Can } from './Workspace';
 import type { DocumentRecord, FileBundle, FileStage } from './api';
 import { previewBytes } from './api';
+import { GlobalWorkerOptions } from 'pdfjs-dist';
 
 vi.mock('../api', async original => ({...await original<typeof import('../api')>(), api: vi.fn()}));
 vi.mock('./api', async original => ({...await original<typeof import('./api')>(), previewBytes: vi.fn(async () => new Blob(['test-content'],{type:'image/png'}))}));
@@ -183,6 +184,7 @@ it('rasterizes PDF pages without scripting/annotations, keeps sandbox and destro
   pdfMocks.getDocument.mockReturnValue({promise:Promise.resolve({numPages:2,getPage:pdfMocks.getPage}),destroy:pdfMocks.destroy});
   vi.spyOn(HTMLCanvasElement.prototype,'toBlob').mockImplementation(callback=>callback(new Blob(['png'],{type:'image/png'})));
   await click('Открыть файл');expect(host.textContent).toContain('Страница PDF 1 из 2');expect(host.querySelector('iframe')!.getAttribute('sandbox')).toBe('');
+  expect(new URL(GlobalWorkerOptions.workerSrc).searchParams.get('module')).toBe('1');
   expect(pdfMocks.getDocument).toHaveBeenCalledWith(expect.objectContaining({enableXfa:false,disableFontFace:true,useWorkerFetch:false,disableAutoFetch:true,disableRange:true,disableStream:true}));
   expect(pdfMocks.render).toHaveBeenCalledWith(expect.objectContaining({annotationMode:0}));await click('Следующая страница PDF');expect(host.textContent).toContain('Страница PDF 2 из 2');expect(pdfMocks.getPage).toHaveBeenLastCalledWith(2);
   await click('Закрыть просмотр');expect(pdfMocks.destroy).toHaveBeenCalledTimes(1);expect(host.querySelector('iframe')).toBeNull();expect(records[0].version).toBe(1);expect(vi.mocked(api).mock.calls.filter(([path])=>path.endsWith('/accept'))).toHaveLength(0);
