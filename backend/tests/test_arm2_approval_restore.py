@@ -1,6 +1,7 @@
 """Disposable SQL + FILE/runtime restore, never the VM or a real cloud account."""
 
 import os
+import re
 import shutil
 import subprocess
 import uuid
@@ -19,17 +20,38 @@ from app.config import settings
 from app.db import get_db
 
 
-def test_sql_and_file_runtime_restore_reopens_evidence_and_resumes_private_reply(qa, monkeypatch, tmp_path):
-    bindir = Path(os.environ.get("ARM2_TEST_PG_BIN", ""))
-    dump = str(bindir / "pg_dump.exe") if (bindir / "pg_dump.exe").is_file() else shutil.which("pg_dump")
-    restore = (
-        str(bindir / "pg_restore.exe")
-        if (bindir / "pg_restore.exe").is_file()
-        else shutil.which("pg_restore")
-    )
-    if not dump or not restore:
+def backup_clients(db):
+    major = int(db.scalar(text("SHOW server_version_num"))) // 10000
+    db.rollback()
+    explicit = os.environ.get("ARM2_TEST_PG_BIN")
+    candidates = [Path(explicit)] if explicit else [Path("/usr/lib/postgresql") / str(major) / "bin"]
+    if not explicit and shutil.which("pg_dump"):
+        candidates.append(Path(shutil.which("pg_dump")).parent)
+    suffix = ".exe" if os.name == "nt" else ""
+    found = False
+    for directory in candidates:
+        pair = [directory / (name + suffix) for name in ["pg_dump", "pg_restore"]]
+        if not all(path.is_file() for path in pair):
+            continue
+        found = True
+        versions = [
+            subprocess.run([str(path), "--version"], capture_output=True, text=True, check=True).stdout
+            for path in pair
+        ]
+        # A newer pg_restore can issue SET commands unavailable on an older target.
+        # Use matching clients; never strip SQL or ignore restore errors.
+        if all(re.search(r"PostgreSQL\)\s+" + str(major) + r"\.", version) for version in versions):
+            return tuple(str(path) for path in pair)
+    if not found and not explicit and os.environ.get("CI") not in {"true", "1"}:
         pytest.skip("PostgreSQL backup clients required for disposable restore evidence")
+    pytest.fail(
+        f"Install matching PostgreSQL {major} pg_dump/pg_restore clients; restore checks remain mandatory"
+    )
+
+
+def test_sql_and_file_runtime_restore_reopens_evidence_and_resumes_private_reply(qa, monkeypatch, tmp_path):
     c, db, user, parents, kind, fake = qa
+    dump, restore = backup_clients(db)
     vehicles = prepare(qa)
     _, response = letter(c, vehicles)
     request_id = ok(response, 201)["request_id"]
