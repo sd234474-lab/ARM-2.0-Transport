@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 from test_arm2_bulk import apply_body, reopen, upload
-from test_arm2_document_file_api import accept, bundle, create, pdf, stage
+from test_arm2_document_file_api import accept, bundle, create, historical_revisions, pdf, stage
 from test_arm2_document_file_api import api as api
 from test_arm2_document_file_api import qa as qa
 from test_arm2_document_operations import correct, kind, operation
@@ -145,7 +145,9 @@ def test_i05_b3_move_retype_correct_and_b2_owner_isolate_histories_and_downloads
     moved = f"/api/arm2/veh/{target['id']}/documents/{url.split('/')[-1]}"
     assert c.get(url).status_code == 404
     checked(command(c, target, ("ORG", parents["org"])))
-    assert bundle(c, moved)["revisions"] == before["revisions"]
+    after = bundle(c, moved)['revisions']
+    assert historical_revisions(after) == historical_revisions(before['revisions'])
+    assert all(f['download_name'].startswith('Second VEH Другой вид ') for f in after[0]['files'])
     files = before["revisions"][0]["files"]
     checked(correct(c, moved, 4, files[0]["id"]))
     rev = before["revisions"][0]["id"]

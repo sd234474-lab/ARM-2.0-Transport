@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import event, func, select, text
 from sqlalchemy.exc import OperationalError
-from test_arm2_document_file_api import accept, bundle, create, pdf, stage
+from test_arm2_document_file_api import accept, bundle, create, historical_revisions, pdf, stage
 from test_arm2_document_file_api import api as api
 from test_arm2_document_file_api import qa as qa
 
@@ -80,10 +80,7 @@ def test_document_lifecycle_retype_move_correction_and_reopen_preserve_originals
         revisions = bundle(c, current_url)['revisions']
         # All pre-D historical fields must remain byte-for-byte equal. Only the
         # newly exposed computed download_name follows current RETYPE/MOVE data.
-        def historical(items):
-            return [{**r, 'files':[{k:v for k,v in f.items() if k != 'download_name'} for f in r['files']]}
-                    for r in items]
-        assert historical(revisions) == historical([first])
+        assert historical_revisions(revisions) == historical_revisions([first])
         kind_name = c.get('/api/arm2/document-kinds/' + new_kind).json()['name']
         for row, original_bytes in zip(revisions[0]['files'], data, strict=True):
             expected = f"{current_parent_name} {kind_name}-{row['id']}.pdf"
@@ -390,5 +387,7 @@ def test_retype_validates_existing_naming_contract_before_committing_a_legacy_ty
     response = c.get(url + f"/revisions/{revision['id']}/files/{file['id']}/download")
     assert response.status_code == 200 and response.content == pdf("unchanged original")
     assert info["name"] in unquote(response.headers["content-disposition"])
-    assert bundle(c, url)["revisions"] == before["revisions"]
+    after = bundle(c, url)['revisions']
+    assert historical_revisions(after) == historical_revisions(before['revisions'])
+    assert after[0]['files'][0]['download_name'] == unquote(response.headers['content-disposition'].split("filename*=utf-8''")[-1])
     assert len(disk.uploads) == uploads

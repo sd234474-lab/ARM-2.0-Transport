@@ -109,6 +109,12 @@ def bundle(c, url):
     return r.json()
 
 
+def historical_revisions(revisions):
+    """All historical metadata, excluding only D's new current-name projection."""
+    return [{**r, 'files':[{k:v for k,v in f.items() if k != 'download_name'} for f in r['files']]}
+            for r in revisions]
+
+
 @pytest.mark.parametrize("token", ["cp", "org", "veh"])
 def test_zero_file_accept_full_revisions_immutable_history_and_roundtrip(qa, token):
     c, db, user, parents, kind, fake = qa
