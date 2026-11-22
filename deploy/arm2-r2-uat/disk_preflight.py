@@ -39,7 +39,8 @@ def validate_config(config, env, root=base.ROOT):
         and network.get('driver', 'bridge') == 'bridge', 'disk: dedicated egress bridge required')
     proxy = c['services'].pop(GATEWAY)
     require(set(proxy) <= {'image', 'pull_policy', 'user', 'restart', 'entrypoint', 'read_only',
-        'cap_drop', 'security_opt', 'volumes', 'networks', 'healthcheck'}, 'disk: unknown gateway override')
+        'cap_drop', 'security_opt', 'volumes', 'networks', 'healthcheck', 'command'}, 'disk: unknown gateway override')
+    require(proxy.get('command') is None, 'disk: gateway command override forbidden')
     require(proxy['image'] == 'arm2-r2-api:' + env['R2_SOURCE_SHA'] and proxy.get('pull_policy') == 'never'
         and proxy.get('user') == '10001:10001' and proxy.get('restart') == 'no'
         and proxy.get('entrypoint') == ['python', '/opt/r2-disk/proxy.py']

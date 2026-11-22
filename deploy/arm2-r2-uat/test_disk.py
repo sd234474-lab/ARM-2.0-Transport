@@ -62,6 +62,9 @@ class DiskTests(unittest.TestCase):
 
     def test_overlay_preserves_exact_base_guards(self):
         disk.validate_config(config(), fixtures.env())
+        expanded = config()
+        expanded['services']['r2-disk-egress']['command'] = None
+        disk.validate_config(expanded, fixtures.env())  # Compose expands an overridden image CMD as null.
         with self.assertRaises(base.NoGo):
             base.validate_config(config(), fixtures.env())  # Disk requires explicit mode.
 
@@ -76,6 +79,7 @@ class DiskTests(unittest.TestCase):
             lambda c: c['services']['r2-disk-egress'].update(ports=[{'published': '3128'}]),
             lambda c: c['services']['r2-disk-egress'].update(read_only=False),
             lambda c: c['services']['r2-disk-egress'].update(privileged=True),
+            lambda c: c['services']['r2-disk-egress'].update(command=['unexpected']),
             lambda c: c['services']['r2-disk-egress']['volumes'].append({'source': 'r2_file_data', 'target': '/files', 'type': 'volume'}),
             lambda c: c['services']['r2-api']['volumes'][-1].update(read_only=False),
             lambda c: c['networks']['r2_internal'].update(internal=False),
