@@ -4,6 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Computed,
     DateTime,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -46,7 +48,9 @@ class DocumentRevision(Base):
 class DocumentFile(Base):
     __tablename__ = "arm2_document_files"
     id: Mapped[str] = mapped_column(String, primary_key=True)
-    document_id: Mapped[str] = mapped_column(String, ForeignKey("arm2_documents.id", ondelete="RESTRICT"))
+    document_id: Mapped[str | None] = mapped_column(String, ForeignKey("arm2_documents.id", ondelete="RESTRICT"))
+    process_id: Mapped[str | None] = mapped_column(ForeignKey("arm2_approval_requests.id", ondelete="RESTRICT"))
+    generated_bundle: Mapped[bool] = mapped_column(Boolean, server_default=text("false"))
     original_upload_name: Mapped[str] = mapped_column(String)
     stored_name: Mapped[str] = mapped_column(String)
     storage_ref: Mapped[str] = mapped_column(String, unique=True)
@@ -55,13 +59,15 @@ class DocumentFile(Base):
     media_type: Mapped[str] = mapped_column(String)
     extension: Mapped[str] = mapped_column(String)
     __table_args__ = (
+        UniqueConstraint("id", "process_id", name="uq_arm2_file_process"),
+        CheckConstraint("(document_id IS NOT NULL AND process_id IS NULL AND NOT generated_bundle) OR (document_id IS NULL AND process_id IS NOT NULL)", name="ck_arm2_file_owner"),
         UniqueConstraint("id", "document_id", name="uq_arm2_file_document"),
         UniqueConstraint("document_id", "sha256", name="uq_arm2_document_file_sha"),
         CheckConstraint(
             "id ~ '^FILE-[0-9]{6,}$' AND size>0 AND sha256 ~ '^[0-9a-f]{64}$'", name="ck_arm2_file_identity"
         ),
         CheckConstraint(
-            "extension IN ('pdf','png','jpg','gif','webp','docx','xlsx','pptx','bin') AND stored_name<>'' AND original_upload_name<>'' AND storage_ref LIKE 'disk:/%'",
+            "((extension IN ('pdf','png','jpg','gif','webp','docx','xlsx','pptx','bin') AND NOT generated_bundle) OR (extension='zip' AND generated_bundle AND process_id IS NOT NULL)) AND stored_name<>'' AND original_upload_name<>'' AND storage_ref LIKE 'disk:/%'",
             name="ck_arm2_file_metadata",
         ),
     )

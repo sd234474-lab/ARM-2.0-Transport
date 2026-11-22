@@ -1,0 +1,10 @@
+{
+  "scope": "Synthetic local author smoke, not Ubuntu/UAT",
+  "errors": [],
+  "requestId": "APPROVAL-000001",
+  "letterPreview": "PASS (shared renderer, separate tab, platform FILE name)",
+  "package": "PASS",
+  "response": "PASS (stage preview, save, reload, APPROVED + REJECTED)",
+  "history": "PASS",
+  "volume": "PASS (read-only, after reopen)"
+}

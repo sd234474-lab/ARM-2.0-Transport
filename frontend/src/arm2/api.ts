@@ -45,7 +45,7 @@ export const questionnaireApi = {
   cleanupCandidates:()=>api<{id:string;filename:string;status:string}[]>('/arm2/questionnaires/cleanup'),
   cleanup:(id:string)=>api<{pending:number}>('/arm2/questionnaires/'+id+'/cleanup','POST',{}),
 };
-export type ObjectType = Kind | 'CPREP' | 'ORGREP' | 'DOC-KIND' | 'DOCUMENT';
+export type ObjectType = Kind | 'CPREP' | 'ORGREP' | 'DOC-KIND' | 'DOCUMENT' | 'APPROVAL' | 'APPROVAL-ITEM';
 export interface DocumentRecord extends RecordData {parent_type: DocumentParent; parent_id: string; kind_ref: string; kind_name: string; description: string | null; archive_state: 'Неархивный' | 'Архивный'; display_state: 'Не загружен' | 'Доступен' | 'Файл недоступен' | 'Архивный'}
 export type DocumentParent = 'CP' | 'ORG' | 'VEH';
 export type FileNamingPreset = 'DOCUMENT_NAME' | 'PARENT_AND_KIND';

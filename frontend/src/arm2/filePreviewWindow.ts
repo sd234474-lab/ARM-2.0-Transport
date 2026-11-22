@@ -1,6 +1,7 @@
 import {ApiError} from '../api';
 // ARM2 platform file preview. The legacy HTML entry is retained for open tabs.
 export function isFilePreviewPath(path: string): boolean {
+  if (/^\/arm2\/approvals\/APPROVAL-[0-9]{6,}\/(?:files\/FILE-[0-9]{6,}|response-stages\/[0-9a-f-]{36})\/preview$/.test(path)) return true;
   return /^\/arm2\/(?:questionnaires\/[A-Za-z0-9-]+\/files\/[A-Za-z0-9-]+|(?:cp|veh|cprep|org)\/[A-Za-z0-9-]+\/documents\/[A-Za-z0-9-]+\/(?:revisions\/[A-Za-z0-9-]+\/files\/[A-Za-z0-9-]+|stages\/[A-Za-z0-9-]+))\/preview$/.test(path);
 }
 

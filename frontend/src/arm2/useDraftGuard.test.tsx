@@ -3,7 +3,7 @@ import {act,useContext} from 'react';
 import {createRoot} from 'react-dom/client';
 import {MemoryRouter,UNSAFE_NavigationContext,useLocation} from 'react-router-dom';
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
-import {useDraftGuard} from './useDraftGuard';
+import {DraftScope,useDraftCache,useDraftGuard} from './useDraftGuard';
 
 let root:ReturnType<typeof createRoot>,host:HTMLDivElement;
 let navigator:NonNullable<React.ContextType<typeof UNSAFE_NavigationContext>>['navigator'];
@@ -27,6 +27,16 @@ afterEach(async()=>{await act(async()=>root.unmount());host.remove();vi.restoreA
 async function mount(props:{blocked?:boolean;allow?:boolean}={}) {
   await act(async()=>root.render(<MemoryRouter initialEntries={['/arm2/current']}><Probe {...props}/></MemoryRouter>));
 }
+it('keeps parked process drafts inside one workspace and resets them at a new login scope',async()=>{
+  let cache: Map<string,string>;
+  function CacheProbe(){cache=useDraftCache<string>();return <span>{cache.get('draft')??'empty'}</span>;}
+  await act(async()=>root.render(<DraftScope key="first-login"><CacheProbe/></DraftScope>));
+  cache!.set('draft','private operator choice');
+  await act(async()=>root.render(<DraftScope key="first-login"><CacheProbe/></DraftScope>));
+  expect(host.textContent).toBe('private operator choice');
+  await act(async()=>root.render(<DraftScope key="another-login"><CacheProbe/></DraftScope>));
+  expect(host.textContent).toBe('empty');
+});
 it.each(['push','replace','go'] as const)('protects %s and preserves dirty state until an accepted departure',async method=>{
   const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);await mount();
   const leave=()=>method==='go'?navigator.go(-1):navigator[method]('/arm2/next');

@@ -1,4 +1,6 @@
 from dataclasses import dataclass, replace
+from dataclasses import field as dataclass_field
+from datetime import datetime
 from typing import Any, Callable, Protocol
 
 from sqlalchemy.orm import Session
@@ -62,6 +64,7 @@ class ObjectDefinition:
     status_rule: StatusRule | None = None
     reference_rules: tuple[ReferenceRule, ...] = ()
     edit_permission: Permission | None = None
+    server_fields: dict[str, FieldSpec] = dataclass_field(default_factory=dict)
 
     def validate_command(self, values: dict[str, Any]) -> None:
         if type(values) is not dict:
@@ -284,6 +287,12 @@ VEH_COMMAND_FIELDS = {
 VEH_HISTORY_FIELDS = {
     **VEH_COMMAND_FIELDS,
     "version": FieldSpec((int,)),
+    "calibration_m3": FieldSpec((float,), nullable=True),
+    "calibration_confirmed_at": FieldSpec((datetime,), nullable=True),
+    "calibration_confirmed_by": FieldSpec((int,), nullable=True),
+    "calibration_document_id": FieldSpec((str,), nullable=True),
+    "calibration_revision_id": FieldSpec((str,), nullable=True),
+    "calibration_plate_number": FieldSpec((str,), nullable=True),
 }
 OBJECT_REGISTRY.register(
     ObjectDefinition(
@@ -292,8 +301,29 @@ OBJECT_REGISTRY.register(
         VEH_COMMAND_FIELDS,
         VEH_HISTORY_FIELDS,
         edit_permission=Permission.ARM2_VEH_EDIT,
+        server_fields={key: value for key, value in VEH_HISTORY_FIELDS.items()
+                       if key.startswith("calibration_")},
     )
 )
+
+
+APPROVAL_FIELDS = {
+    "name": FieldSpec((str,)), "contract_number_1": FieldSpec((str,)), "contract_number_2": FieldSpec((str,)),
+    "vehicles_snapshot": FieldSpec((list,)), "letter_file_id": FieldSpec((str,)),
+    "package_file_id": FieldSpec((str,)), "response_file_ids": FieldSpec((list,)),
+    "last_response_at": FieldSpec((datetime,), nullable=True),
+    "created_at": FieldSpec((datetime,)), "author_id": FieldSpec((int,)),
+}
+DECISION_FIELDS = {
+    "request_id": FieldSpec((str,)), "vehicle_id": FieldSpec((str,)), "plate_number": FieldSpec((str,)),
+    "volume_m3": FieldSpec((float,)), "state": FieldSpec((str,)),
+    "response_file_id": FieldSpec((str,), nullable=True), "decided_at": FieldSpec((datetime,), nullable=True),
+    "decided_by": FieldSpec((int,), nullable=True),
+}
+OBJECT_REGISTRY.register(ObjectDefinition("APPROVAL", "APPROVAL", APPROVAL_FIELDS,
+    {**APPROVAL_FIELDS, "version": FieldSpec((int,))}, edit_permission=Permission.ARM2_VEH_EDIT))
+OBJECT_REGISTRY.register(ObjectDefinition("APPROVAL-ITEM", "APPROVAL-ITEM", DECISION_FIELDS,
+    {**DECISION_FIELDS, "version": FieldSpec((int,))}, edit_permission=Permission.ARM2_VEH_EDIT))
 
 
 def initialize_object_adapters() -> ObjectRegistry:
@@ -317,4 +347,7 @@ def initialize_object_adapters() -> ObjectRegistry:
     register_counterparty_adapter(OBJECT_REGISTRY)
     register_organization_adapter(OBJECT_REGISTRY)
     register_representative_adapters(OBJECT_REGISTRY)
+    from app.arm2.approval_store import register_approval_adapters
+
+    register_approval_adapters(OBJECT_REGISTRY)
     return OBJECT_REGISTRY

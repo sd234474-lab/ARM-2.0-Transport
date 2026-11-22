@@ -239,6 +239,8 @@ def test_vehicle_http_type_owner_and_history_contract(client, users, db):
     assert set(vehicle) == {
         "id", "name", "plate_number", "type_id", "accounting_state", "model",
         "wialon_unit_id", "owner_cp_id", "owner_org_id", "version",
+        "calibration_m3", "calibration_confirmed_at", "calibration_confirmed_by",
+        "calibration_document_id", "calibration_revision_id", "calibration_plate_number",
     }
     duplicate = client.post(
         "/api/arm2/vehicles",

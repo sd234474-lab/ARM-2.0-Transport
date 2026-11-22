@@ -157,9 +157,15 @@ def update_object(
     partial: bool = False,
     registry: ObjectRegistry = OBJECT_REGISTRY,
     history_writer: HistoryWriter = append_history_event,
+    server_values: dict[str, Any] | None = None,
 ) -> SaveResult:
     definition = _definition(registry, object_type)
     context = _authorized_context(db, definition, principal, context)
+    if server_values is not None:
+        if type(server_values) is not dict or set(server_values) - set(definition.server_fields):
+            raise ObjectRegistryError("Unregistered server-owned operation fields")
+        for field, value in server_values.items():
+            definition.server_fields[field].validate(value, field)
     if type(expected_version) is not int or expected_version <= 0:
         raise InvalidExpectedVersionError("expected_version must be a positive integer")
     if "UPDATED" not in definition.operations:
@@ -193,6 +199,8 @@ def update_object(
         before = definition.snapshot(record)
         normalized = definition.adapter.normalize(values)
         normalized = definition.apply_status(normalized)
+        if server_values:
+            normalized.update(server_values)
         related_objects = registry.validate_references(
             definition, db, record, normalized
         )

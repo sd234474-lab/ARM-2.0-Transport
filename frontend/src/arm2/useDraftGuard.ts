@@ -1,5 +1,17 @@
-import {useContext,useEffect,useRef} from 'react';
+import {createContext,createElement,useContext,useEffect,useRef,useState} from 'react';
+import type {ReactNode} from 'react';
 import {UNSAFE_NavigationContext,useLocation} from 'react-router-dom';
+
+const DraftCacheContext = createContext<Map<string,unknown> | null>(null);
+// Memory only, scoped to one mounted ARM2 workspace (never shared across logins).
+export function DraftScope({children}: {children: ReactNode}) {
+  const [cache] = useState(() => new Map<string,unknown>());
+  return createElement(DraftCacheContext.Provider, {value: cache}, children);
+}
+export function useDraftCache<T>() {
+  const scoped = useContext(DraftCacheContext), local = useRef(new Map<string,unknown>());
+  return (scoped ?? local.current) as Map<string,T>;
+}
 
 // ARM2-only guard for mounted forms. Callers own their subject draft and callbacks.
 export function useDraftGuard(blocked: boolean, park: () => void, discard: () => void, {message = 'Покинуть карточку и потерять несохранённые изменения?', allowSamePathReplace = false}: {message?: string; allowSamePathReplace?: boolean} = {}) {

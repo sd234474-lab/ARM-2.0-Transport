@@ -6,7 +6,7 @@ from pydantic import ConfigDict, Field, StrictBool, StrictInt
 from app.schemas import StrictModel
 
 PositiveVersion = Annotated[int, Field(strict=True, gt=0)]
-HistoryObjectType = Literal["TYPE", "VEH", "CP", "ORG", "CPREP", "ORGREP", "DOC-KIND", "DOCUMENT"]
+HistoryObjectType = Literal["TYPE", "VEH", "CP", "ORG", "CPREP", "ORGREP", "DOC-KIND", "DOCUMENT", "APPROVAL", "APPROVAL-ITEM"]
 
 
 class DocumentCreate(StrictModel):
@@ -133,6 +133,13 @@ class VehicleResponse(StrictModel):
     owner_cp_id: str | None
     owner_org_id: str | None
     version: int
+
+    calibration_m3: float | None = None
+    calibration_confirmed_at: datetime | None = None
+    calibration_confirmed_by: int | None = None
+    calibration_document_id: str | None = None
+    calibration_revision_id: str | None = None
+    calibration_plate_number: str | None = None
 
 
 class OperationalOwnerCommand(StrictModel):

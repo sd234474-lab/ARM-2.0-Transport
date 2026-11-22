@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -46,10 +47,18 @@ def test_empty_bulk_schema_roundtrip_preserves_vehicle_history_and_sequence(migr
     db.rollback()
     command.downgrade(config, "0067")
     command.upgrade(config, "0068")
-    assert snapshot(engine) == before
+    legacy = {table: [json.loads(row) for row in rows] for table, rows in before.items()}
+    for row in legacy['arm2_vehicles']:
+        for field in ('calibration_m3', 'calibration_confirmed_at', 'calibration_confirmed_by',
+                      'calibration_document_id', 'calibration_revision_id', 'calibration_plate_number'):
+            assert row.pop(field) is None
+    assert {table: [json.loads(row) for row in rows] for table, rows in snapshot(engine).items()} == legacy
     with engine.connect() as conn:
         assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0068"
         assert conn.exec_driver_sql("SELECT last_value,is_called FROM arm2_vehicle_id_seq").one() == (1, True)
+    # Restore the current schema before comparing its complete row, including nullable proof.
+    command.upgrade(config, "head")
+    assert snapshot(engine) == before
     assert db.get(Vehicle, vehicle.id).id == vehicle.id
 
 
@@ -72,7 +81,7 @@ def test_bulk_downgrade_never_discards_workspace_protocol_or_cleanup_audit(migra
         command.downgrade(config, "0067")
     assert snapshot(engine) == before
     with engine.connect() as conn:
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0071"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0072"
         table = {"workspace": "arm2_bulk_sessions", "receipt": "arm2_bulk_receipts", "cleanup": "arm2_bulk_cleanup"}[existing]
         assert conn.scalar(text(f"SELECT count(*) FROM {table}")) == 1
 
@@ -88,4 +97,4 @@ def test_type_category_history_blocks_lossy_downgrade_even_after_clear(migrated)
         command.downgrade(config, "0066")
     assert snapshot(engine) == before
     with engine.connect() as conn:
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0071"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0072"

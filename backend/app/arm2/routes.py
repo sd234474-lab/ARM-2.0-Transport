@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
+from app.arm2.approval_routes import router as approval_router
 from app.arm2.bulk_routes import router as bulk_router
 from app.arm2.counterparty_models import Counterparty
 from app.arm2.counterparty_rules import counterparty_response
@@ -73,6 +74,7 @@ router.include_router(read_router)  # Static /search paths precede legacy /{id} 
 router.include_router(questionnaire_router)
 router.include_router(bulk_router)
 router.include_router(document_router)
+router.include_router(approval_router)
 Arm2TypeViewer = Annotated[
     User,
     Depends(require_permission(Permission.ARM2_TYPE_VIEW)),
@@ -118,6 +120,8 @@ _EXPECTED_UNIQUE_CONSTRAINTS = {
     "uq_arm2_vehicles_plate_number",
 }
 _HISTORY_VIEW_PERMISSIONS = {
+    "APPROVAL": Permission.ARM2_VEH_VIEW,
+    "APPROVAL-ITEM": Permission.ARM2_VEH_VIEW,
     "DOCUMENT": Permission.ARM2_DOCUMENT_VIEW,
     "DOC-KIND": Permission.ARM2_DOC_KIND_VIEW,
     "TYPE": Permission.ARM2_TYPE_VIEW,
@@ -166,6 +170,8 @@ def _vehicle_response(record: Vehicle) -> dict[str, Any]:
             "accounting_state",
             "model",
             "wialon_unit_id",
+            "calibration_m3", "calibration_confirmed_at", "calibration_confirmed_by",
+            "calibration_document_id", "calibration_revision_id", "calibration_plate_number",
             "owner_cp_id",
             "owner_org_id",
             "version",
@@ -256,6 +262,20 @@ def _validate_history_access(
         OBJECT_REGISTRY.require(object_type).validate_id(object_id)
     except ObjectRegistryError as error:
         raise HTTPException(422, "Invalid ARM2 history object id") from error
+    if object_type in {"APPROVAL", "APPROVAL-ITEM"}:
+        from app.arm2.approval_models import ApprovalDecision
+        from app.arm2.approval_store import access
+        from app.arm2.document_file_routes import translated
+        def operation():
+            request_id = object_id
+            if object_type == "APPROVAL-ITEM":
+                decision = db.get(ApprovalDecision, object_id)
+                if decision is None:
+                    raise ObjectNotFoundError("Решение не найдено")
+                request_id = decision.request_id
+            access(db, user, request_id)
+        translated(db, operation)
+        return
     if object_type == "DOCUMENT":
         document = db.get(Document, object_id)
         if document is None:
