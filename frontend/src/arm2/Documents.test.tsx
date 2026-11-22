@@ -104,7 +104,7 @@ async function follow(name:string) {await act(async()=>{const node=[...host.quer
 function control(label:string) {const node=[...host.querySelectorAll('label')].find(e=>e.textContent?.startsWith(label))?.querySelector<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>('input,select,textarea');if(!node)throw Error('Missing '+label);return node;}
 async function change(label:string,value:string) {await act(async()=>{const node=control(label); const proto=node instanceof HTMLSelectElement?HTMLSelectElement.prototype:node instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto,'value')!.set!.call(node,value);node.dispatchEvent(new Event(node instanceof HTMLSelectElement?'change':'input',{bubbles:true}));await tick();});}
 const writes=()=>vi.mocked(api).mock.calls.filter(([,method])=>method==='POST'||method==='PUT');
-async function create(description?:string) {await mount(base+'/new');await change('Тип документа','DOC-KIND-000001');await change('Наименование','  Первый  ');if(description!==undefined)await change('Описание',description);await click('Сохранить');}
+async function create(description?:string) {await mount(base+'/new');await change('Тип документа','DOC-KIND-000001');await change('Название карточки','  Первый  ');if(description!==undefined)await change('Описание',description);await click('Сохранить');}
 
 it('persists a zero-file row, preserves description text, reopens, edits, no-ops and reads history',async()=>{
   await create('  Строка\nвторая  ');
@@ -113,10 +113,10 @@ it('persists a zero-file row, preserves description text, reopens, edits, no-ops
   expect(host.querySelector('[type=file]')).toBeNull();expect(host.textContent).not.toContain('Действителен');
   await follow('← К документам родителя');
   const table=host.querySelector('section[aria-label="Документы родителя"] table')!;
-  expect([...table.querySelectorAll('th')].map(e=>e.textContent)).toEqual(['Тип документа','Наименование документа','Состояние документа']);
+  expect([...table.querySelectorAll('th')].map(e=>e.textContent)).toEqual(['Тип документа','Название карточки','Состояние документа']);
   expect(table.textContent).toContain('Не загружен');expect(table.querySelectorAll('tbody tr')).toHaveLength(1);
   await change('Архивность','archived');expect(host.textContent).toContain('Документов по заданным условиям нет');await change('Архивность','all');await follow('Первый');
-  await change('Наименование','Второй');await change('Описание','');await click('Сохранить');
+  await change('Название карточки','Второй');await change('Описание','');await click('Сохранить');
   expect(writes().at(-1)![2]).toEqual({name:'Второй',description:'',expected_version:1});expect(records[0].version).toBe(2);
   await click('Сохранить');expect(records[0].version).toBe(2);expect(host.textContent).toContain('Изменений нет — версия 2');
   await click('История');await click('Открыть событие UPDATED');expect(host.textContent).toContain('Первый');expect(host.textContent).toContain('HUMAN 7');expect(host.textContent).toContain('arm2-api');
@@ -125,14 +125,14 @@ it('never silently changes nullable description on no-op and searches applicable
   await mount(base+'/new');expect(control('Тип документа').value).toBe('');expect(host.textContent).not.toContain('Открыть справочник');
   await click('Следующая страница');expect(host.textContent).toContain('За сотой');await change('Тип документа','DOC-KIND-000105');
   await change('Поиск доступного','Тип 1');expect(control('Тип документа').value).toBe('DOC-KIND-000105');
-  await change('Наименование','Первый');await click('Сохранить');await click('Сохранить');
+  await change('Название карточки','Первый');await click('Сохранить');await click('Сохранить');
   expect(writes()[0][2]).toEqual({name:'Первый',description:null,kind_ref:'DOC-KIND-000105'});expect(records[0].version).toBe(1);
 });
 it('keeps a stale draft on 409, compares and reloads only after confirmation',async()=>{
-  await create();await change('Наименование','Черновик');records[0]={...records[0],name:'Другой оператор',version:2};await click('Сохранить');
-  expect(control('Наименование').value).toBe('Черновик');await click('Сравнить с сервером');expect(host.textContent).toContain('Другой оператор');expect(control('Наименование').value).toBe('Черновик');
-  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);await click('Перезагрузить карточку');expect(control('Наименование').value).toBe('Черновик');
-  confirm.mockReturnValue(true);await click('Перезагрузить карточку');expect(control('Наименование').value).toBe('Другой оператор');await change('Описание','после');await click('Сохранить');expect(records[0].version).toBe(3);
+  await create();await change('Название карточки','Черновик');records[0]={...records[0],name:'Другой оператор',version:2};await click('Сохранить');
+  expect(control('Название карточки').value).toBe('Черновик');await click('Сравнить с сервером');expect(host.textContent).toContain('Другой оператор');expect(control('Название карточки').value).toBe('Черновик');
+  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);await click('Перезагрузить карточку');expect(control('Название карточки').value).toBe('Черновик');
+  confirm.mockReturnValue(true);await click('Перезагрузить карточку');expect(control('Название карточки').value).toBe('Другой оператор');await change('Описание','после');await click('Сохранить');expect(records[0].version).toBe(3);
 });
 it('protects dirty link/back navigation and retains 422/500 drafts before retry, latches 403 read-only',async()=>{
   await create();await change('Описание','Черновик');const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);await follow('Отмена / к документам родителя');expect(control('Описание').value).toBe('Черновик');await click('Browser back');expect(control('Описание').value).toBe('Черновик');expect(confirm).toHaveBeenCalledTimes(2);
@@ -144,7 +144,24 @@ it.each([[],['arm2_document_view'],['arm2_cp_view'],['arm2_doc_kind_view','arm2_
   await mount(base+'/DOCUMENT-000001',p=>grants.includes(p));expect(vi.mocked(api).mock.calls.filter(([path])=>path.includes('/documents'))).toHaveLength(0);expect(host.querySelector('form')).toBeNull();
 });
 it('requires both typed EDIT grants and validates required fields before any write',async()=>{
-  await mount(base+'/new');await click('Сохранить');expect(writes()).toHaveLength(0);await change('Наименование','Имя');await click('Сохранить');expect(writes()).toHaveLength(0);expect(host.textContent).toContain('Выберите существующий тип');
+  await mount(base+'/new');await click('Сохранить');expect(writes()).toHaveLength(0);await change('Название карточки','Имя');await click('Сохранить');expect(writes()).toHaveLength(0);expect(host.textContent).toContain('Выберите существующий тип');
+});
+
+it('keeps card title separate from type, groups guarded actions and collapses technical data',async()=>{
+  await create();
+  expect(control('Название карточки').value).toBe('Первый');
+  expect(host.querySelector('.arm2-document-kind-value')?.textContent).toBe('Существующий тип');
+  const technical=host.querySelector<HTMLDetailsElement>('.arm2-document-technical')!;
+  expect(technical.open).toBe(false);expect(technical.textContent).toContain('DOCUMENT-000001');
+  const toolbar=host.querySelector('.arm2-document-toolbar')!;
+  expect([...toolbar.querySelectorAll('button')].map(button=>button.textContent)).toEqual(['Сохранить','Архивировать','Изменить тип','Изменить привязку']);
+  expect(host.querySelector('textarea')?.rows).toBe(1);
+  expect(vi.mocked(api).mock.calls.some(([path])=>path.startsWith('/arm2/history/'))).toBe(false);
+  await change('Название карточки','СТС самосвала А123ВС');
+  expect([...toolbar.querySelectorAll('button')].find(button=>button.textContent==='Изменить тип')?.disabled).toBe(true);
+  await click('Сохранить');
+  expect(records[0].name).toBe('СТС самосвала А123ВС');expect(records[0].kind_ref).toBe('DOC-KIND-000001');
+  expect(writes().filter(([path])=>path.includes('/operations/'))).toHaveLength(0);
 });
 
 async function pickCandidate(file=new File(['test-content'],'candidate.png',{type:'image/png'})) {
