@@ -17,7 +17,9 @@ export function FilePreviewPage() {
     let active=true,url:string|undefined;
     void previewBytes(path,128*1024*1024).then(blob=>{
       if(!active)return;
-      url=URL.createObjectURL(blob);setValue({url,name,media:blob.type,blob});
+      const currentName=blob instanceof File?blob.name:name;
+      document.title=currentName;
+      url=URL.createObjectURL(blob);setValue({url,name:currentName,media:blob.type,blob});
     }).catch(e=>{if(active)setError(e);});
     return()=>{active=false;if(url)URL.revokeObjectURL(url);};
   },[path,name,valid]);

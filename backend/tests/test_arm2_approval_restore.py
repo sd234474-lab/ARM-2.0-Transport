@@ -75,6 +75,10 @@ def test_sql_and_file_runtime_restore_reopens_evidence_and_resumes_private_reply
         "PGPASSWORD": source.password,
     }
     db.commit()
+    tables = ['arm2_document_kinds', 'arm2_vehicles', 'arm2_document_files', 'arm2_history_events']
+    preserved = {table: db.execute(text(f'SELECT row_to_json(t)::text FROM {table} t ORDER BY 1')).scalars().all()
+                 for table in tables}
+    db.rollback()
     result = subprocess.run(
         [
             dump,
@@ -126,7 +130,9 @@ def test_sql_and_file_runtime_restore_reopens_evidence_and_resumes_private_reply
             try:
                 reopened = ok(c.get(path))
                 assert reopened == initial
-                assert restored_db.scalar(text("SELECT version_num FROM alembic_version")) == "0072"
+                assert restored_db.scalar(text("SELECT version_num FROM alembic_version")) == "0073"
+                assert {table: restored_db.execute(text(f'SELECT row_to_json(t)::text FROM {table} t ORDER BY 1')).scalars().all()
+                        for table in tables} == preserved
                 assert c.get(path + f"/files/{initial['letter_file_id']}/download").content.startswith(
                     b"%PDF-"
                 )

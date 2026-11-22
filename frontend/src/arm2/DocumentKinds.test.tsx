@@ -67,6 +67,20 @@ async function change(label: string, value: string) {await act(async () => {cons
 async function check(label: string) {await act(async () => {control(label).click(); await tick();});}
 const writes = () => vi.mocked(api).mock.calls.filter(([,method]) => method === 'POST' || method === 'PUT');
 
+it('offers the registered calibration preset only for the VEH calibration kind and persists it',async()=>{
+  await mount();await follow('+ Новая запись');
+  const preset=()=>control('Шаблон имени файла') as HTMLSelectElement;
+  expect([...preset().options].map(o=>o.value)).not.toContain('VEH_CALIBRATION');
+  await change('Имя типа','Тарировка');await check('Техника');
+  expect([...preset().options].map(o=>o.value)).toContain('VEH_CALIBRATION');
+  await change('Шаблон имени файла','VEH_CALIBRATION');
+  await change('Максимум','unlimited');await click('Сохранить');
+  expect(writes().at(-1)![2]).toMatchObject({name:'Тарировка',applicable_object_types:['VEH'],file_naming_template:'VEH_CALIBRATION'});
+  expect(preset().value).toBe('VEH_CALIBRATION');
+  await check('Контрагенты');
+  expect([...preset().options].find(o=>o.value==='VEH_CALIBRATION')?.disabled).toBe(true);
+});
+
 it('searches beyond 100, creates/updates/reopens persisted fields and reads real-shaped history', async () => {
   await mount(); expect(host.textContent).toContain('Найдено: 105 / Всего: 105');
   await click('Следующая страница'); expect(host.textContent).toContain('Тарировка за сотой');

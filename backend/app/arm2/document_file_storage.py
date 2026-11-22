@@ -1,6 +1,7 @@
 """Private runtime paths, content verification and the existing Disk provider."""
 
 import hashlib
+import math
 import os
 import re
 import secrets
@@ -16,7 +17,15 @@ from app.integrations import YandexDisk
 
 MAX_FILES = 32
 STAGE_SECONDS = 7200
-PRESETS = ("DOCUMENT_NAME", "PARENT_AND_KIND")
+# Closed platform catalogue: registered fields, not user formulas or B5-specific masks.
+NAMING_TEMPLATES = {
+    "DOCUMENT_NAME": ("", ("DOCUMENT.name",)),
+    "PARENT_AND_KIND": ("", ("PARENT.name", "DOC-KIND.name")),
+    "VEH_CALIBRATION": ("Тарировка", ("VEH.plate_number", "VEH.calibration_m3")),
+}
+PRESETS = tuple(NAMING_TEMPLATES)
+MISSING_NAME_VALUE = "НЕТ ДАННЫХ"
+CURRENT_REVISION = object()
 
 
 class StorageUnavailable(RuntimeError):
@@ -203,7 +212,15 @@ def content_type(path):
     )
 
 
-def safe_name(preset, document, parent, kind, file_id, extension, *, generated_bundle=False):
+def validate_naming_template(preset, name, parents):
+    if preset not in (None, *PRESETS):
+        raise ValueError("Unsupported document file naming template")
+    if preset == "VEH_CALIBRATION" and (name.strip().casefold() != "тарировка" or parents != ["VEH"]):
+        raise ValueError("Шаблон тарировки допустим только для типа «Тарировка» с применимостью только VEH")
+
+
+def safe_name(preset, document, parent, kind, file_id, extension, *, generated_bundle=False,
+              revision_id=CURRENT_REVISION):
     if (
         preset not in PRESETS
         or not re.fullmatch(r"FILE-[0-9]{6,}", file_id)
@@ -211,12 +228,30 @@ def safe_name(preset, document, parent, kind, file_id, extension, *, generated_b
             and not (generated_bundle and extension == "zip"))
     ):
         raise ValueError("Настройте поддерживаемый шаблон имени файла в типе документа")
-    text = document.name if preset == "DOCUMENT_NAME" else parent.name + " " + kind.name
-    text = unicodedata.normalize("NFKC", text)
-    text = "".join(
-        c if (c.isalnum() or c in " -_") and unicodedata.category(c)[0] != "C" else "_" for c in text
-    )
-    text = re.sub(r"\s+", " ", text).strip(" ._-")[:100].rstrip() or "Документ"
+    if preset == 'VEH_CALIBRATION':
+        validate_naming_template(preset, kind.name, kind.applicable_object_types)
+        if getattr(document, 'parent_type', None) != 'VEH':
+            raise ValueError("Шаблон тарировки неприменим к этому родителю")
+    selected_revision = getattr(document, 'current_revision_id', None) if revision_id is CURRENT_REVISION else revision_id
+    from app.arm2.vehicle_models import calibration_matches_document
+    volume = getattr(parent, 'calibration_m3', None)
+    confirmed = (selected_revision is not None and selected_revision == getattr(document, 'current_revision_id', None)
+                 and calibration_matches_document(parent, document)) if preset == 'VEH_CALIBRATION' else False
+    # Never use a questionnaire proposal, zero, stale proof or a different document/revision.
+    volume = volume if confirmed and type(volume) in (int, float) and math.isfinite(volume) and volume > 0 else None
+    parameters = {
+        'DOCUMENT.name': getattr(document, 'name', None),
+        'PARENT.name': getattr(parent, 'name', None),
+        'DOC-KIND.name': getattr(kind, 'name', None),
+        'VEH.plate_number': getattr(parent, 'plate_number', None),
+        'VEH.calibration_m3': (str(volume).removesuffix('.0') + 'м3') if volume is not None else None,
+    }
+    literal, fields = NAMING_TEMPLATES[preset]
+    values = [str(parameters[field]) if parameters[field] is not None and str(parameters[field]).strip()
+              else MISSING_NAME_VALUE for field in fields]
+    text = unicodedata.normalize('NFKC', ' '.join(([literal] if literal else []) + values))
+    text = ''.join(c if (c.isalnum() or c in ' -_') and unicodedata.category(c)[0] != 'C' else '_' for c in text)
+    text = re.sub(r'\s+', ' ', text).strip(' ._-')[:100].rstrip() or MISSING_NAME_VALUE
     # Limit UTF-8 bytes too, for portable Disk/ZIP names. No procedural date.
     while len(text.encode("utf8")) > 180:
         text = text[:-1]

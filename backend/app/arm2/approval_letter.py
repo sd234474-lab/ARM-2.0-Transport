@@ -64,7 +64,7 @@ def render_letter(path, numbers, snapshots):
             page.close()
 
 
-def render_package(path, letter_path, letter_name, snapshots, originals):
+def render_package(path, letter_path, letter_name, snapshots, originals, *, emitted_names=None):
     # Files have globally unique platform names. Never extract client ZIP members.
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as package:
         package.write(letter_path, files.original_name(letter_name))
@@ -75,7 +75,7 @@ def render_package(path, letter_path, letter_name, snapshots, originals):
             if original.id in seen:
                 continue
             seen.add(original.id)
-            name = files.original_name(original.stored_name)
+            name = files.original_name(emitted_names[original.id] if emitted_names is not None else original.stored_name)
             if name in names:
                 raise ValueError("В комплекте совпали имена оригиналов; выпуск остановлен")
             names.add(name)

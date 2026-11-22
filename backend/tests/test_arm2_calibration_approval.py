@@ -418,7 +418,7 @@ def test_downgrade_refuses_to_discard_confirmation_or_approval_evidence(qa):
     with pytest.raises(RuntimeError, match="downgrade refused"):
         command.downgrade(Config(str(Path(__file__).resolve().parents[1] / "alembic.ini")), "0071")
     db.rollback()
-    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0072"
+    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0073"
 
 
 def test_lost_commit_reply_uses_durable_receipt_not_duplicate_publication(qa, monkeypatch):

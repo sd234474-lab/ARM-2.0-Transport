@@ -16,6 +16,18 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db import Base
 
 
+def calibration_matches_document(vehicle, document):
+    """Current confirmation proof shared by eligibility and registered naming parameters."""
+    return bool(
+        getattr(vehicle, 'calibration_m3', None)
+        and vehicle.calibration_confirmed_at
+        and vehicle.calibration_confirmed_by
+        and vehicle.calibration_document_id == document.id
+        and vehicle.calibration_revision_id == document.current_revision_id
+        and vehicle.calibration_plate_number == vehicle.plate_number
+    )
+
+
 class Vehicle(Base):
     """ARM 2.0 vehicle foundation; no legacy Transport MAX table is modified."""
 

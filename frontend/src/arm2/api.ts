@@ -17,7 +17,16 @@ export async function previewBytes(path: string, maximum: number): Promise<Blob>
   try {
     for (;;) {const {done, value} = await reader.read(); if (done) break; size += value.byteLength; if (size > maximum) throw new ApiError(413, 'Файл превышает установленный предел'); chunks.push(new Uint8Array(value));}
   } finally {await reader.cancel();}
-  return new Blob(chunks, {type:response.headers.get('Content-Type')?.split(';')[0] || 'application/octet-stream'});
+  const type = response.headers.get('Content-Type')?.split(';')[0] || 'application/octet-stream';
+  const disposition = response.headers.get('Content-Disposition') || '';
+  let filename: string | undefined;
+  try {
+    const encoded = /filename\*=utf-8''([^;]+)/i.exec(disposition);
+    filename = encoded ? decodeURIComponent(encoded[1]) : /filename="([^"]+)"/i.exec(disposition)?.[1];
+  } catch { /* Missing/malformed metadata retains the caller's existing display fallback. */ }
+  if (filename && filename.length <= 255 && !/[\x00-\x1f\x7f/\\:]/.test(filename) && !['.', '..'].includes(filename))
+    return new File(chunks, filename, {type});
+  return new Blob(chunks, {type});
 }
 
 export type Kind = 'TYPE' | 'VEH' | 'CP' | 'ORG';
@@ -48,12 +57,12 @@ export const questionnaireApi = {
 export type ObjectType = Kind | 'CPREP' | 'ORGREP' | 'DOC-KIND' | 'DOCUMENT' | 'APPROVAL' | 'APPROVAL-ITEM';
 export interface DocumentRecord extends RecordData {parent_type: DocumentParent; parent_id: string; kind_ref: string; kind_name: string; description: string | null; archive_state: 'Неархивный' | 'Архивный'; display_state: 'Не загружен' | 'Доступен' | 'Файл недоступен' | 'Архивный'}
 export type DocumentParent = 'CP' | 'ORG' | 'VEH';
-export type FileNamingPreset = 'DOCUMENT_NAME' | 'PARENT_AND_KIND';
+export type FileNamingPreset = 'DOCUMENT_NAME' | 'PARENT_AND_KIND' | 'VEH_CALIBRATION';
 export interface DocumentKind {id: string; name: string; applicable_object_types: DocumentParent[]; max_current_documents: number | null; version: number; file_naming_template?: FileNamingPreset | null}
-export interface DocumentFile {id: string; original_upload_name: string; stored_name: string; size: number; sha256: string; media_type: string; extension: string; position: number; correction?: {operation: 'CORRECT'; reason_code: 'incorrect_upload'; actor_id: number; occurred_at: string; history_event_id: number} | null}
+export interface DocumentFile {download_name?: string; id: string; original_upload_name: string; stored_name: string; size: number; sha256: string; media_type: string; extension: string; position: number; correction?: {operation: 'CORRECT'; reason_code: 'incorrect_upload'; actor_id: number; occurred_at: string; history_event_id: number} | null}
 export interface DocumentRevision {id: string; number: number; document_id: string; parent_type: DocumentParent; parent_id: string; author_id: number; occurred_at: string; source: string; files: DocumentFile[]}
 export interface FileBundle {document_id: string; document_version: number; current_revision_id: string | null; display_state: string; revisions: DocumentRevision[]; max_files: number; max_file_bytes: number}
-export interface FileStage {id: string; original_upload_name: string; size: number; sha256: string | null; media_type: string | null; extension: string | null; state: 'empty' | 'ready' | 'consumed'}
+export interface FileStage {download_name?: string; id: string; original_upload_name: string; size: number; sha256: string | null; media_type: string | null; extension: string | null; state: 'empty' | 'ready' | 'consumed'}
 export type Scalar = string | number | boolean | null;
 export interface RecordData { id: string; version: number; name: string; [field: string]: Scalar }
 export interface VehicleType extends RecordData { plate_category: 'Автомобильный' | 'Самоходная техника' | null; requires_sts: boolean | null; requires_calibration: boolean | null; requires_wialon: boolean | null; status: string }

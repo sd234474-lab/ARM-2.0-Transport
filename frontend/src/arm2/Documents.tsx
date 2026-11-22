@@ -61,7 +61,7 @@ function DocumentFiles({path, original, editable, blocked, draft, setDraft, refr
   };
   const openCandidate = (candidate: FileCandidate) => {
     if (candidate.current && current) {
-      try {openFilePreview(`${path}/revisions/${current.id}/files/${candidate.current.id}/preview`, candidate.current.original_upload_name);}
+      try {openFilePreview(`${path}/revisions/${current.id}/files/${candidate.current.id}/preview`, candidate.current.download_name ?? candidate.current.stored_name);}
       catch (e) {setError(e);}
       return;
     }
@@ -72,7 +72,7 @@ function DocumentFiles({path, original, editable, blocked, draft, setDraft, refr
     void operation(async () => {
       try {
         const stage = await staged(candidate);
-        tab.navigate(`${path}/stages/${stage.id}/preview`, stage.original_upload_name);
+        tab.navigate(`${path}/stages/${stage.id}/preview`, stage.download_name ?? stage.original_upload_name);
       } catch (e) {tab.close(); throw e;}
     });
   };
@@ -118,7 +118,7 @@ function DocumentFiles({path, original, editable, blocked, draft, setDraft, refr
   const fileRows = (files: DocumentFile[], revisionId: string) => <ol className="arm2-file-list">{files.map(file => <li key={file.id}>
     <div className="arm2-file-name"><span>{file.original_upload_name}</span><small>{file.extension.toUpperCase()} · {Math.max(1,Math.round(file.size/1024))} КБ</small></div>
     <div className="arm2-file-actions">{file.correction ? <span className="arm2-correction">Исправленная ошибочная загрузка · {new Date(file.correction.occurred_at).toLocaleString('ru-RU')} · Автор {file.correction.actor_id} · Событие {file.correction.history_event_id}</span> : <>
-      <button type="button" onClick={() => {try {openFilePreview(`${path}/revisions/${revisionId}/files/${file.id}/preview`, file.original_upload_name);} catch (e) {setError(e);}}}>Открыть файл</button>
+      <button type="button" onClick={() => {try {openFilePreview(`${path}/revisions/${revisionId}/files/${file.id}/preview`, file.download_name ?? file.original_upload_name);} catch (e) {setError(e);}}}>Открыть файл</button>
       <a href={apiUrl(`${path}/revisions/${revisionId}/files/${file.id}/download`)}>Скачать файл</a>
       <details className="arm2-file-more"><summary>Ещё</summary>{allowed && revisionId === current?.id && <button type="button" disabled={busy || blocked || !!draft} onClick={()=>beginCorrect(file)}>Исправить ошибочную загрузку</button>}</details>
     </>}</div>
