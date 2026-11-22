@@ -40,7 +40,7 @@ the unprivileged service and not writable by group/other users.
 Keep the existing base env-file and its empty `YANDEX_DISK_TOKEN`. The R2-only
 launcher reads the private mounted file into process memory, verifies test
 identity, root ownership and private publication state over the gateway, and
-executes the unchanged application command. Docker Config.Env stays token-free.
+invokes the unchanged uvicorn CLI/options in the same process. Docker Config.Env stays token-free.
 Never print a full inspect/config, process environment, OAuth header, or provider
 exception. The existing YandexDisk adapter handles upload/read and SHA validation.
 
@@ -57,6 +57,13 @@ and the narrowly validated upload pool
 on TCP 443, rejects private/loopback/link-local resolutions, pins the checked
 destination IP, and relays TLS without decrypting or logging it. The existing
 adapter keeps TLS certificate verification and URL/redirect/content/SHA checks.
+Docker internal-network DNS cannot resolve external upload/download hosts. The
+gateway therefore also exposes a bounded internal-only DNS lookup for the same
+allowed Disk destinations. The launcher supplies those public addresses only to
+the existing adapter's `safe_url` DNS dependency. That original guard still checks
+every address; ordinary DB/application socket resolution is untouched. CONNECT
+independently rechecks DNS and pins its public destination. No host DNS, firewall,
+or NAT setting changes, and no TLS/MIME/SHA validation bypass.
 Unknown future provider hostnames fail closed and require another verified
 configuration update. Unrelated sites and raw direct API egress must fail.
 

@@ -1,9 +1,12 @@
 """R2-only private token loader; use the existing adapter after live identity verification."""
+import ipaddress
 import json
 import os
+import socket
 import stat
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 
 def private_token(source):
@@ -41,10 +44,44 @@ def configure():
         raise ValueError('Wrong or public test root')
 
 
+def resolve_disk(host, port, *, type=0):
+    """Resolve only inside the private gateway; existing safe_url still validates every result."""
+    import httpx
+    if port != 443 or type != socket.SOCK_STREAM or not host or any(c not in 'abcdefghijklmnopqrstuvwxyz0123456789.-' for c in host):
+        raise ValueError('Invalid Disk DNS request')
+    with httpx.Client(trust_env=False, timeout=10) as client:
+        response = client.get('http://r2-disk-egress:3128/r2-disk-resolve/' + host)
+        response.raise_for_status()
+        values = response.json()
+    if not isinstance(values, list) or not 1 <= len(values) <= 32:
+        raise ValueError('Invalid Disk DNS response')
+    addresses = [ipaddress.ip_address(value) for value in values]
+    if any(not address.is_global for address in addresses):
+        raise ValueError('Non-public Disk DNS response')
+    return [(socket.AF_INET if address.version == 4 else socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, '',
+        (str(address), 443) if address.version == 4 else (str(address), 443, 0, 0)) for address in addresses]
+
+
+def install_document_dns():
+    # Replace only this module's DNS dependency, not Python's shared socket module.
+    # DB/health/application sockets retain ordinary Docker DNS. No URL/TLS guard is removed.
+    from app import integrations
+    def lookup(host, port, *args, **kwargs):
+        if host == 'cloud-api.yandex.net' or host.endswith(('.disk.yandex.net', '.disk.yandex.ru', '.storage.yandex.net')):
+            return resolve_disk(host, port, **kwargs)
+        return socket.getaddrinfo(host, port, *args, **kwargs)
+    integrations.socket = SimpleNamespace(getaddrinfo=lookup, SOCK_STREAM=socket.SOCK_STREAM)
+
+
 if __name__ == '__main__':
     try:
         configure()
+        install_document_dns()
     except Exception:  # noqa: BLE001 -- provider exceptions can contain signed URLs or credentials
         print('R2 Disk startup verification FAILED; application not started', file=sys.stderr)
         raise SystemExit(1) from None
-    os.execvp(sys.argv[1], sys.argv[1:])
+    # Keep the scoped adapter dependency in this process while invoking the same CLI/options.
+    import uvicorn
+    if sys.argv[1] != 'uvicorn':
+        raise SystemExit('R2 uvicorn command required')
+    uvicorn.main(args=sys.argv[2:], standalone_mode=True)

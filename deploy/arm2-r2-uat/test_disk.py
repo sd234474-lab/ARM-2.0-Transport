@@ -121,9 +121,25 @@ class DiskTests(unittest.TestCase):
                     with socket.create_connection(server.server_address, timeout=3) as client:
                         client.sendall(request)
                         self.assertIn(b'403 Forbidden', client.recv(1024))
+                with patch.object(proxy.socket, 'getaddrinfo', return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('77.88.55.88', 443))]), socket.socket() as client:
+                    client.settimeout(3)
+                    client.connect(server.server_address)
+                    client.sendall(b'GET /r2-disk-resolve/cloud-api.yandex.net HTTP/1.1\r\n\r\n')
+                    self.assertIn(b'77.88.55.88', client.recv(4096))
             finally:
                 server.shutdown()
                 worker.join(3)
+
+    def test_document_dns_preserves_public_ip_guard(self):
+        client = unittest.mock.MagicMock()
+        with patch('httpx.Client', return_value=client):
+            response = client.__enter__.return_value.get.return_value
+            response.json.return_value = ['77.88.55.88']
+            self.assertEqual(launch.resolve_disk('cloud-api.yandex.net', 443, type=socket.SOCK_STREAM)[0][4], ('77.88.55.88', 443))
+            for addresses in [['127.0.0.1'], ['169.254.169.254'], [], ['77.88.55.88', '172.20.0.1']]:
+                response.json.return_value = addresses
+                with self.assertRaises(ValueError):
+                    launch.resolve_disk('cloud-api.yandex.net', 443, type=socket.SOCK_STREAM)
 
     def test_live_state_rejects_foreign_consumers_and_api_direct_egress(self):
         containers, volumes, networks = fixtures.state()
