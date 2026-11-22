@@ -118,7 +118,7 @@ function DocumentFiles({path, original, editable, blocked, draft, setDraft, refr
     <div className="arm2-file-actions">{file.correction ? <span className="arm2-correction">Исправленная ошибочная загрузка · {new Date(file.correction.occurred_at).toLocaleString('ru-RU')} · Автор {file.correction.actor_id} · Событие {file.correction.history_event_id}</span> : <>
       <button type="button" onClick={() => {try {openFilePreview(`${path}/revisions/${revisionId}/files/${file.id}/preview`, file.original_upload_name);} catch (e) {setError(e);}}}>Открыть файл</button>
       <a href={apiUrl(`${path}/revisions/${revisionId}/files/${file.id}/download`)}>Скачать файл</a>
-      {allowed && revisionId === current?.id && <details className="arm2-file-more"><summary>Ещё</summary><button type="button" disabled={busy || blocked || !!draft} onClick={()=>beginCorrect(file)}>Исправить ошибочную загрузку</button></details>}
+      <details className="arm2-file-more"><summary>Ещё</summary>{allowed && revisionId === current?.id && <button type="button" disabled={busy || blocked || !!draft} onClick={()=>beginCorrect(file)}>Исправить ошибочную загрузку</button>}</details>
     </>}</div>
     <details className="arm2-file-technical"><summary>Сведения о файле</summary><small>{revisionId === current?.id ? `Текущая редакция ${current.number}` : `Редакция ${result.data?.revisions.find(row=>row.id===revisionId)?.number}`} · {file.id} · {file.size} байт · SHA-256: {file.sha256}</small></details>
   </li>)}</ol>;

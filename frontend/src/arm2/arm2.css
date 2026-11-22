@@ -72,10 +72,10 @@
 .arm2:has(.arm2-document) .arm2-section { min-height:0; padding:4px 0; border:0; border-radius:0; }
 .arm2:has(.arm2-document) .arm2-section small { display:none; }
 .arm2-document { max-width:1100px; min-width:0; }
-.arm2-document .arm2-document-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; margin:14px 0 6px; }
+.arm2-document .arm2-document-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; margin:10px 0 6px; }
 .arm2-document .arm2-document-heading h2 { margin:0; overflow-wrap:anywhere; }
 .arm2-document-state { font-size:.875rem; font-weight:600; }
-.arm2-document-summary { display:flex; align-items:baseline; flex-wrap:wrap; gap:8px 20px; margin-bottom:16px; font-size:.875rem; }
+.arm2-document-summary { display:flex; align-items:baseline; flex-wrap:wrap; gap:8px 20px; margin-bottom:12px; font-size:.875rem; }
 .arm2-document .arm2-document-fields { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:10px 16px; margin:0; }
 .arm2-document-fields .arm2-field { margin:0; min-width:0; }
 .arm2-document .arm2-document-fields input,.arm2-document .arm2-document-fields textarea { padding:8px 10px; min-height:38px; box-sizing:border-box; font:inherit; }
@@ -132,3 +132,5 @@
 .arm2 [aria-label="Предложения очистки"] {border:1px solid #a47c35;padding:12px;margin:16px 0;display:grid;gap:10px}
 @media(max-width:760px){.arm2 .arm2-sections {grid-template-columns:repeat(2,minmax(0,1fr))}.arm2 .arm2-actions:has(>h2){flex-wrap:wrap}.arm2 .arm2-create{margin-left:auto}}
 @media(max-width:420px){.arm2 .arm2-sections{grid-template-columns:1fr}}
+
+.arm2-document .arm2-file-list li:has(.arm2-file-more):not(:has(.arm2-file-more[open])) > .arm2-file-technical { display:none; }
