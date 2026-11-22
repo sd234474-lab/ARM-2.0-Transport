@@ -57,6 +57,20 @@ it('takes eligibility only from the server and sends one letter with two header 
   expect(commands[0]).not.toHaveProperty('contract_ids');
 });
 
+it('pages candidates by the shared 100-row contract and preserves an explicit selection across pages', async () => {
+  vi.mocked(api).mockImplementation(async path => path.endsWith('offset=100') ?
+    [{...ready, vehicle_id: 'VEH-000101'}] :
+    Array.from({length: 100}, (_, index) => ({...ready, vehicle_id: `VEH-${String(index + 1).padStart(6, '0')}`})));
+  await mount(<NewApproval/>);
+  await act(async () => {host.querySelector<HTMLInputElement>('input[type=checkbox]')!.click(); await tick();});
+  await click('Следующая страница');
+  expect(api).toHaveBeenCalledWith('/arm2/approvals/candidates?offset=100', 'GET', undefined, expect.any(AbortSignal));
+  expect(host.textContent).toContain('Выбрано: 1');
+  expect([...host.querySelectorAll('button')].find(b => b.textContent === 'Следующая страница')!.disabled).toBe(true);
+  await click('Предыдущая страница');
+  expect(host.querySelector<HTMLInputElement>('input[type=checkbox]')!.checked).toBe(true);
+});
+
 it('saves explicit per-machine decisions with one bounded original and reopens through the platform viewer', async () => {
   let saved = false;
   const candidate = {navigate: vi.fn(), close: vi.fn()};

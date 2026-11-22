@@ -20,6 +20,7 @@ from app.permissions import Permission
 from app.schemas import StrictModel
 
 router = APIRouter(route_class=bounded_route(store.MAX_RESPONSE_BYTES, "Ответ превышает 2 МиБ"))
+PAGE_SIZE = 100  # Same contract as the shared ARM2 Pagination component.
 
 
 class Confirmation(StrictModel):
@@ -81,7 +82,7 @@ def candidates(db: Db, user: CurrentUser, offset: int = 0):
             raise ValueError("Недопустимое смещение")
         # Same server readiness as the card and letter command, never client-side find(first).
         result = []
-        for vehicle_id in db.scalars(select(Vehicle.id).order_by(Vehicle.id).limit(50).offset(offset)):
+        for vehicle_id in db.scalars(select(Vehicle.id).order_by(Vehicle.id).limit(PAGE_SIZE).offset(offset)):
             try:
                 result.append(store.readiness(db, user, vehicle_id))
             except ObjectAuthorizationError:
@@ -102,7 +103,7 @@ def requests(db: Db, user: CurrentUser, offset: int = 0):
         for row in db.scalars(
             select(ApprovalRequest)
             .order_by(ApprovalRequest.created_at.desc(), ApprovalRequest.id.desc())
-            .limit(50)
+            .limit(PAGE_SIZE)
             .offset(offset)
         ):
             try:

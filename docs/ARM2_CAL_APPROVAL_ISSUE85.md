@@ -84,7 +84,9 @@ Ubuntu deploy, merge и очистка стенда не выполнялись 
   системный более новый `pg_restore`,
   генерирующий неподдерживаемый `SET transaction_timeout`, не используется.
   SQL не фильтруется, `--exit-on-error` и все проверки восстановления сохранены.
-- Полный frontend: **492 PASS**; TypeScript/Vite production builds PASS;
+- Пагинация новых списков совпадает с общим ARM2-компонентом: 100 строк;
+  проверены 106 кандидатов без пропусков и сохранение выбора при переходе страницы.
+- Полный frontend: **493 PASS**; TypeScript/Vite production builds PASS;
   Ruff всего backend PASS.
 - Авторский browser smoke: реальная локальная API/DB/FakeDisk + Edge/Playwright,
   две машины, оба номера, выпуск/скачивание ZIP, PDF в общей новой вкладке,

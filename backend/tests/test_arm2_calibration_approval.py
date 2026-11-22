@@ -93,8 +93,11 @@ def test_one_letter_two_numbers_response_roundtrip_and_idempotency(qa):
     request_id = result["request_id"]
     assert ok(c.post("/api/arm2/approvals/letter", json=body), 201) == result
     request = ok(c.get("/api/arm2/approvals/" + request_id))
-    assert {file['id'] for file in request['files']} == {request['letter_file_id'], request['package_file_id']}
-    assert all(not {'storage_ref', 'token', 'process_id'} & set(file) for file in request['files'])
+    assert {file["id"] for file in request["files"]} == {
+        request["letter_file_id"],
+        request["package_file_id"],
+    }
+    assert all(not {"storage_ref", "token", "process_id"} & set(file) for file in request["files"])
     assert [request["contract_number_1"], request["contract_number_2"]] == ["К-001", "К-002"]
     assert len(request["decisions"]) == 2
     assert all(d["state"] == "PENDING" for d in request["decisions"])
@@ -110,7 +113,7 @@ def test_one_letter_two_numbers_response_roundtrip_and_idempotency(qa):
     endpoint = f"/api/arm2/approvals/{request_id}"
     uploaded = ok(c.put(endpoint + f"/response-stages/{stage_id}?name=response.png", content=response_file))
     assert uploaded["stage_id"] == stage_id
-    assert uploaded['stored_name'].endswith('.png') and '-FILE-' in uploaded['stored_name']
+    assert uploaded["stored_name"].endswith(".png") and "-FILE-" in uploaded["stored_name"]
     preview = c.get(endpoint + f"/response-stages/{stage_id}/preview")
     assert preview.content == response_file
     command = {
@@ -566,3 +569,25 @@ def test_permission_revoked_during_original_upload_prevents_publication(qa, monk
     assert response.status_code == 403
     assert db.scalar(select(func.count()).select_from(ApprovalRequest)) == 0
     assert db.scalar(select(func.count()).select_from(ApprovalDecision)) == 0
+
+
+def test_candidates_follow_shared_100_row_pagination_without_gaps(qa):
+    from app.arm2.vehicle_models import Vehicle
+
+    c, db, *_ = qa
+    db.add_all(
+        [
+            Vehicle(
+                id=f"VEH-{910000 + i:06}", name=f"Synthetic candidate {i}", plate_number=f"А{i + 200:03}АА86"
+            )
+            for i in range(105)
+        ]
+    )
+    db.commit()
+    first = ok(c.get("/api/arm2/approvals/candidates?offset=0"))
+    second = ok(c.get("/api/arm2/approvals/candidates?offset=100"))
+    assert len(first) == 100 and len(second) == 6
+    first_ids = {row["vehicle_id"] for row in first}
+    second_ids = {row["vehicle_id"] for row in second}
+    assert not first_ids & second_ids and len(first_ids | second_ids) == 106
+    assert all(not row["letter_eligible"] and row["reasons"] for row in [*first, *second])
