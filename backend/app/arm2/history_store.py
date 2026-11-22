@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
@@ -141,7 +142,8 @@ def append_history_event(
         ),
         version_before=version_before,
         version_after=version_after,
-        changes=cleaned_changes,
+        changes={field: {side: value.isoformat() if isinstance(value, (date, datetime)) else value
+                         for side, value in change.items()} for field, change in cleaned_changes.items()},
         related_objects=_validate_related_objects(related_objects),
     )
     db.add(event)

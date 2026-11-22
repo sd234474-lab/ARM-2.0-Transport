@@ -8,7 +8,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import ConfigDict, Field, StrictInt
-from sqlalchemy import func, select, text
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.background import BackgroundTask
 from starlette.responses import FileResponse
@@ -22,13 +22,14 @@ from app.arm2.document_file_models import (
     RevisionFile,
 )
 from app.arm2.document_file_store import (
+    StagingQuotaExceeded,
     accept,
     attempt_lease,
     bundles,
-    cleanup_expired_staging,
     document_access,
     instant,
     owned_stage,
+    staging_quota,
 )
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_store import PARENTS
@@ -73,6 +74,9 @@ def translated(db, operation):
     except HTTPException:
         rollback(db)
         raise
+    except StagingQuotaExceeded as error:
+        rollback(db)
+        raise HTTPException(413, str(error)) from None
     except CONTROLLED_ERRORS as error:
         rollback(db)
         raise controlled_error(error) from None
@@ -115,17 +119,7 @@ def start_stage(
         name = files.original_name(body.original_upload_name)
         if body.size > files.settings().max_file_bytes:
             raise HTTPException(413, "Файл превышает установленный предел")
-        db.execute(text("SELECT pg_advisory_xact_lock(6365,:principal)"), {"principal": user.id})
-        cleanup_expired_staging(db)
-        count, size = db.execute(
-            select(func.count(), func.coalesce(func.sum(FileStage.size), 0)).where(
-                FileStage.principal_id == user.id,
-                FileStage.expires_at > instant(),
-                FileStage.state != "consumed",
-            )
-        ).one()
-        if count >= 64 or size + body.size > files.settings().max_file_bytes * 8:
-            raise HTTPException(413, "Квота временных файлов исчерпана; дождитесь истечения срока кандидатов")
+        staging_quota(db, user.id, body.size)
         stage = FileStage(
             id=secrets.token_hex(32),
             document_id=document_id,

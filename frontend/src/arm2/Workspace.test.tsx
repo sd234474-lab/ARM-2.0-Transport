@@ -42,6 +42,10 @@ function defaults(path: string) {
 // Calls recorded by api still retain their real /search URL.
 function mockAPI(implementation: (...args: Parameters<typeof api>) => Promise<unknown>) {
   vi.mocked(api).mockImplementation(async (...args) => {
+    if (/\/veh\/[^/]+\/calibration$/.test(args[0])) return {vehicle_id: vehicle.id, volume_m3: null,
+      confirmed_at: null, confirmed_by: null, document_id: null, letter_eligible: false,
+      reasons: ['Объём не подтверждён'], customer: {state: null, request_id: null},
+      work_readiness_notice: 'Полная готовность к работе не подтверждена'};
     const searching = args[0].includes('/search?');
     const result = await implementation(searching ? args[0].replace('/search?', '?') : args[0], ...args.slice(1) as [string?, unknown?, AbortSignal?]);
     if (!searching) return result;

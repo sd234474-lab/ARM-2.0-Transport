@@ -2,6 +2,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 _NEXT_VALUE = {
+    "APPROVAL": text("SELECT nextval('arm2_approval_id_seq')"),
+    "APPROVAL-ITEM": text("SELECT nextval('arm2_approval_item_id_seq')"),
     "DOCUMENT-REV": text("SELECT nextval('arm2_document_revision_id_seq')"),
     "FILE": text("SELECT nextval('arm2_document_file_id_seq')"),
     "DOCUMENT": text("SELECT nextval('arm2_document_id_seq')"),

@@ -1,3 +1,4 @@
+import {CalibrationConfirmation} from './Calibration';
 import {useDraftGuard} from './useDraftGuard';
 import type {ReactNode} from 'react';
 import { useEffect, useRef, useState } from 'react';
@@ -284,6 +285,7 @@ function DocumentForm({initial, parent, ...scope}: Scope & {initial?: DocumentRe
     </fieldset></form>
     {!original && <div className="arm2-actions arm2-document-toolbar">{saveAction}</div>}{status && <p role="status">{status}</p>}
     {original && <DocumentOperations saveAction={saveAction} scope={scope} record={original} draft={operationDraft} setDraft={setOperationDraft} allowed={canEdit} blocked={changed||busy||!!fileDraft} denied={()=>setDenied(true)} compare={()=>void readFresh(false)} reload={()=>void readFresh(true)} completed={record=>{guard.current=false;setOperationDraft(undefined);setOriginal(record);setDraft(draftOf(record));setStatus('Операция сохранена сервером — версия '+record.version);if(record.parent_id!==scope.parentId)navigate(endpoint(record.parent_type,record.parent_id)+'/'+record.id,{replace:true});}}/>}
+    {original && scope.parentType==='VEH' && original.kind_name.trim().toLocaleLowerCase('ru')==='тарировка' && <CalibrationConfirmation key={original.id+':'+original.version} vehicleId={scope.parentId} document={original} editable={canEdit} blocked={changed||busy||!!fileDraft||!!operationDraft}/>}
     {original && <DocumentFiles path={path + '/' + encodeURIComponent(original.id)} original={original} editable={canEdit} blocked={changed || busy || !!operationDraft} draft={fileDraft} setDraft={setFileDraft} onDenied={()=>setDenied(true)} refreshed={async () => {
       const record = await api<DocumentRecord>(path + '/' + encodeURIComponent(original.id));
       if (!alive.current) return;

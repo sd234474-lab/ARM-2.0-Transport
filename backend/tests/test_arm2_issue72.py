@@ -182,6 +182,9 @@ def test_i05_full_query_counts_pagination_empty_and_permissions(b5):
 
 
 def test_i06_offline_reset_identity_recovery_bootstrap_and_new_v4(b5, monkeypatch):
+    from alembic.config import Config
+
+    from alembic import command
     c, db, _, _, _, fake = b5
     root = Path(settings().data_dir)
     root.mkdir(exist_ok=True, parents=True)
@@ -194,6 +197,16 @@ def test_i06_offline_reset_identity_recovery_bootstrap_and_new_v4(b5, monkeypatc
     db.rollback()
     attest = {'project': 'arm2-ubuntu-uat-r2', 'file_volume': 'arm2-ubuntu-uat-r2_r2_file_data',
               'data_volume': 'arm2-ubuntu-uat-r2_r2_photo_data', 'offline': True}
+    # 0072 adds approval evidence: the existing reset is deliberately NOT authorized
+    # to erase that new schema. Verify fail-closed, then exercise the original 0071 contract.
+    with pytest.raises(ValueError, match='Unexpected R2 revision'):
+        reset(engine(), attest, fake.path, root, execute=True)
+    assert snapshot(db) == before
+    db.rollback()
+    config = Config(str(Path(__file__).resolve().parents[1] / 'alembic.ini'))
+    command.downgrade(config, '0071')
+    before = snapshot(db)
+    db.rollback()
     with pytest.raises(ValueError, match='B1|R2'):
         reset(engine(), {**attest, 'project': 'arm2-ubuntu-uat'}, fake.path, root, execute=True)
     assert snapshot(db) == before
@@ -224,6 +237,7 @@ def test_i06_offline_reset_identity_recovery_bootstrap_and_new_v4(b5, monkeypatc
         assert {p.name for p in fake.path.iterdir()} == {MARKER}
     assert db.execute(select(User.id, User.login, User.password_hash, User.role, User.permissions)).all() == users
     db.rollback()
+    command.upgrade(config, '0072')
     assert c.post('/api/auth/login', json={'login': 'document-admin', 'password': 'document-test-password'}).status_code == 200
     c.headers['X-CSRF-Token'] = c.cookies['csrf']
     d = choose(c, upload(c, v4()), cp_target='new', cp_fields=['name', 'type', 'legal_form'])

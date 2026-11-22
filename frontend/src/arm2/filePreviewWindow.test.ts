@@ -3,6 +3,12 @@ import {afterEach,expect,it,vi} from 'vitest';
 import {isFilePreviewPath,openFilePreview} from './filePreviewWindow';
 
 afterEach(()=>vi.restoreAllMocks());
+it('uses the same protected viewer for approval originals and bounded response candidates',()=>{
+  expect(isFilePreviewPath('/arm2/approvals/APPROVAL-000001/files/FILE-000001/preview')).toBe(true);
+  expect(isFilePreviewPath('/arm2/approvals/APPROVAL-000001/response-stages/9c549d40-7125-4e1c-88b9-6672bcc07d95/preview')).toBe(true);
+  expect(isFilePreviewPath('/arm2/approvals/APPROVAL-000001/files/FILE-000001/preview?url=evil')).toBe(false);
+  expect(isFilePreviewPath('/arm2/approvals/APPROVAL-000001/files/../preview')).toBe(false);
+});
 it.each(['cp','veh','org','cprep'])('accepts saved revisions and stages for %s',parent=>{
   const root=`/arm2/${parent}/P-1/documents/DOCUMENT-1`;
   expect(isFilePreviewPath(root+'/revisions/R-1/files/F-1/preview')).toBe(true);

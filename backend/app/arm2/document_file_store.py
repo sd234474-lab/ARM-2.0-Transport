@@ -424,6 +424,39 @@ def cleanup_expired_staging(db):
         except PermissionError:
             continue  # An active preview/download holds the Windows file handle.
     # Keep expired rows: safe reconciliation must retain ownership/provenance.
+    from app.arm2.approval_models import ApprovalAttempt
+    for attempt in db.scalars(select(ApprovalAttempt).where(
+        ApprovalAttempt.action.in_(['letter', 'response-stage']),
+        ApprovalAttempt.created_at < instant() - timedelta(seconds=files.STAGE_SECONDS))
+        .limit(100).with_for_update(skip_locked=True)):
+        plans = attempt.plan.get('files', []) if attempt.action == 'letter' else [attempt.plan['file']]
+        for plan in plans:
+            try:
+                files.private_path(plan['token']).unlink(missing_ok=True)
+            except PermissionError:
+                continue
+
+
+class StagingQuotaExceeded(ValueError):
+    pass
+
+
+def staging_quota(db, principal_id, extra_size, *, extra_count=1):
+    """One private-runtime quota for manual B3 and process originals, never a business save."""
+    from app.arm2.approval_models import ApprovalAttempt
+    db.execute(text("SELECT pg_advisory_xact_lock(6365,:principal)"), {'principal': principal_id})
+    cleanup_expired_staging(db)
+    stages = db.scalars(select(FileStage).where(FileStage.principal_id == principal_id,
+        FileStage.expires_at > instant(), FileStage.state != 'consumed')).all()
+    plans = []
+    for attempt in db.scalars(select(ApprovalAttempt).where(ApprovalAttempt.principal_id == principal_id,
+        ApprovalAttempt.action.in_(['letter', 'response-stage']), ApprovalAttempt.result.is_(None),
+        ApprovalAttempt.created_at > instant() - timedelta(seconds=files.STAGE_SECONDS))):
+        plans.extend(attempt.plan.get('files', []) if attempt.action == 'letter' else [attempt.plan['file']])
+    count = len(stages) + len(plans)
+    size = sum(stage.size for stage in stages) + sum(plan['size'] for plan in plans)
+    if count + extra_count > 64 or size + extra_size > files.settings().max_file_bytes * 8:
+        raise StagingQuotaExceeded("Квота временных файлов исчерпана; дождитесь истечения срока кандидатов")
 
 
 def publish_prepared_revision_in_transaction(db, prepared_plan, principal, context):

@@ -110,7 +110,7 @@ def test_0064_refuses_history_without_document_and_preserves_it(
         with pytest.raises(RuntimeError, match="downgrade refused"):
             command.downgrade(cfg, "0063")
         with engine.connect() as db:
-            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0071"
+            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0072"
             assert (
                 db.execute(text("SELECT row_to_json(h)::text FROM arm2_history_events h ORDER BY event_id"))
                 .scalars()

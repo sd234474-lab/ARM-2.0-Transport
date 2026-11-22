@@ -203,11 +203,12 @@ def content_type(path):
     )
 
 
-def safe_name(preset, document, parent, kind, file_id, extension):
+def safe_name(preset, document, parent, kind, file_id, extension, *, generated_bundle=False):
     if (
         preset not in PRESETS
         or not re.fullmatch(r"FILE-[0-9]{6,}", file_id)
-        or extension not in {"pdf", "png", "jpg", "gif", "webp", "docx", "xlsx", "pptx", "bin"}
+        or (extension not in {"pdf", "png", "jpg", "gif", "webp", "docx", "xlsx", "pptx", "bin"}
+            and not (generated_bundle and extension == "zip"))
     ):
         raise ValueError("Настройте поддерживаемый шаблон имени файла в типе документа")
     text = document.name if preset == "DOCUMENT_NAME" else parent.name + " " + kind.name
@@ -220,6 +221,54 @@ def safe_name(preset, document, parent, kind, file_id, extension):
     while len(text.encode("utf8")) > 180:
         text = text[:-1]
     return f"{text}-{file_id}.{extension}"
+
+
+def prepare_original(path, *, file_id, namespace, name, original_upload_name, generated_bundle=False):
+    """Private publication plan shared by document processes; never accepts a remote URL."""
+    from types import SimpleNamespace
+
+    if not re.fullmatch(r"[0-9a-f-]{36}", namespace):
+        raise ValueError("Invalid publication namespace")
+    if generated_bundle:
+        # Only server generators call this branch. Ordinary uploads still use content_type.
+        with zipfile.ZipFile(path) as archive:
+            if archive.testzip() is not None:
+                raise ValueError("Invalid generated package")
+        media, extension = "application/zip", "zip"
+    else:
+        media, extension = content_type(path)
+    stored = safe_name("DOCUMENT_NAME", SimpleNamespace(name=name), None, None, file_id,
+                       extension, generated_bundle=generated_bundle)
+    token = secrets.token_hex(32)
+    shutil.copyfile(path, private_path(token))
+    return {"id": file_id, "original_upload_name": original_name(original_upload_name),
+            "stored_name": stored, "storage_ref": f"{document_root()}/process/{namespace}/{file_id}/{stored}",
+            "size": path.stat().st_size, "sha256": digest(path), "media_type": media,
+            "extension": extension, "generated_bundle": generated_bundle, "token": token}
+
+
+def ensure_original(plan):
+    """Retry-safe verified upload. An existing mismatching original is never overwritten."""
+    from types import SimpleNamespace
+
+    original = SimpleNamespace(**plan)
+    if not original.storage_ref.startswith(document_root() + "/"):
+        raise StorageUnavailable("Оригинал вне защищённого корня")
+    provider = storage()
+    try:
+        metadata = getattr(provider, "document_metadata", provider.metadata)(original.storage_ref)
+        if metadata is not None:
+            if not verify_remote(original, provider):
+                raise StorageUnavailable("Существующий оригинал не совпадает; перезапись запрещена")
+            return
+        path = verified_stage(SimpleNamespace(id=plan['token'], size=plan['size'], sha256=plan['sha256']))
+        provider.upload(path, original.storage_ref, original.sha256)
+        if not verify_remote(original, provider):
+            raise StorageUnavailable("Хранилище не подтвердило SHA и размер оригинала")
+    except StorageUnavailable:
+        raise
+    except Exception:
+        raise StorageUnavailable("Хранилище не подтвердило сохранение; повторите ту же команду") from None
 
 
 def verify_remote(file, provider=None):
