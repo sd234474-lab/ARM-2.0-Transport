@@ -1,0 +1,41 @@
+{
+  "services": {
+    "r2-api": {
+      "entrypoint": ["python", "/opt/r2-disk/launch.py"],
+      "command": ["uvicorn", "app.api:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"],
+      "environment": {
+        "ARM2_R2_DISK_CONFIG": "/run/r2-disk/config.json",
+        "ARM2_R2_DISK_TOKEN_FILE": "/run/r2-disk/token",
+        "HTTPS_PROXY": "http://r2-disk-egress:3128",
+        "HTTP_PROXY": "http://r2-disk-egress:3128",
+        "NO_PROXY": "127.0.0.1,localhost,r2-db"
+      },
+      "volumes": [
+        {"type": "bind", "source": "./deploy/arm2-r2-uat/disk_launch.py", "target": "/opt/r2-disk/launch.py", "read_only": true, "bind": {"create_host_path": false}},
+        {"type": "bind", "source": "/home/arm2admin/.config/arm2-r2-disk/config.json", "target": "/run/r2-disk/config.json", "read_only": true, "bind": {"create_host_path": false}},
+        {"type": "bind", "source": "/home/arm2admin/.config/arm2-r2-disk/token", "target": "/run/r2-disk/token", "read_only": true, "bind": {"create_host_path": false}}
+      ],
+      "depends_on": {"r2-disk-egress": {"condition": "service_healthy"}}
+    },
+    "r2-disk-egress": {
+      "image": "arm2-r2-api:${R2_SOURCE_SHA:?Set reviewed checkout SHA}",
+      "pull_policy": "never",
+      "user": "10001:10001",
+      "restart": "no",
+      "entrypoint": ["python", "/opt/r2-disk/proxy.py"],
+      "read_only": true,
+      "cap_drop": ["ALL"],
+      "security_opt": ["no-new-privileges:true"],
+      "volumes": [
+        {"type": "bind", "source": "./deploy/arm2-r2-uat/disk_proxy.py", "target": "/opt/r2-disk/proxy.py", "read_only": true, "bind": {"create_host_path": false}},
+        {"type": "bind", "source": "/home/arm2admin/.config/arm2-r2-disk/config.json", "target": "/run/r2-disk/config.json", "read_only": true, "bind": {"create_host_path": false}}
+      ],
+      "networks": ["r2_internal", "r2_disk_egress"],
+      "healthcheck": {
+        "test": ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1',3128),2).close()"],
+        "interval": "5s", "timeout": "3s", "retries": 10
+      }
+    }
+  },
+  "networks": {"r2_disk_egress": {"name": "arm2-ubuntu-uat-r2_r2_disk_egress"}}
+}
