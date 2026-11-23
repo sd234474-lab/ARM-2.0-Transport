@@ -29,7 +29,7 @@ from app.arm2.object_save import (
     SaveContext,
     update_object,
 )
-from app.arm2.questionnaire_diff import CP_FIELDS, REP_FIELDS, VEH_FIELDS, authorized, build
+from app.arm2.questionnaire_diff import CP_FIELDS, REP_FIELDS, VEH_EDIT_FIELDS, VEH_FIELDS, authorized, build
 from app.arm2.questionnaire_excel import build_workbook
 from app.arm2.questionnaire_models import (
     QuestionnaireDraft,
@@ -168,7 +168,12 @@ def view(db, user, draft, *, reset_on_change=True):
 def review_hash(comparison, choices):
     """Only chosen dependencies participate; unrelated broken/unselected rows cannot veto SAVE."""
     def item(plan):
-        return {k: v for k, v in plan.items() if k not in ('candidates', 'attachment_options', 'hint', 'diagnostic_hint', 'legacy_hint', 'source', 'volume_notice')}
+        result = {k: v for k, v in plan.items() if k not in (
+            'candidates', 'attachment_options', 'hint', 'diagnostic_hint', 'legacy_hint', 'source', 'volume_notice', 'calibration',
+        )}
+        if plan.get('calibration', {}).get('selected'):
+            result['calibration'] = plan['calibration']
+        return result
     cp = item(comparison['cp'])
     cp['fields'] = {k: f for k, f in cp['fields'].items() if f['selected']}
     reps = [item(r) for r in comparison['representatives'] if r['target']]
@@ -220,7 +225,7 @@ def upload(db, user, content, filename):
 
 
 def validate_choices(choices):
-    if set(choices) - {'cp_target', 'cp_fields', 'cp_clears', 'cp_values', 'confirm_identity', 'representatives', 'vehicles', 'documents'}:
+    if set(choices) - {'cp_target', 'cp_fields', 'cp_clears', 'cp_values', 'cp_edits', 'confirm_identity', 'representatives', 'vehicles', 'documents'}:
         raise ValueError('Неизвестное решение анкеты')
     if set(choices.get('cp_fields', [])) - set(CP_FIELDS):
         raise ValueError('Неизвестный реквизит CP')
@@ -230,13 +235,17 @@ def validate_choices(choices):
         raise ValueError('Выберите одно действие set/clear/keep')
     if set(choices.get('cp_values', {})) - {'type', 'legal_form'}:
         raise ValueError('Неизвестное исправление типа/ОПФ')
+    if set(choices.get('cp_edits', {})) - set(CP_FIELDS):
+        raise ValueError('Неизвестное исправление CP')
     for rep in choices.get('representatives', {}).values():
-        if (set(rep) - {'target', 'fields', 'signer', 'sources'} or set(rep.get('fields', [])) - set(REP_FIELDS)
+        if (set(rep) - {'target', 'fields', 'signer', 'sources', 'edits'} or set(rep.get('fields', [])) - set(REP_FIELDS)
+                or set(rep.get('edits', {})) - set(REP_FIELDS)
                 or set(rep.get('sources', {})) - {'name', 'position', 'authority_basis'}
                 or set(rep.get('sources', {}).values()) - {'passport', 'list'}):
             raise ValueError('Решение представителя содержит запрещённые реквизиты')
     for row in choices.get('vehicles', {}).values():
-        if set(row) - {'fields', 'type_id', 'without_type', 'confirm_owner', 'include'} or set(row.get('fields', [])) - set(VEH_FIELDS):
+        if (set(row) - {'fields', 'type_id', 'without_type', 'confirm_owner', 'include', 'edits', 'volume'}
+                or set(row.get('fields', [])) - set(VEH_FIELDS) or set(row.get('edits', {})) - set(VEH_EDIT_FIELDS)):
             raise ValueError('Неизвестный реквизит VEH')
     for doc in choices.get('documents', {}).values():
         if set(doc) - {'upload_id', 'parent_key', 'kind_id', 'document_id', 'replace_file_id', 'append', 'accept'}:
@@ -316,6 +325,7 @@ def edit(db, user, identifier, revision, choices):
         choices = {**choices, 'cp_fields': [f for f in choices.get('cp_fields', []) if f not in changed_values]}
         def identity_selection(value):
             return (set(value.get('cp_fields', [])) & {'type', 'legal_form'}, value.get('cp_values', {}),
+                    {f: v for f, v in value.get('cp_edits', {}).items() if f in {'name', 'inn', 'type', 'legal_form'}},
                     'legal_form' in value.get('cp_clears', []))
         if identity_selection(previous) != identity_selection(choices):
             choices['cp_clears'] = [f for f in choices.get('cp_clears', [])
@@ -323,8 +333,8 @@ def edit(db, user, identifier, revision, choices):
             if previous.get('confirm_identity'):
                 choices['confirm_identity'] = False
         if draft.choices.get('cp_target') and choices.get('cp_target') != draft.choices.get('cp_target'):
-            choices = {**choices, 'cp_fields': [], 'cp_clears': [], 'confirm_identity': False,
-                'representatives': {k: {**v, 'target': None, 'fields': [], 'signer': False} for k, v in choices.get('representatives', {}).items()},
+            choices = {**choices, 'cp_fields': [], 'cp_clears': [], 'cp_edits': {}, 'confirm_identity': False,
+                'representatives': {k: {**v, 'target': None, 'fields': [], 'edits': {}, 'signer': False} for k, v in choices.get('representatives', {}).items()},
                 'vehicles': {k: {**v, 'fields': [f for f in v.get('fields', []) if f != 'owner'], 'confirm_owner': False} for k, v in choices.get('vehicles', {}).items()},
                 'documents': {k: {**v, 'accept': False} for k, v in choices.get('documents', {}).items()}}
         # A different signer projection is a different proposed value: an earlier
@@ -385,6 +395,9 @@ def selected(comparison, choices, *, without_documents=False):
         for field, value in row['fields'].items():
             if value['selected'] and value['error']:
                 raise ValueError(f'Строка {row["row"]}, {field}: {value["error"]}')
+        volume = row.get('calibration', {})
+        if not without_documents and volume.get('selected') and volume.get('document_keys') and volume.get('numeric') is None:
+            raise ValueError(f'Строка {row["row"]}: укажите положительный объём в м³')
         type_error = row['fields'].get('type_id', {}).get('error')
         if not row['id'] and type_error and not row['without_type']:
             raise ValueError(type_error)
@@ -612,10 +625,26 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
                         before[0] if before else None, before[1] if before else None, row['confirm_owner'],
                         principal=user, context=context).record
                 outcomes.append({'kind': 'VEH', 'id': record.id, 'version': record.version})
+            published_documents = {}
             for group in groups:
                 parent_id = identities.get(group['parent_key']) or group['parent_id']
                 published = publish_prepared_revision_in_transaction(db, {**group, 'parent_id': parent_id}, user, context)
                 outcomes.append({'kind': 'DOCUMENT', **published})
+                group_key = group['document_id'] or f"{group['parent_key']}:{group['kind_id']}"
+                published_documents[group_key] = published['document_id']
+            if published_documents:
+                from app.arm2.approval_store import calibration_document, save_calibration_proof
+                by_key = {doc['key']: doc for doc in fresh['documents']}
+                for row in rows:
+                    volume = row.get('calibration', {})
+                    keys = volume.get('document_keys', [])
+                    if not volume.get('selected') or not keys:
+                        continue
+                    planned = by_key[keys[0]]
+                    group_key = planned['document_id'] or f"{planned['parent_key']}:{planned['kind_id']}"
+                    vehicle = db.get(Vehicle, identities[row['key']])
+                    document, _ = calibration_document(db, user, vehicle.id, published_documents[group_key], edit=True)
+                    save_calibration_proof(db, user, vehicle, document, volume['numeric'], context)
             accepted = datetime.now(UTC)
             db.flush()
             event_rows = db.scalars(select(HistoryEvent).where(HistoryEvent.correlation_id == command_id,
@@ -661,7 +690,7 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
                     'cp_fields': [], 'cp_clears': [], 'confirm_identity': False,
                     'representatives': {k: {**v, 'target': identities.get('representative:' + k, v.get('target')),
                         'fields': [], 'signer': False} for k, v in draft.choices.get('representatives', {}).items()},
-                    'vehicles': {k: {**v, 'include': False, 'fields': [], 'confirm_owner': False}
+                    'vehicles': {k: {**v, 'include': False, 'fields': [], 'confirm_owner': False, 'volume': None}
                                  for k, v in draft.choices.get('vehicles', {}).items()},
                     'documents': {k: {**v, 'accept': False} for k, v in draft.choices.get('documents', {}).items()}}
                 draft.revision += 1

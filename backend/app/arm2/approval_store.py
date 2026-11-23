@@ -262,6 +262,24 @@ def readiness(db, user, vehicle_id):
     }
 
 
+def save_calibration_proof(db, user, vehicle, document, volume, save_context):
+    if type(volume) not in (int, float) or not math.isfinite(volume) or volume <= 0:
+        raise ValueError("Введите положительный конечный объём кузова в м³")
+    unchanged = _confirmed_proof(vehicle, document) and vehicle.calibration_m3 == float(volume)
+    return update_object(
+        db, object_type="VEH", object_id=vehicle.id, expected_version=vehicle.version,
+        values={}, partial=True, principal=user, context=save_context,
+        server_values={} if unchanged else {
+            "calibration_m3": float(volume),
+            "calibration_confirmed_at": instant(),
+            "calibration_confirmed_by": user.id,
+            "calibration_document_id": document.id,
+            "calibration_revision_id": document.current_revision_id,
+            "calibration_plate_number": vehicle.plate_number,
+        },
+    )
+
+
 def confirm_calibration(db, user, session_hash, vehicle_id, command):
     session_access(db, user, session_hash)
     vehicle_access(db, user, vehicle_id, edit=True)
@@ -294,27 +312,7 @@ def confirm_calibration(db, user, session_hash, vehicle_id, command):
             path.unlink(missing_ok=True)
         session_access(db, user, session_hash)
         vehicle_access(db, user, vehicle_id, edit=True)
-        unchanged = _confirmed_proof(vehicle, document) and vehicle.calibration_m3 == float(value)
-        saved = update_object(
-            db,
-            object_type="VEH",
-            object_id=vehicle.id,
-            expected_version=vehicle.version,
-            values={},
-            partial=True,
-            principal=user,
-            context=context(user, key),
-            server_values={}
-            if unchanged
-            else {
-                "calibration_m3": float(value),
-                "calibration_confirmed_at": instant(),
-                "calibration_confirmed_by": user.id,
-                "calibration_document_id": document.id,
-                "calibration_revision_id": document.current_revision_id,
-                "calibration_plate_number": vehicle.plate_number,
-            },
-        )
+        saved = save_calibration_proof(db, user, vehicle, document, value, context(user, key))
         return receipt(
             db,
             user,

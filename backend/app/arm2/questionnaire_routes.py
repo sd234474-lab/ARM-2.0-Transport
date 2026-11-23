@@ -30,11 +30,15 @@ class Command(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
 
+EditedText = Annotated[str, Field(max_length=10000, pattern=r'\S')]
+
+
 class RepresentativeChoice(Command):
     target: str | None = None
     fields: list[str] = Field(default_factory=list, max_length=6)
     signer: StrictBool = False
     sources: dict[str, Literal['passport', 'list']] = Field(default_factory=dict, max_length=3)
+    edits: dict[str, EditedText] = Field(default_factory=dict, max_length=6)
 
 
 class VehicleChoice(Command):
@@ -43,6 +47,8 @@ class VehicleChoice(Command):
     type_id: str | None = None
     without_type: StrictBool = False
     confirm_owner: StrictBool = False
+    edits: dict[Literal['name', 'model', 'accounting_state'], EditedText] = Field(default_factory=dict, max_length=3)
+    volume: Annotated[EditedText, Field(max_length=40)] | None = None
 
 
 class DocumentChoice(Command):
@@ -60,6 +66,7 @@ class Choices(Command):
     cp_fields: list[str] = Field(default_factory=list, max_length=24)
     cp_clears: list[str] = Field(default_factory=list, max_length=24)
     cp_values: dict[Literal['type', 'legal_form'], str | None] = Field(default_factory=dict, max_length=2)
+    cp_edits: dict[str, EditedText] = Field(default_factory=dict, max_length=24)
     confirm_identity: StrictBool = False
     representatives: dict[str, RepresentativeChoice] = Field(default_factory=dict, max_length=1000)
     vehicles: dict[str, VehicleChoice] = Field(default_factory=dict, max_length=1000)

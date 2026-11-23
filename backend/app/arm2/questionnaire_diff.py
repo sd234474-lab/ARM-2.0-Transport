@@ -1,4 +1,5 @@
 """Live, permission-aware questionnaire comparison; never writes domain objects."""
+import math
 import posixpath
 import re
 import unicodedata
@@ -18,7 +19,7 @@ from app.arm2.questionnaire_models import QuestionnaireUpload
 from app.arm2.representative_models import CounterpartyRepresentative
 from app.arm2.representative_store import CPREP_ADAPTER, representative_values
 from app.arm2.vehicle_models import Vehicle
-from app.arm2.vehicle_store import normalize_plate_number
+from app.arm2.vehicle_store import VEHICLE_ADAPTER, normalize_plate_number
 from app.arm2.vehicle_type_models import VehicleType
 from app.arm2.vehicle_type_rules import plate_compatible
 from app.models import User
@@ -27,6 +28,7 @@ from app.permissions import Permission, has_permission
 CP_FIELDS = (*PARTY_FIELDS[:-1], 'type', 'last_name', 'first_name', 'middle_name')
 REP_FIELDS = ('name', 'position', 'authority_basis', 'phone', 'email', 'state')
 VEH_FIELDS = ('name', 'model', 'type_id', 'accounting_state', 'owner')
+VEH_EDIT_FIELDS = ('name', 'model', 'accounting_state')
 
 
 def authorized(db, principal, *permissions):
@@ -52,7 +54,8 @@ def changes(values, current, selected, errors=None):
 def build(db, principal, draft):
     user = authorized(db, principal, 'arm2_cp_view')
     payload, choices = draft.payload, draft.choices
-    cp_values = {**payload.get('cp', {}), **choices.get('cp_values', {})}
+    cp_edits = choices.get('cp_edits', {})
+    cp_values = {**payload.get('cp', {}), **choices.get('cp_values', {}), **cp_edits}
     target = choices.get('cp_target')
     cp = db.get(Counterparty, target, populate_existing=True) if target and target != 'new' else None
     cp_error = None if target == 'new' or cp is not None else 'Выберите существующего или нового контрагента'
@@ -83,7 +86,7 @@ def build(db, principal, draft):
     if not cp_values.get('type') and target == 'new':
         normalized['type'] = ''
         cp_errors['type'] = cp_errors.get('type') or 'Для нового CP явно выберите тип'
-    for field in choices.get('cp_values', {}):
+    for field in {*choices.get('cp_values', {}), *cp_edits}:
         cp_errors.pop(field, None)
     for field in CP_FIELDS:
         value = cp_values.get(field)
@@ -122,7 +125,7 @@ def build(db, principal, draft):
         item.update(clear_candidate=True, clear_selected=cleared, reason='Явная очистка; пустота анкеты не удаляет значение')
         if cleared:
             item.update(proposed=None, selected=True, equal=current is None, error=None)
-    if cp and 'name' in cp_fields and not cp_fields['name']['equal']:
+    if cp and 'name' in cp_fields and not cp_fields['name']['equal'] and 'name' not in cp_edits:
         cp_fields['name']['error'] = 'Рабочее имя существующего CP сохраняется; изменяйте его вручную в карточке'
     reasons = []
     if cp:
@@ -170,6 +173,8 @@ def build(db, principal, draft):
         conflicts = meta.get('conflicts', {})
         resolved = {**proposed, **{field: alternatives[choice.get('sources', {}).get(field)]
             for field, alternatives in conflicts.items() if choice.get('sources', {}).get(field) in alternatives}}
+        edits = choice.get('edits', {})
+        resolved.update(edits)
         for field, value in resolved.items():
             if field not in REP_FIELDS:
                 continue
@@ -180,7 +185,7 @@ def build(db, principal, draft):
             except ValueError as failure:
                 rep_values[field], rep_errors[field] = value, str(failure)
         for field in conflicts:
-            if choice.get('sources', {}).get(field) not in {'passport', 'list'}:
+            if field not in edits and choice.get('sources', {}).get(field) not in {'passport', 'list'}:
                 rep_errors[field] = 'Паспорт и список различаются: явно выберите источник значения'
         reps.append({'key': str(index), 'id': rep.id if rep else None, 'target': rep_id,
             'version': rep.version if rep else None, 'error': error, 'signer': bool(choice.get('signer')),
@@ -241,7 +246,22 @@ def build(db, principal, draft):
         next_owner = (None if actual_owner == expected_owner else actual_owner) if withdrawal else expected_owner
         if current is not None and current.accounting_state == 'Архивная' and not withdrawal:
             proposed['accounting_state'] = 'Действующая'
-        fields = changes(proposed, current, choice.get('fields', []), {'type_id': type_error} if type_error else {})
+        field_errors = {'type_id': type_error} if type_error else {}
+        for field, value in choice.get('edits', {}).items():
+            try:
+                base_vehicle = {key: getattr(current, key, None) for key in (
+                    'name', 'plate_number', 'type_id', 'accounting_state', 'model',
+                    'wialon_unit_id', 'owner_cp_id', 'owner_org_id',
+                )}
+                base_vehicle['name'] = base_vehicle['name'] or plate or 'Машина'
+                base_vehicle['plate_number'] = plate or ''
+                base_vehicle['accounting_state'] = base_vehicle['accounting_state'] or 'Действующая'
+                proposed[field] = VEHICLE_ADAPTER.normalize({**base_vehicle, field: value})[field]
+                if withdrawal:
+                    field_errors[field] = 'Для выбывшей машины можно только снять связь с владельцем'
+            except ValueError as failure:
+                proposed[field], field_errors[field] = value, str(failure)
+        fields = changes(proposed, current, choice.get('fields', []), field_errors)
         fields['owner'] = {'current': actual_owner, 'proposed': next_owner, 'selected': 'owner' in choice.get('fields', []),
                            'equal': actual_owner == next_owner, 'error': None if expected_owner else 'Сначала выберите CP'}
         def owner_name(value):
@@ -361,6 +381,29 @@ def build(db, principal, draft):
     kinds = [{'id': k.id, 'name': k.name, 'parents': k.applicable_object_types, 'version': k.version} for k in db.scalars(
         select(DocumentKind).order_by(DocumentKind.id))] if (has_permission(user, Permission.ARM2_DOCUMENT_VIEW)
             and has_permission(user, Permission.ARM2_DOC_KIND_VIEW)) else []
+    calibration_ids = {k['id'] for k in kinds if k['name'].strip().casefold() == 'тарировка'}
+    for row in rows:
+        if row['withdrawal']:
+            continue
+        attached = [doc for doc in documents if doc.get('kind_id') in calibration_ids and doc.get('upload_id')
+                    and doc['parent_key'] in (row['key'], row['id']) and doc.get('parent_type') == 'VEH']
+        if attached:
+            selected = [doc for doc in attached if doc['selected'] and not doc['error']]
+            targets = {(doc.get('document_id'), doc['kind_id']) for doc in selected}
+            volume = choices.get('vehicles', {}).get(row['key'], {}).get('volume')
+            source = volume if volume is not None else row['volume_proposal']
+            numeric, error = None, 'В анкете объём не указан' if not source else None
+            if source:
+                try:
+                    numeric = float(source.strip().replace(',', '.'))
+                    if not math.isfinite(numeric) or numeric <= 0:
+                        raise ValueError()
+                except ValueError:
+                    numeric, error = None, 'Укажите положительный объём в м³'
+            vehicle = db.get(Vehicle, row['id']) if row['id'] else None
+            row['calibration'] = {'value': source or '', 'current': vehicle.calibration_m3 if vehicle else None,
+                                  'numeric': numeric, 'error': error, 'selected': volume is not None,
+                                  'document_keys': [d['key'] for d in selected] if len(targets) == 1 else []}
     types = [{'id': t.id, 'name': t.name, 'plate_category': t.plate_category} for t in db.scalars(
         select(VehicleType).where(VehicleType.status == 'CONFIRMED').order_by(VehicleType.id))] if type_view else []
     return {'cp': cp_plan, 'representatives': reps, 'vehicles': rows, 'documents': documents,

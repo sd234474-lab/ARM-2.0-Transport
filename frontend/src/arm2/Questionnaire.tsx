@@ -6,7 +6,8 @@ import {questionnaireApi} from './api';
 
 import type {QuestionnaireChoices, QuestionnaireDocument, QuestionnaireDraft, QuestionnaireField, QuestionnaireReceipt} from './api';
 import {labels} from './model';
-import {person,legal} from './PartyFields';
+import {QuestionnaireFields, fieldDecision} from './QuestionnaireFields';
+import type {FieldAction, FieldEditor} from './QuestionnaireFields';
 import {OwnerPicker} from './Selectors';
 import {display, ErrorMessage} from './shared';
 import type {Can} from './Workspace';
@@ -29,11 +30,6 @@ export function QuestionnaireExport({cpId}:{cpId:string}) {
   return <section aria-label="Выгрузка анкеты"><h3>Анкета контрагента</h3><Link to="/arm2/questionnaires">Загрузить и сверить анкету</Link><div className="arm2-actions"><button disabled={busy} onClick={()=>void exporting('xlsx')}>Выгрузить анкету XLSX</button><button disabled={busy} onClick={()=>void exporting('zip')}>Выгрузить ZIP с текущими документами</button></div><ErrorMessage error={error}/>{error instanceof ApiError&&typeof error.detail==='string'&&<p role="alert">{error.detail}</p>}{missing.length>0&&<div role="alert"><p>Эти текущие оригиналы недоступны. Исправьте доступность либо явно подтвердите неполную выгрузку.</p><ul>{missing.map(f=><li key={f.file_id}>{f.document_id} · {f.file_id} · {f.name}</li>)}</ul><label>Причина неполной выгрузки<input value={reason} maxLength={500} onChange={e=>setReason(e.target.value)}/></label><button disabled={busy||!reason.trim()} onClick={()=>void exporting('zip',true)}>Явно выдать неполный ZIP</button></div>}</section>;
 }
 
-function Fields({fields,choose,busy,cpAction}:{fields:Record<string,QuestionnaireField>;choose:(field:string,selected:boolean)=>void;busy:boolean;cpAction?:(field:string,action:'keep'|'set'|'clear')=>void}) {
-  const fieldLabel=(field:string)=>field==='owner'?'Операционный владелец':labels[field]||field;
-  return <div className="arm2-table"><table><thead><tr><th>Реквизит</th><th>В карточке</th><th>В анкете</th><th>Оставить действующее / Принять из анкеты</th></tr></thead><tbody>{Object.entries(fields).filter(([,f])=>!f.equal||f.clear_candidate).map(([field,f])=><tr key={field}><th>{fieldLabel(field)}</th><td>{f.current_display??display(f.current)}</td><td>{f.proposed_display??display(f.proposed)}{f.error&&<small role="alert">{f.error}</small>}</td><td>{cpAction?<select aria-label={'Решение '+fieldLabel(field)} value={f.clear_selected?'clear':f.selected?'set':'keep'} disabled={busy} onChange={e=>cpAction(field,e.target.value as 'keep'|'set'|'clear')}><option value="keep">Оставить действующее</option><option value="set" disabled={!!f.error}>Принять из анкеты</option>{f.clear_candidate&&<option value="clear">Явно очистить</option>}</select>:<label><input type="checkbox" aria-label={'Принять '+fieldLabel(field)} checked={f.selected} disabled={busy||!!f.error&&!f.selected} onChange={e=>choose(field,e.target.checked)}/>{f.current==null?'Включить в создаваемую запись':'Принять из анкеты'}</label>}</td></tr>)}</tbody></table></div>;
-}
-
 function SignerSources({value,change}:{value:NonNullable<QuestionnaireDraft['comparison']>['representatives'][number];change:(sources:Record<string,'passport'|'list'>)=>void}) {
   return <>{value.source_comment&&<p>Пометка анкеты: {value.source_comment}</p>}{value.signer_hint&&<p>В анкете указан как основной подписант.</p>}{Object.entries(value.conflicts||{}).map(([field,values])=><label key={field}>Расхождение двух представлений: {labels[field]||field}<select aria-label={'Источник подписанта '+(labels[field]||field)} value={value.sources?.[field]||''} onChange={e=>{const sources={...value.sources};if(e.target.value)sources[field]=e.target.value as 'passport'|'list';else delete sources[field];change(sources);}}><option value="">Выберите источник — автоматического приоритета нет</option><option value="passport">Паспорт: {values.passport}</option><option value="list">Представители: {values.list}</option></select></label>)}</>;
 }
@@ -47,6 +43,7 @@ function Receipt({value}:{value:QuestionnaireReceipt}) {
 export default function Questionnaire({can}:{can:Can}) {
   const [params,setParams]=useSearchParams(),identifier=params.get('draft');
   const [draft,setDraft]=useState<QuestionnaireDraft>(),[list,setList]=useState<Awaited<ReturnType<typeof questionnaireApi.list>>>([]),[receipts,setReceipts]=useState<QuestionnaireReceipt[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[receipt,setReceipt]=useState<QuestionnaireReceipt>(),[retry,setRetry]=useState(false);
+  const [editor,setEditor]=useState<FieldEditor>();
   const command=useRef<string|undefined>(undefined),alive=useRef(true);
   const commandMode=useRef(false),commandDraft=useRef<QuestionnaireDraft|undefined>(undefined);
   const storageDialog=useRef<HTMLDialogElement>(null);
@@ -58,18 +55,31 @@ export default function Questionnaire({can}:{can:Can}) {
   useEffect(()=>{
     if(!identifier)return;
     let active=true;setBusy(true);setError(undefined);
-    questionnaireApi.reopen(identifier).then(value=>{if(active){setDraft(value);setReceipt(value.receipt);setRetry(false);command.current=undefined;}}).catch(e=>{if(active)setError(e);}).finally(()=>{if(active)setBusy(false);});
+    questionnaireApi.reopen(identifier).then(value=>{if(active){setEditor(undefined);setDraft(value);setReceipt(value.receipt);setRetry(false);command.current=undefined;}}).catch(e=>{if(active)setError(e);}).finally(()=>{if(active)setBusy(false);});
     return()=>{active=false;};
   },[identifier]);
-  const update=async(choices:QuestionnaireChoices)=>{if(!draft||busy||retry)return;setBusy(true);setError(undefined);try{const saved=await questionnaireApi.edit(draft,choices);if(alive.current){setDraft(saved);command.current=undefined;}}catch(e){setError(e);setRetry(true);}finally{setBusy(false);}};
-  const cpFields=(field:string,selected:boolean)=>{const previous=draft?.choices?.cp_fields||[];void update({...draft?.choices,cp_fields:selected?[...previous,field]:previous.filter(f=>f!==field)});};
-  const vehicle=(key:string,values:NonNullable<QuestionnaireChoices['vehicles']>[string])=>void update({...draft?.choices,vehicles:{...draft?.choices?.vehicles,[key]:{...draft?.choices?.vehicles?.[key],...values}}});
+  const update=async(choices:QuestionnaireChoices)=>{if(!draft||busy||retry)return false;setBusy(true);setError(undefined);try{const saved=await questionnaireApi.edit(draft,choices);if(alive.current){setDraft(saved);setEditor(undefined);command.current=undefined;return true;}return false;}catch(e){setError(e);setRetry(true);return false;}finally{setBusy(false);}};
+  const vehicle=(key:string,values:NonNullable<QuestionnaireChoices['vehicles']>[string])=>update({...draft?.choices,vehicles:{...draft?.choices?.vehicles,[key]:{...draft?.choices?.vehicles?.[key],...values}}});
   const document=(key:string,values:NonNullable<QuestionnaireChoices['documents']>[string])=>void update({...draft?.choices,documents:{...draft?.choices?.documents,[key]:{...draft?.choices?.documents?.[key],...(Object.keys(values).some(k=>k!=='accept')?{accept:false}:{}),...values}}});
-  const rep=(key:string,values:NonNullable<QuestionnaireChoices['representatives']>[string])=>void update({...draft?.choices,representatives:{...draft?.choices?.representatives,[key]:{...draft?.choices?.representatives?.[key],...values}}});
-  const open=async()=>{if(!draft)return;setBusy(true);try{setDraft(await questionnaireApi.reopen(draft.id));setRetry(false);command.current=undefined;setError(undefined);}catch(e){setError(e);}finally{setBusy(false);}};
-  const upload=async(file:File)=>{setBusy(true);setError(undefined);try{const value=await questionnaireApi.upload(file);if(alive.current){setDraft(value);setReceipt(undefined);setRetry(false);setParams({draft:value.id});await refresh();}}catch(e){setError(e);}finally{setBusy(false);}};
+  const rep=(key:string,values:NonNullable<QuestionnaireChoices['representatives']>[string])=>update({...draft?.choices,representatives:{...draft?.choices?.representatives,[key]:{...draft?.choices?.representatives?.[key],...values}}});
+  const saveField = async (promise: Promise<boolean>) => {if (await promise) setEditor(undefined);};
+  const cpField = (field:string, action:FieldAction, value?:string) => {
+    const next = fieldDecision(draft?.choices?.cp_fields,draft?.choices?.cp_edits,field,action,value);
+    const clears = [...(draft?.choices?.cp_clears || []).filter(key => key !== field), ...(action === 'clear' ? [field] : [])];
+    void saveField(update({...draft?.choices,cp_fields:next.fields,cp_edits:next.edits,cp_clears:clears}));
+  };
+  const repField = (key:string, field:string, action:FieldAction, value?:string) => {
+    const choice = draft?.choices?.representatives?.[key];
+    void saveField(rep(key,fieldDecision(choice?.fields,choice?.edits,field,action,value)));
+  };
+  const vehicleField = (key:string, field:string, action:FieldAction, value?:string) => {
+    const choice = draft?.choices?.vehicles?.[key];
+    void saveField(vehicle(key,fieldDecision(choice?.fields,choice?.edits,field,action,value)));
+  };
+  const open=async()=>{if(!draft)return;setBusy(true);try{setDraft(await questionnaireApi.reopen(draft.id));setEditor(undefined);setRetry(false);command.current=undefined;setError(undefined);}catch(e){setError(e);}finally{setBusy(false);}};
+  const upload=async(file:File)=>{setBusy(true);setError(undefined);try{const value=await questionnaireApi.upload(file);if(alive.current){setEditor(undefined);setDraft(value);setReceipt(undefined);setRetry(false);setParams({draft:value.id});await refresh();}}catch(e){setError(e);}finally{setBusy(false);}};
   const apply=async(withoutDocuments=commandMode.current)=>{
-    if(!draft)return;
+    if(!draft||editor)return;
     if(!command.current||commandMode.current!==withoutDocuments){
       command.current=crypto.randomUUID();commandMode.current=withoutDocuments;commandDraft.current=draft;
     }
@@ -97,10 +107,16 @@ export default function Questionnaire({can}:{can:Can}) {
   const cpName=c?.cp.name||c?.cp.candidates.find(v=>v.id===c.cp.id)?.name||'Выбранный контрагент';
   const selectedVehicles=c?.vehicles.filter(v=>draft?.choices?.vehicles?.[v.key]?.include)||[];
   const chosenDocs=c?.documents.filter(d=>d.selected)||[];
+  const fieldError = (fields: Record<string,QuestionnaireField>) =>
+    Object.values(fields).some(field=>field.selected && !!field.error);
+  const hasSelectedFieldError = !!c && (
+    fieldError(c.cp.fields) || c.representatives.some(rep=>!!rep.target && fieldError(rep.fields)) ||
+    selectedVehicles.some(row=>fieldError(row.fields) || (row.calibration?.selected && !!row.calibration.document_keys.length && !!row.calibration.error))
+  );
   const renderDoc=(doc:QuestionnaireDocument)=><DocumentReview key={doc.key} doc={doc} draft={draft!} can={can} disabled={disabled} update={values=>document(doc.key,values)} show={show}/>;
-  return <section className="arm2-questionnaire" aria-label="Анкеты контрагентов"><header className="arm2-actions"><h2>Загрузка и сверка анкеты</h2><label>Выбрать XLSX/ZIP<input aria-label="Файл анкеты XLSX/ZIP" disabled={busy} type="file" accept=".xlsx,.zip" onChange={e=>{if(e.target.files?.[0])void upload(e.target.files[0]);e.target.value='';}}/></label><span>{draft?.filename}</span></header><ErrorMessage error={storageFailure?undefined:error}/>{busy&&<p role="status">Выполняется операция…</p>}
+  return <section className="arm2-questionnaire" aria-label="Анкеты контрагентов"><header className="arm2-questionnaire-line"><h2>Загрузка и сверка анкеты</h2><label>Выбрать XLSX/ZIP<input aria-label="Файл анкеты XLSX/ZIP" disabled={busy} type="file" accept=".xlsx,.zip" onChange={e=>{if(e.target.files?.[0])void upload(e.target.files[0]);e.target.value='';}}/></label><span>{draft?.filename}</span></header><ErrorMessage error={storageFailure?undefined:error}/>{busy&&<p role="status">Выполняется операция…</p>}
     <details><summary>Незавершённые загрузки ({list.length})</summary>{list.map(item=><p key={item.id}><button disabled={busy} onClick={()=>{setDraft(undefined);setParams({draft:item.id});if(identifier===item.id)void open();}}>{item.filename}</button></p>)}</details>
-    {draft?.status==='OPEN'&&c&&<section aria-label="Сверка анкеты"><div className="arm2-actions"><span role="status">Черновик сохранён на сервере</span><button disabled={busy} onClick={()=>void open()}>Повторно открыть сверку</button><button disabled={busy} onClick={()=>void cancel()}>{draft.documents_pending?'Отказаться от дозагрузки документов':'Отклонить загрузку целиком'}</button></div><details><summary>Технические сведения загрузки</summary>{draft.id} · Редакция {draft.revision} · Заполнение {c.filled_date||'Не указано'} · Загрузка {c.uploaded_at}</details>{c.warnings.map((w,i)=><p role="alert" key={i}>{w}</p>)}
+    {draft?.status==='OPEN'&&c&&<section aria-label="Сверка анкеты"><div className="arm2-questionnaire-line"><span role="status">Черновик сохранён на сервере</span><button disabled={busy} onClick={()=>void open()}>Повторно открыть сверку</button><button disabled={busy} onClick={()=>void cancel()}>{draft.documents_pending?'Отказаться от дозагрузки документов':'Отклонить загрузку целиком'}</button></div><details><summary>Технические сведения загрузки</summary>{draft.id} · Редакция {draft.revision} · Заполнение {c.filled_date||'Не указано'} · Загрузка {c.uploaded_at}</details>{c.warnings.map((w,i)=><p role="alert" key={i}>{w}</p>)}
       {retry&&!storageFailure&&<div role="alert"><p>Проверьте результат запроса: повторите ту же команду при потере ответа или откройте актуальную сверку при конфликте.</p><button disabled={busy||!command.current} onClick={()=>void apply()}>Повторить ту же команду</button></div>}
       {storageFailure&&<dialog ref={storageDialog} className="arm2-storage-dialog" aria-labelledby="arm2-storage-title" onCancel={e=>{e.preventDefault();if(!busy)returnToReview();}}><section role="alert" aria-label="Яндекс.Диск недоступен">
         <h3 id="arm2-storage-title">Не удалось сохранить документы на Яндекс.Диск</h3>
@@ -111,22 +127,61 @@ export default function Questionnaire({can}:{can:Can}) {
         <button disabled={busy} onClick={returnToReview}>Вернуться к сверке</button>
       </section></dialog>}
       {draft.documents_pending&&<p role="status">Данные сохранены без документов. Вложения сохранены в черновике. Для дозагрузки проверьте привязки и выберите документы повторно.</p>}
-      <fieldset disabled={disabled}><legend>Контрагент</legend><label>Действие<select aria-label="Решение о контрагенте" value={draft.choices?.cp_target||''} onChange={e=>void update({...draft.choices,cp_target:e.target.value||null})}><option value="">Пропустить / выбрать контрагента</option><option value="new">Создать нового контрагента</option>{c.cp.candidates.map(cp=><option key={cp.id} value={cp.id}>Обновить: {cp.name} · {cp.inn||'ИНН не указан'}</option>)}{c.cp.id&&!c.cp.candidates.some(cp=>cp.id===c.cp.id)&&<option value={c.cp.id}>Обновить: {cpName}</option>}</select></label>
+      <fieldset disabled={disabled}><legend>Контрагент</legend><div className="arm2-questionnaire-line"><label>Действие<select aria-label="Решение о контрагенте" value={draft.choices?.cp_target||''} onChange={e=>void update({...draft.choices,cp_target:e.target.value||null})}><option value="">Пропустить / выбрать контрагента</option><option value="new">Создать нового контрагента</option>{c.cp.candidates.map(cp=><option key={cp.id} value={cp.id}>Обновить: {cp.name} · {cp.inn||'ИНН не указан'}</option>)}{c.cp.id&&!c.cp.candidates.some(cp=>cp.id===c.cp.id)&&<option value={c.cp.id}>Обновить: {cpName}</option>}</select></label>
         <OwnerPicker cp={draft.choices?.cp_target==='new'?null:draft.choices?.cp_target||null} org={null} can={p=>!p.startsWith('arm2_org_')&&can(p)} editable={!disabled} label="Найти существующего контрагента" change={cp=>void update({...draft.choices,cp_target:cp})}/>
-        {c.cp.error&&<p role="alert">{c.cp.error}</p>}{c.cp.notices?.map((n,i)=><p role="note" key={i}>{n}</p>)}<details><summary>Исправить тип или ОПФ в предложении</summary><label>Тип анкеты<select aria-label="Тип анкеты для решения" value={draft.choices?.cp_values?.type??c.cp.fields.type?.proposed as string??''} onChange={e=>void update({...draft.choices,cp_values:{...draft.choices?.cp_values,type:e.target.value},cp_fields:(draft.choices?.cp_fields||[]).filter(f=>f!=='type'),confirm_identity:false})}><option value="">Выберите явно</option>{[person,legal].map(t=><option key={t}>{t}</option>)}</select></label><label>ОПФ анкеты<input value={draft.choices?.cp_values?.legal_form??c.cp.fields.legal_form?.proposed as string??''} onChange={e=>void update({...draft.choices,cp_values:{...draft.choices?.cp_values,legal_form:e.target.value},cp_fields:(draft.choices?.cp_fields||[]).filter(f=>f!=='legal_form'),confirm_identity:false})}/></label></details>
-        <Fields fields={c.cp.fields} choose={cpFields} busy={disabled} cpAction={(field,action)=>void update({...draft.choices,cp_fields:[...(draft.choices?.cp_fields||[]).filter(f=>f!==field),...(action==='set'?[field]:[])],cp_clears:[...(draft.choices?.cp_clears||[]).filter(f=>f!==field),...(action==='clear'?[field]:[])]})}/>
+        </div>
+        {c.cp.error&&<p role="alert">{c.cp.error}</p>}{c.cp.notices?.map((n,i)=><p role="note" key={i}>{n}</p>)}
+        <QuestionnaireFields scope="CP" fields={c.cp.fields} edits={draft.choices?.cp_edits} editor={editor} setEditor={setEditor} busy={disabled} decide={cpField}/>
         {c.cp.identity_conflict&&<section aria-label="Требуется подтверждение"><h3>Требуется подтверждение</h3>{c.cp.identity_conflict_reasons?.map(r=><p key={r.field}>{r.label}: {display(r.current)} → {display(r.proposed)}</p>)}<label><input type="checkbox" checked={!!draft.choices?.confirm_identity} onChange={e=>void update({...draft.choices,confirm_identity:e.target.checked})}/>Подтверждаю использование выбранного контрагента с указанными отличиями</label></section>}
         {c.documents.filter(d=>d.parent_key==='CP').map(renderDoc)}
       </fieldset>
-      <fieldset disabled={disabled}><legend>Представители</legend>{c.representatives.map(r=><section key={r.key} aria-label={'Представитель '+r.key}><label>Действие<select value={r.target||''} onChange={e=>rep(r.key,{target:e.target.value||null})}><option value="">Пропустить представителя</option><option value="new">Создать представителя</option>{r.candidates.map(p=><option key={p.id} value={p.id}>Обновить: {p.name}</option>)}</select></label>{r.error&&<p role="alert">{r.error}</p>}<SignerSources value={r} change={sources=>rep(r.key,{sources})}/><Fields fields={r.fields} busy={disabled} choose={(field,on)=>rep(r.key,{fields:on?[...(draft.choices?.representatives?.[r.key]?.fields||[]),field]:(draft.choices?.representatives?.[r.key]?.fields||[]).filter(f=>f!==field)})}/><label><input type="checkbox" checked={r.signer} onChange={e=>rep(r.key,{signer:e.target.checked})}/>Основной подписант</label></section>)}</fieldset>
-      <fieldset disabled={disabled}><legend>Техника ({c.vehicles.length})</legend>{c.vehicles.map(row=><section key={row.key} aria-label={'Строка техники '+row.row}><h3>{String(row.fields.name?.proposed||row.plate_number||'Машина без номера')} · {row.plate_number} · строка {row.row}</h3>{row.errors.map((message,i)=><p role="alert" key={i}>{message}</p>)}<label>Действие<select aria-label={'Добавить машину строка '+row.row} value={draft.choices?.vehicles?.[row.key]?.include?'include':'skip'} disabled={disabled||row.errors.length>0} onChange={e=>vehicle(row.key,{include:e.target.value==='include',...(!row.id&&e.target.value==='include'?{fields:Object.entries(row.fields).filter(([,f])=>!f.error).map(([f])=>f)}:{})})}><option value="include">{row.id?'Принять изменения машины':'Добавить машину'}</option><option value="skip">Не добавлять / не изменять</option></select></label>
-        <label>Тип техники<select aria-label={'Тип техники строка '+row.row} value={row.without_type?'without_type':draft.choices?.vehicles?.[row.key]?.type_id||''} onChange={e=>vehicle(row.key,{type_id:e.target.value==='without_type'?null:e.target.value||null,without_type:e.target.value==='without_type'})}><option value="">{row.fields.type_id?.proposed_display||'Предложение анкеты / тип не указан'}</option><option value="without_type">Без нового назначения типа; имеющуюся связь сохранить</option>{c.types.map(t=><option key={t.id} value={t.id}>{t.name} · {t.plate_category}</option>)}</select></label>{row.fields.type_id?.error&&<p role="alert">{row.fields.type_id.error}</p>}
-        {!row.id?<><p>Имя: {display(row.fields.name?.proposed)} · Модель: {display(row.fields.model?.proposed)} · Владелец: {row.fields.owner.proposed_display||cpName}</p><details><summary>Изменить состав реквизитов машины</summary><Fields fields={row.id?row.fields:Object.fromEntries(Object.entries(row.fields).filter(([f])=>f!=='owner'))} busy={disabled} choose={(field,on)=>vehicle(row.key,{fields:on?[...(draft.choices?.vehicles?.[row.key]?.fields||[]),field]:(draft.choices?.vehicles?.[row.key]?.fields||[]).filter(f=>f!==field)})}/></details></>:<Fields fields={row.id?row.fields:Object.fromEntries(Object.entries(row.fields).filter(([f])=>f!=='owner'))} busy={disabled} choose={(field,on)=>vehicle(row.key,{fields:on?[...(draft.choices?.vehicles?.[row.key]?.fields||[]),field]:(draft.choices?.vehicles?.[row.key]?.fields||[]).filter(f=>f!==field)})}/>}
-        {row.id&&!!row.fields.owner.current&&!row.fields.owner.equal&&<label><input type="checkbox" checked={row.confirm_owner} onChange={e=>vehicle(row.key,{confirm_owner:e.target.checked})}/>Отдельно подтверждаю смену прежнего владельца → нового</label>}{row.withdrawal&&<p>Выбыло из парка: снимается только связь с заявившим владельцем, без архивирования.</p>}{row.volume_proposal&&<p>Объём из анкеты: {row.volume_proposal}. Только предложение, не записывается в технику.</p>}{c.documents.filter(d=>d.parent_key===row.key).map(renderDoc)}</section>)}</fieldset>
+      <fieldset disabled={disabled}><legend>Представители</legend>{c.representatives.map(r=><section key={r.key} aria-label={'Представитель '+r.key}>
+        <div className="arm2-questionnaire-line"><label>Действие<select aria-label={'Решение о представителе '+r.key} value={r.target||''} onChange={e=>void rep(r.key,{target:e.target.value||null})}>
+          <option value="">Пропустить представителя</option><option value="new">Создать представителя</option>{r.candidates.map(p=><option key={p.id} value={p.id}>Обновить: {p.name}</option>)}
+        </select></label><label><input type="checkbox" checked={r.signer} onChange={e=>void rep(r.key,{signer:e.target.checked})}/>Основной подписант</label></div>
+        {r.error&&<p role="alert">{r.error}</p>}<SignerSources value={r} change={sources=>void rep(r.key,{sources})}/>
+        <QuestionnaireFields scope={'REP:'+r.key} fields={r.fields} edits={draft.choices?.representatives?.[r.key]?.edits}
+          editor={editor} setEditor={setEditor} busy={disabled} decide={(field,action,value)=>repField(r.key,field,action,value)}/>
+      </section>)}</fieldset>
+      <fieldset disabled={disabled}><legend>Техника ({c.vehicles.length})</legend>{c.vehicles.map(row=>{
+        const choice = draft.choices?.vehicles?.[row.key];
+        const volume = row.calibration;
+        const table = row.id ? row.fields : Object.fromEntries(Object.entries(row.fields).filter(([field])=>field!=='owner'));
+        return <section key={row.key} aria-label={'Строка техники '+row.row}>
+          <div className="arm2-questionnaire-line"><h3>{String(row.fields.name?.proposed||row.plate_number||'Машина без номера')} · {row.plate_number} · строка {row.row}</h3>
+            <label>Действие<select aria-label={'Добавить машину строка '+row.row} value={choice?.include?'include':'skip'} disabled={disabled||row.errors.length>0}
+              onChange={e=>void vehicle(row.key,{include:e.target.value==='include',...(e.target.value==='skip'?{volume:null}:{}),...(!row.id&&e.target.value==='include'?{fields:Object.entries(row.fields).filter(([,f])=>!f.error).map(([f])=>f)}:{})})}>
+              <option value="include">{row.id?'Принять изменения машины':'Добавить машину'}</option><option value="skip">Не добавлять / не изменять</option>
+            </select></label>
+            <label>Тип техники<select aria-label={'Тип техники строка '+row.row} value={row.without_type?'without_type':choice?.type_id||''}
+              onChange={e=>{const value=e.target.value;const fields=(choice?.fields||[]).filter(f=>f!=='type_id');void vehicle(row.key,{
+                type_id:value==='without_type'?null:value||null,without_type:value==='without_type',fields:value&&value!=='without_type'?[...fields,'type_id']:fields,
+              });}}><option value="">{row.fields.type_id?.proposed_display||'Предложение анкеты / тип не указан'}</option><option value="without_type">Без нового назначения типа</option>
+              {c.types.map(t=><option key={t.id} value={t.id}>{t.name} · {t.plate_category}</option>)}
+            </select></label>
+          </div>
+          {row.errors.map((message,i)=><p role="alert" key={i}>{message}</p>)}
+          {row.fields.type_id?.error&&<p role="alert">{row.fields.type_id.error}</p>}
+          {!row.id&&<p>Владелец новой машины: {row.fields.owner.proposed_display||cpName}</p>}
+          <QuestionnaireFields scope={row.key} fields={table} edits={choice?.edits} editor={editor} setEditor={setEditor} busy={disabled}
+            canEdit={field=>!row.withdrawal&&['name','model','accounting_state'].includes(field)} decide={(field,action,value)=>vehicleField(row.key,field,action,value)}/>
+          {row.id&&!!row.fields.owner.current&&!row.fields.owner.equal&&<label><input type="checkbox" checked={row.confirm_owner} onChange={e=>void vehicle(row.key,{confirm_owner:e.target.checked})}/>Подтверждаю смену операционного владельца</label>}
+          {row.withdrawal&&<p>Выбыло из парка: снимается только связь с заявившим владельцем, без архивирования.</p>}
+          {c.documents.filter(d=>d.parent_key===row.key).map(renderDoc)}
+          {volume&&!volume.document_keys.length&&<small>Выберите справку для приёмки объёма.</small>}
+          {volume&&<QuestionnaireFields scope={'VOLUME:'+row.key} editor={editor} setEditor={setEditor} busy={disabled||!volume.document_keys.length}
+            fields={{calibration_m3:{current:volume.current,proposed:volume.value,equal:false,selected:volume.selected&&!!volume.document_keys.length,
+              error:volume.error}}} edits={choice?.volume!==row.volume_proposal&&choice?.volume?{calibration_m3:choice.volume}:undefined}
+            decide={(_,action,value)=>void saveField(vehicle(row.key,{
+              volume:action==='edit'?value:action==='set'?row.volume_proposal||null:null,...(action==='edit'||action==='set'?{include:true}:{}),
+            }))}/>}
+        </section>;
+      })}</fieldset>
       {c.document_kind_notice&&<p role="alert">{c.document_kind_notice} Подготовка администратором: открыть справочник «Виды документов», проверить имеющиеся записи по названию и применимости; создать только отсутствующие виды с шаблоном имени. Повторная подготовка не создаёт дубликатов.</p>}
       {!!c.documents.filter(d=>d.parent_key!=='CP'&&!c.vehicles.some(v=>v.key===d.parent_key)).length&&<fieldset disabled={disabled}><legend>Непривязанные документы</legend>{c.documents.filter(d=>d.parent_key!=='CP'&&!c.vehicles.some(v=>v.key===d.parent_key)).map(renderDoc)}</fieldset>}
       <section aria-label="Будет принято"><h3>Будет принято</h3><p>Контрагент: {c.cp.target==='new'?'создать':c.cp.id?'обновить выбранные реквизиты':'пропустить'} · Представители: {c.representatives.filter(r=>r.target).length} · Машины: {selectedVehicles.length} из {c.vehicles.length} · Документы: {chosenDocs.length}</p>{c.vehicles.length>0&&!selectedVehicles.length&&<p role="alert">Машины не будут сохранены: 0 из {c.vehicles.length}</p>}<p>Исключено машин: {c.vehicles.length-selectedVehicles.length}; документов: {c.documents.length-chosenDocs.length}. Ошибки и причины показаны у соответствующей строки.</p></section>
-      <button className="arm2-primary" disabled={disabled||!can('arm2_cp_view')} onClick={()=>void apply()}>Принять изменения</button><p>Выбранные изменения сохраняются одним набором. Ошибка выбранного объекта отменяет весь набор; невключённые ошибки не мешают.</p>
+      <button className="arm2-primary" disabled={disabled||!!editor||hasSelectedFieldError||!can('arm2_cp_view')} onClick={()=>void apply()}>Принять изменения</button>
+      {hasSelectedFieldError&&<p role="alert">Исправьте выделенные реквизиты или оставьте действующие значения.</p>}
     </section>}
     {notice&&<p role="status">{notice}</p>}{draft?.approval_reset&&<p role="alert">Связанные карточки изменились. Зависимые решения сброшены; проверьте их заново.</p>}
     {receipt&&<Receipt value={receipt}/>}
@@ -139,14 +194,20 @@ function DocumentReview({doc,draft,can,disabled,update,show}:{doc:QuestionnaireD
   const [query,setQuery]=useState(''),[parents,setParents]=useState<{id:string;name:string;plate_number:string}[]>([]);
   useEffect(()=>{let active=true;if(!query.trim()||!can('arm2_veh_view')){setParents([]);return;}api<{items:typeof parents}>('/arm2/vehicles/search?'+new URLSearchParams({q:query,limit:'100'})).then(r=>{if(active)setParents(r.items);}).catch(()=>{if(active)setParents([]);});return()=>{active=false;};},[query,can]);
   const unbound=doc.key.startsWith('unbound:');
-  return <section className="arm2-questionnaire-document" aria-label={'Файл '+doc.name}><header className="arm2-actions"><strong>{doc.role} · {doc.name}</strong>{doc.upload_id&&<button disabled={disabled||!doc.media_type} onClick={()=>void show(`/arm2/questionnaires/${draft.id}/files/${doc.upload_id}/preview`,doc.name)}>Открыть кандидат</button>}{!doc.equal&&<label><input type="checkbox" checked={!!choices?.accept} disabled={disabled||!!doc.error&&!choices?.accept} onChange={e=>update({accept:e.target.checked})}/>Принять файл и привязку</label>}</header>
+  return <section className="arm2-questionnaire-document" aria-label={'Файл '+doc.name}>
+    <div className="arm2-questionnaire-document-line">
+      <strong title={doc.name}>{doc.role}<span>{doc.name}</span></strong>
+      <button type="button" disabled={disabled||!doc.upload_id||!doc.media_type} onClick={()=>void show(`/arm2/questionnaires/${draft.id}/files/${doc.upload_id}/preview`,doc.name)}>Просмотр</button>
+      <label>Вид документа<select value={doc.kind_id||''} onChange={e=>update({kind_id:e.target.value||null,document_id:null})}><option value="">Выберите вид</option>{c.document_kinds.filter(k=>k.parents.includes(doc.parent_key==='CP'?'CP':'VEH')).map(k=><option key={k.id} value={k.id}>{k.name}</option>)}</select></label>
+      <label>Карточка документа<select value={doc.document_id||choices?.document_id||'new'} onChange={e=>update({document_id:e.target.value})}><option value="new">Создать документ</option>{doc.candidates?.map(d=><option value={d.id} key={d.id}>{d.name}</option>)}</select></label>
+      {!doc.equal&&<button type="button" className="arm2-questionnaire-accept" aria-pressed={!!choices?.accept}
+        disabled={disabled||!!doc.error&&!choices?.accept} onClick={()=>update({accept:!choices?.accept})}>Принять</button>}
+    </div>
     {doc.error&&<p role="alert">{doc.error}</p>}{doc.equal&&<p>Оригинал соответствует действующему — новая редакция не требуется</p>}
     {(doc.error||!doc.upload_id)&&!!doc.attachment_options?.length&&<label>Физическое вложение<select aria-label={'Физический файл '+doc.role} value={doc.upload_id||choices?.upload_id||''} onChange={e=>update({upload_id:e.target.value||null})}><option value="">Выберите конкретный файл из ZIP</option>{doc.attachment_options.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}</select></label>}
-    <details open={!!doc.error}><summary>Уточнить привязку и редакцию</summary>
-    {unbound?<><label>Родитель файла<select value={doc.parent_key||''} onChange={e=>update({parent_key:e.target.value||null,document_id:null,kind_id:null})}><option value="">Выберите родителя</option><option value="CP">Выбранный контрагент</option>{c.vehicles.map(v=><option value={v.key} key={v.key}>{v.plate_number||'Машина без номера'} · строка {v.row}</option>)}{doc.parent_key?.startsWith('VEH-')&&<option value={doc.parent_key}>Выбранная машина</option>}</select></label><label>Найти другую машину<input disabled={!can('arm2_veh_view')} value={query} onChange={e=>setQuery(e.target.value)} maxLength={200}/></label>{parents.map(parent=><button key={parent.id} onClick={()=>{update({parent_key:parent.id,kind_id:null,document_id:null});setQuery('');}}>{parent.plate_number} · {parent.name}</button>)}</>:<p>Привязка из строки анкеты: {doc.parent_key==='CP'?'контрагент':'машина этой строки'} · {doc.role}</p>}
-    <label>Вид документа<select value={doc.kind_id||''} onChange={e=>update({kind_id:e.target.value||null,document_id:null})}><option value="">Выберите существующий вид</option>{c.document_kinds.filter(k=>k.parents.includes(doc.parent_key==='CP'?'CP':'VEH')).map(k=><option key={k.id} value={k.id}>{k.name}</option>)}</select></label>
-    <label>Карточка документа<select value={doc.document_id||choices?.document_id||'new'} onChange={e=>update({document_id:e.target.value})}><option value="new">Создать документ</option>{doc.candidates?.map(d=><option value={d.id} key={d.id}>{d.name}</option>)}</select></label>
+    {(unbound||!!doc.current_files?.length)&&<details open={!!doc.error}><summary>Привязка и редакция</summary>
+    {unbound?<><label>Родитель файла<select value={doc.parent_key||''} onChange={e=>update({parent_key:e.target.value||null,document_id:null,kind_id:null})}><option value="">Выберите родителя</option><option value="CP">Выбранный контрагент</option>{c.vehicles.map(v=><option value={v.key} key={v.key}>{v.plate_number||'Машина без номера'} · строка {v.row}</option>)}{doc.parent_key?.startsWith('VEH-')&&<option value={doc.parent_key}>Выбранная машина</option>}</select></label><label>Найти другую машину<input disabled={!can('arm2_veh_view')} value={query} onChange={e=>setQuery(e.target.value)} maxLength={200}/></label>{parents.map(parent=><button key={parent.id} onClick={()=>{update({parent_key:parent.id,kind_id:null,document_id:null});setQuery('');}}>{parent.plate_number} · {parent.name}</button>)}</>:null}
     {!!doc.current_files?.length&&<><label>Заменяемый оригинал<select value={doc.replace_file_id||''} onChange={e=>update({replace_file_id:e.target.value||null,append:!e.target.value})}><option value="">Добавить к комплекту</option>{doc.current_files.map(f=><option value={f.id} key={f.id}>{f.name}</option>)}</select></label>{doc.current_files.map(f=><button key={f.id} disabled={disabled} onClick={()=>void show(`/arm2/${doc.parent_type?.toLowerCase()}/${doc.parent_id}/documents/${doc.document_id}/revisions/${doc.revision_id}/files/${f.id}/preview`,f.name)}>Открыть действующий: {f.name}</button>)}</>}
-    </details><details><summary>Технические сведения файла</summary>{doc.upload_id} · SHA-256 {doc.sha256}</details>
+    </details>}<details><summary>Технические сведения файла</summary>{doc.upload_id} · SHA-256 {doc.sha256}</details>
   </section>;
 }

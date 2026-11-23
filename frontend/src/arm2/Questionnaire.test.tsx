@@ -38,7 +38,11 @@ beforeEach(()=>{
       draft.comparison!.cp.target=draft.choices?.cp_target||null;
       draft.comparison!.cp.id=draft.choices?.cp_target==='CP-000001'?'CP-000001':null;
       draft.comparison!.cp.error=draft.choices?.cp_target?null:'Choose CP';
-      for(const [field,value] of Object.entries(draft.comparison!.cp.fields))value.selected=!!draft.choices?.cp_fields?.includes(field);
+      for(const [field,value] of Object.entries(draft.comparison!.cp.fields)){
+        value.selected=!!draft.choices?.cp_fields?.includes(field);
+        const edit=draft.choices?.cp_edits?.[field];
+        if(edit!==undefined){value.proposed=edit;value.error=null;}
+      }
       for(const value of draft.comparison!.representatives){
         const choice=draft.choices?.representatives?.[value.key];value.sources=choice?.sources||{};value.target=choice?.target||null;
         for(const [field,f] of Object.entries(value.fields)){
@@ -66,6 +70,23 @@ async function mount(path='/arm2/questionnaires',child?:React.ReactNode){await a
 async function click(text:string){await act(async()=>{const button=[...host.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent===text);if(!button)throw new Error('Missing '+text);button.click();await tick();});}
 async function selectCP(){await act(async()=>{const select=host.querySelector<HTMLSelectElement>('select[aria-label="Решение о контрагенте"]')!;select.value='CP-000001';select.dispatchEvent(new Event('change',{bubbles:true}));await tick();});}
 async function acceptPhone(){await act(async()=>{const control=host.querySelector<HTMLSelectElement>('select[aria-label="Решение Официальный телефон"]')!;control.value='set';control.dispatchEvent(new Event('change',{bubbles:true}));await tick();});}
+
+it('edits an invalid BIK as text and only accepts the saved draft revision', async()=>{
+  draft.comparison!.cp.fields.bik={current:null,proposed:'47102651',selected:false,equal:false,error:'Ожидается 9 цифр'};
+  await mount('/arm2/questionnaires?draft='+draft.id);await selectCP();
+  const decision=host.querySelector<HTMLSelectElement>('select[aria-label="Решение БИК"]')!;
+  expect(decision.querySelector<HTMLOptionElement>('option[value=set]')!.disabled).toBe(true);
+  await act(async()=>{decision.value='edit';decision.dispatchEvent(new Event('change',{bubbles:true}));await tick();});
+  expect([...host.querySelectorAll('button')].find(b=>b.textContent==='Принять изменения')!.disabled).toBe(true);
+  const input=host.querySelector<HTMLInputElement>('input[aria-label="Исправить БИК"]')!;
+  await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(input,'012345678');
+    input.dispatchEvent(new Event('input',{bubbles:true}));await tick();});
+  await click('Сохранить правку');
+  expect(draft.choices?.cp_edits).toEqual({bik:'012345678'});
+  expect(draft.choices?.cp_fields).toContain('bik');
+  await click('Принять изменения');
+  expect(vi.mocked(api).mock.calls.find(([path])=>path.endsWith('/apply'))?.[2]).toMatchObject({revision:draft.revision});
+});
 
 it('CSP permits only same-origin/blob PDF workers; renderer errors retain the original download',async()=>{
   const nginx=readFileSync('nginx.conf','utf8');
@@ -108,7 +129,7 @@ it('opens an independent same-origin preview page without fetching or rendering 
   const open=vi.spyOn(window,'open').mockReturnValue(tab);
   const bytes=vi.spyOn(questionnaireTransport,'previewBytes');
   await mount('/arm2/questionnaires?draft='+draft.id);
-  await click('Открыть кандидат');
+  await click('Просмотр');
   expect(open).toHaveBeenCalledOnce();
   const [url,target]=open.mock.calls[0];
   const parsed=new URL(String(url),window.location.href);
@@ -124,7 +145,7 @@ it('reports a blocked preview tab without fetching the file',async()=>{
   draft.comparison!.documents=[{key:'file',name:'synthetic.pdf',parent_key:'CP',role:'Card',upload_id:'upload',selected:false,media_type:'application/pdf'}];
   vi.spyOn(window,'open').mockReturnValue(null);
   const bytes=vi.spyOn(questionnaireTransport,'previewBytes');
-  await mount('/arm2/questionnaires?draft='+draft.id);await click('Открыть кандидат');
+  await mount('/arm2/questionnaires?draft='+draft.id);await click('Просмотр');
   expect(bytes).not.toHaveBeenCalled();
   expect(host.textContent).toContain('Разрешите открытие новой вкладки');
 });
@@ -194,11 +215,11 @@ it('V3 signer conflict needs an explicit source and a separate field approval; n
   expect(host.textContent).toContain('Паспорт: Passport name');
   expect(host.textContent).toContain('Представители: List name');
   expect(host.textContent).toContain('Пометка анкеты: Synthetic review note');
-  expect(host.querySelector<HTMLInputElement>('input[aria-label="Принять Рабочее имя"]')!.disabled).toBe(true);
+  expect(host.querySelector<HTMLOptionElement>('select[aria-label="Решение Рабочее имя"] option[value=set]')!.disabled).toBe(true);
   await act(async()=>{const select=host.querySelector<HTMLSelectElement>('select[aria-label="Источник подписанта Рабочее имя"]')!;select.value='passport';select.dispatchEvent(new Event('change',{bubbles:true}));await tick();});
   expect(draft.choices!.representatives!['0'].sources).toEqual({name:'passport'});
   expect(draft.choices!.representatives!['0'].fields).toEqual([]);
-  await act(async()=>{host.querySelector<HTMLInputElement>('input[aria-label="Принять Рабочее имя"]')!.click();await tick();});
+  await act(async()=>{const select=host.querySelector<HTMLSelectElement>('select[aria-label="Решение Рабочее имя"]')!;select.value='set';select.dispatchEvent(new Event('change',{bubbles:true}));await tick();});
   expect(draft.choices!.representatives!['0'].fields).toEqual(['name']);
   expect(vi.mocked(api).mock.calls.some(([path])=>path.endsWith('/apply'))).toBe(false);
   expect(host.querySelector('input[name="user_id"]')).toBeNull();

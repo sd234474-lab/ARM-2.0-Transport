@@ -518,8 +518,61 @@ def test_t19_volume_is_review_only_not_a_vehicle_write(b5):
     before = current(c, parents['veh'])
     d = choose(c, upload(c, workbook(rows=[{'E': 'A123BC86', 'L': '37.5'}])), cp_target=parents['cp'], vehicles={'v:5': {'include': True}})
     assert d['comparison']['vehicles'][0]['volume_proposal'] == '37.5'
+    assert 'calibration' not in d['comparison']['vehicles'][0]
     saved, _ = apply(c, d)
     assert saved['no_op'] and current(c, parents['veh']) == before
+
+
+def test_review_manual_fields_use_domain_validation_and_preserve_leading_zero(b5):
+    c, db, _, parents, *_ = b5
+    book = workbook({'B24':'47102651', 'B20':'Синтетический представитель'}, rows=[{'E':'A123BC86'}])
+    draft = choose(c, upload(c, book), cp_target=parents['cp'])
+    assert draft['comparison']['cp']['fields']['bik']['error']
+    draft = choose(c, draft, cp_fields=['bik'], cp_edits={'bik':'012345678'},
+                   representatives={'0': {'target':'new', 'fields':['name','email'], 'edits':{'email':'review@example.invalid'}}},
+                   vehicles={'v:5': {'include':True, 'fields':['model'], 'edits':{'model':'Проверенная модель'}}})
+    assert reopen(c, draft)['choices']['cp_edits'] == {'bik':'012345678'}
+    bad = choose(c, draft, cp_edits={'bik':'12'})
+    assert bad['comparison']['cp']['fields']['bik']['error']
+    before = snapshot(db)
+    apply(c, bad, 422)
+    assert snapshot(db) == before
+    draft = choose(c, bad, cp_edits={'bik':'012345678'})
+    receipt, _ = apply(c, draft)
+    assert check(c.get('/api/arm2/counterparties/' + parents['cp']))['bik'] == '012345678'
+    rep_id = next(row['id'] for row in receipt['objects'] if row['kind']=='CPREP')
+    assert check(c.get(f"/api/arm2/counterparties/{parents['cp']}/representatives/{rep_id}"))['email'] == 'review@example.invalid'
+    assert current(c, parents['veh'])['model'] == 'Проверенная модель'
+
+
+def test_review_saves_edited_volume_only_with_accepted_calibration_file(b5):
+    c, db, _, parents, *_ = b5
+    kind = doc_kind(c, 'Тарировка')
+    book = workbook(rows=[{'E':'A123BC86', 'L':'26', 'M':'ДА', 'N':'calibration.pdf'}])
+    loaded = upload(c, transport(book, {'calibration.pdf':pdf('synthetic calibration')}), True)
+    draft = choose(c, loaded, cp_target=parents['cp'], vehicles={'v:5':{'include':True,'volume':'27,5'}})
+    file = draft['comparison']['documents'][0]
+    assert file['kind_id'] == kind
+    assert not draft['comparison']['vehicles'][0]['calibration']['document_keys']
+    draft = choose(c, draft, documents={file['key']:{'kind_id':kind,'accept':True}})
+    assert draft['comparison']['vehicles'][0]['calibration']['numeric'] == 27.5
+    _, retry = apply(c, draft)
+    accepted = current(c, parents['veh'])
+    assert accepted['calibration_m3'] == 27.5
+    assert accepted['calibration_document_id'] and accepted['calibration_revision_id']
+    check(c.post('/api/arm2/questionnaires/' + draft['id'] + '/apply', json=retry))
+    assert current(c, parents['veh']) == accepted
+
+
+def test_review_without_documents_does_not_save_calibration_volume(b5):
+    c, _, _, parents, *_ = b5
+    kind = doc_kind(c, 'Тарировка')
+    book = workbook(rows=[{'E':'A123BC86', 'L':'26', 'M':'ДА', 'N':'calibration.pdf'}])
+    draft = choose(c, upload(c, transport(book, {'calibration.pdf':pdf('synthetic calibration')}), True), cp_target=parents['cp'])
+    key = draft['comparison']['documents'][0]['key']
+    draft = choose(c, draft, documents={key:{'kind_id':kind,'accept':True}}, vehicles={'v:5':{'include':True,'volume':'26'}})
+    receipt, _ = apply(c, draft, without_documents=True)
+    assert receipt['documents_pending'] and current(c, parents['veh'])['calibration_m3'] is None
 
 
 def test_t20_file_acceptance_does_not_invent_or_clear_vehicle_approval(b5):
