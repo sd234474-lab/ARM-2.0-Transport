@@ -385,8 +385,9 @@ def build(db, principal, draft):
     for row in rows:
         if row['withdrawal']:
             continue
-        attached = [doc for doc in documents if doc.get('kind_id') in calibration_ids and doc.get('upload_id')
-                    and doc['parent_key'] in (row['key'], row['id']) and doc.get('parent_type') == 'VEH']
+        vehicle_keys = {key for key in (row['key'], row['id']) if key}
+        attached = [doc for doc in documents if doc.get('kind_id') in calibration_ids and doc.get('media_type')
+                    and doc['parent_key'] in vehicle_keys and doc.get('parent_type') == 'VEH']
         if attached:
             selected = [doc for doc in attached if doc['selected'] and not doc['error']]
             targets = {(doc.get('document_id'), doc['kind_id']) for doc in selected}
