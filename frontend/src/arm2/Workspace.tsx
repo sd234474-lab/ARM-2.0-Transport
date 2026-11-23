@@ -3,7 +3,7 @@ import {CalibrationSummary} from './Calibration';
 import {DraftScope,useDraftGuard} from './useDraftGuard';
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../api';
 import { catalogs, detail, list, ownerOf, sameOwner, save, searchPage, setOperationalOwner } from './api';
 import type { Kind, OwnerIdentity, RecordData, Scalar, Vehicle } from './api';
@@ -11,7 +11,10 @@ import SearchCatalog, { plateLabel, VehicleTable } from './SearchCatalog';
 import BulkVehicles from './BulkVehicles';
 import Questionnaire, {QuestionnaireExport} from './Questionnaire';
 import DocumentKinds from './DocumentKinds';
-import Documents, { DocumentRoute } from './Documents';
+import Documents, { PartyDocuments, DocumentRoute } from './Documents';
+import { CatalogNavigation } from './CatalogNavigation';
+import { CatalogRow } from './CatalogRow';
+import { CatalogFilters } from './CatalogFilters';
 import Representatives from './Representatives';
 import {PartyFields,person,legal,rawParty} from './PartyFields';
 import { OwnerPicker, TypePicker } from './Selectors';
@@ -24,15 +27,16 @@ const UserLookupAllowed = createContext(false);
 const OwnerDraftContext = createContext<Map<string,OwnerParked>|null>(null);
 const link = (kind: Kind, id?: string) => `/arm2/${kind.toLowerCase()}${id ? '/' + encodeURIComponent(id) : ''}`;
 export default function Workspace({can, userLookupAllowed = false}: {can: Can; userLookupAllowed?: boolean}) {
-  const location=useLocation();
   const [ownerDrafts]=useState(()=>new Map<string,OwnerParked>());
   const docView = can('arm2_doc_kind_view');
   const docEdit = docView && can('arm2_doc_kind_edit');
   const visible = kinds.filter(kind => can(catalogs[kind].permission + '_view'));
-  return <DraftScope><OwnerDraftContext.Provider value={ownerDrafts}><UserLookupAllowed.Provider value={userLookupAllowed}><section className="panel arm2"><h1>АРМ 2.0</h1><nav className="arm2-sections" aria-label="Справочники АРМ 2.0">{(visible.includes('VEH')||visible.includes('TYPE'))&&<NavLink className="arm2-section" to={link(visible.includes('VEH')?'VEH':'TYPE')}>Техника</NavLink>}{visible.filter(kind=>kind==='ORG'||kind==='CP').map(kind=><NavLink className="arm2-section" key={kind} to={link(kind)}>{kind==='ORG'?'Организации':catalogs[kind].label}</NavLink>)}{docView&&<NavLink className="arm2-section" to="/arm2/document-kinds">Типы документов</NavLink>}{['Договоры','Территории','Нормативы'].map(name=><span className="arm2-section" aria-disabled="true" title="Пока не реализовано" key={name}>{name}</span>)}</nav><nav className="arm2-subsections" aria-label="Подразделы и путь">{(location.pathname.includes('/arm2/veh')||location.pathname.includes('/arm2/type')||location.pathname.includes('/arm2/approvals'))&&<>{can('arm2_veh_view')&&<NavLink to="/arm2/veh">Техника</NavLink>}{can('arm2_type_view')&&<NavLink to="/arm2/type">Типы техники</NavLink>}<NavLink to="/arm2/approvals">Согласование с заказчиком</NavLink></>}{can('arm2_cp_view')&&<Link to="/arm2/questionnaires">Анкеты контрагентов</Link>}</nav><Routes>
+  return <DraftScope><OwnerDraftContext.Provider value={ownerDrafts}><UserLookupAllowed.Provider value={userLookupAllowed}><section className="panel arm2"><h1>АРМ 2.0</h1><CatalogNavigation can={can}/><Routes>
     {visible.map(kind => <Route key={kind} path={kind.toLowerCase()}><Route index element={<Catalog key={kind} kind={kind} can={can}/>}/><Route path=":id" element={<CardRoute kind={kind} can={can}/>}/>{kind !== 'TYPE' && <Route path=":parentId/documents/:id" element={<DocumentRoute parentType={kind} can={can}/>}/>}{isParty(kind) && <Route path=":parentId/representatives/:id" element={<RepRoute kind={kind} can={can}/>}/>}</Route>)}
     {can('arm2_veh_view') && can('arm2_veh_edit') && <Route path="veh/bulk" element={<BulkVehicles admin={userLookupAllowed}/>}/>}
     {can('arm2_cp_view') && <Route path="questionnaires" element={<Questionnaire can={can}/>}/>}
+    <Route path="cp/documents" element={<PartyDocuments key="CP" kind="CP" can={can}/>}/>
+    <Route path="org/documents" element={<PartyDocuments key="ORG" kind="ORG" can={can}/>}/>
     {can('arm2_veh_view') && can('arm2_document_view') && <><Route path="approvals" element={<Approvals editable={can('arm2_veh_edit')&&can('arm2_document_edit')}/>}/><Route path="approvals/:id" element={<ApprovalRoute editable={can('arm2_veh_edit')&&can('arm2_document_edit')}/>}/>{can('arm2_veh_edit')&&can('arm2_document_edit')&&<Route path="approvals/new" element={<NewApproval/>}/>}</>}
     {docView && <Route path="document-kinds/*" element={<DocumentKinds editable={docEdit}/>}/>}
     <Route path="*" element={visible[0] ? <Navigate to={link(visible[0])} replace/> : docView ? <Navigate to="/arm2/document-kinds" replace/> : <p>Нет прав на просмотр справочников АРМ 2.0</p>}/>
@@ -48,9 +52,15 @@ function TypeCatalog({kind, can}: {kind: Kind; can: Can}) {
   const change = (key: string, value: string) => {const next = new URLSearchParams(params); next.delete('offset'); value ? next.set(key, value) : next.delete(key); setParams(next, {replace: true});};
   const query = new URLSearchParams({q: search, limit: '100', offset: String(offset), ...(status ? {status} : {})}).toString();
   const result = useLoad(signal => searchPage(catalogs.TYPE.path, new URLSearchParams(query), signal), [query]);
+  const counts = result.data?.facets;
   return <><header className="arm2-actions"><h2>{catalogs[kind].label}</h2>{can('arm2_type_edit') && <Link className="arm2-create" to={link(kind, 'new')}>+ Новая запись</Link>}</header>
+    <CatalogFilters items={[
+      {label:'Все типы', count:counts?.all_statuses, active:!status, select:() => change('status', '')},
+      {label:'Описание заполнено', count:counts?.confirmed, active:status==='CONFIRMED', select:() => change('status', 'CONFIRMED')},
+      {label:'Описание не завершено', count:counts?.review, active:status==='REVIEW', select:() => change('status', 'REVIEW')},
+    ]}/>
     <div className="arm2-grid"><label>Поиск по имени<input value={search} onChange={e => change('q', e.target.value)}/></label><label>Состояние<select value={status} onChange={e => change('status', e.target.value)}><option value="">Все</option><option value="CONFIRMED">Описание заполнено</option><option value="REVIEW">Описание не завершено</option></select></label></div>
-    <ErrorMessage error={result.error} retry={result.reload}/>{result.loading && <p role="status">Загружаем список…</p>}{result.data && <><p>Найдено: {result.data.matched}</p><div className="arm2-table"><table><thead><tr><th>Рабочее имя</th><th>Тип государственного номера</th>{requirements.map(key => <th key={key}>{labels[key]}</th>)}<th>Состояние</th></tr></thead><tbody>{result.data.items.map(row => <tr key={row.id}><td><Link to={link(kind, row.id)}>{row.name}</Link></td><td>{display(row.plate_category)}</td>{requirements.map(key => <td key={key}>{requirementLabel(row[key])}</td>)}<td>{row.status === 'CONFIRMED' ? 'Описание заполнено' : 'Описание не завершено'}</td></tr>)}</tbody></table></div><Pagination offset={offset} count={offset + 100 < result.data.matched ? 100 : 0} change={next => {const p = new URLSearchParams(params); p.set('offset', String(next)); setParams(p);}}/></>}</>;
+    <ErrorMessage error={result.error} retry={result.reload}/>{result.loading && <p role="status">Загружаем список…</p>}{result.data && <><p>Найдено: {result.data.matched}</p><div className="arm2-table arm2-catalog-table"><table><thead><tr><th>Рабочее имя</th><th>Тип государственного номера</th>{requirements.map(key => <th key={key}>{labels[key]}</th>)}<th>Состояние</th></tr></thead><tbody>{result.data.items.map(row => <CatalogRow key={row.id}><td><Link to={link(kind, row.id)}>{row.name}</Link></td><td>{display(row.plate_category)}</td>{requirements.map(key => <td key={key}>{requirementLabel(row[key])}</td>)}<td>{row.status === 'CONFIRMED' ? 'Описание заполнено' : 'Описание не завершено'}</td></CatalogRow>)}</tbody></table></div><Pagination offset={offset} count={offset + 100 < result.data.matched ? 100 : 0} change={next => {const p = new URLSearchParams(params); p.set('offset', String(next)); setParams(p);}}/></>}</>;
 }
 function CardRoute({kind, can}: {kind: Kind; can: Can}) {
   const {id = 'new'} = useParams(); return <CardLoader key={`${kind}:${id}`} kind={kind} id={id} can={can}/>;

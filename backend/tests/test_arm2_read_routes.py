@@ -53,6 +53,20 @@ def test_filters_owner_type_state_and_sort(admin, catalog):
     assert descending['items'][0]['id'] == 'VEH-000105'
 
 
+def test_vehicle_quick_filters_count_whole_result_and_combine(admin, catalog, db):
+    db.get(Vehicle, 'VEH-000006').wialon_unit_id = '98765'
+    db.commit()
+    response = admin.get('/api/arm2/vehicles/search', params={
+        'owner_kind': 'NONE', 'state': 'Архивная', 'wialon': 'missing', 'limit': 3, 'offset': 3,
+    })
+    assert response.status_code == 200
+    page = response.json()
+    assert page['matched'] == 16 and len(page['items']) == 3
+    assert page['facets'] == {'all_states': 34, 'active': 18, 'archived': 16, 'no_owner': 16, 'no_wialon': 16}
+    assert all(row['accounting_state'] == 'Архивная' and row['wialon_unit_id'] is None
+               and row['owner_cp_id'] is None and row['owner_org_id'] is None for row in page['items'])
+
+
 @pytest.mark.parametrize('query', ['owner_id=CP-000001', 'owner_kind=CP&owner_id=ORG-000001',
                                   'owner_kind=NONE&owner_id=CP-000001', 'type_id=wrong', 'state=READY',
                                   'sort=secret', 'limit=101', 'offset=-1', 'direction=wrong', 'q=%00'])
@@ -67,6 +81,27 @@ def test_party_read_models_and_type_search(admin, catalog):
         assert result['items'][0]['full_name'] == full_name and result['items'][0]['legal_form'] == form
         assert admin.get('/api/arm2/' + path + '/search?status=READY').status_code == 422
     assert admin.get('/api/arm2/types/search?q=самосвал').json()['matched'] == 1
+
+
+def test_party_type_and_document_kind_quick_filters(admin, catalog, db):
+    from app.arm2.document_kind_models import DocumentKind
+
+    db.add_all([
+        Counterparty(type='Физическое лицо', id='CP-000002', name='Физлицо', last_name='Тестов', first_name='Тест'),
+        DocumentKind(id='DOC-KIND-000001', name='СТС', applicable_object_types=['VEH']),
+        DocumentKind(id='DOC-KIND-000002', name='Реквизиты', applicable_object_types=['CP', 'ORG']),
+    ])
+    db.commit()
+    cp = admin.get('/api/arm2/counterparties/search', params={'party_type': 'Физическое лицо', 'inn': 'missing'}).json()
+    assert [row['id'] for row in cp['items']] == ['CP-000002']
+    assert cp['facets'] == {'all_types': 2, 'person': 1, 'legal': 1, 'no_inn': 1}
+    org = admin.get('/api/arm2/organizations/search?inn=missing').json()
+    assert org['matched'] == org['facets']['no_inn'] == 1
+    types = admin.get('/api/arm2/types/search?status=REVIEW').json()
+    assert not types['items'] and types['facets'] == {'all_statuses': 1, 'review': 0, 'confirmed': 1}
+    kinds = admin.get('/api/arm2/document-kinds/search?parent=CP').json()
+    assert [row['name'] for row in kinds['items']] == ['Реквизиты']
+    assert kinds['facets'] == {'all_parents': 2, 'CP': 1, 'ORG': 1, 'VEH': 1}
 
 
 def test_read_permissions_do_not_leak_related_names(client, users, db, catalog):

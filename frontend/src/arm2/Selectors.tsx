@@ -27,6 +27,16 @@ function Picker({label, selected, load, resolve, change, disabled = false, ident
   </div>;
 }
 
+export function PartyPicker({kind, selected, change}: {kind: 'CP' | 'ORG'; selected: string; change: (id: string) => void}) {
+  const path = catalogs[kind].path;
+  return <Picker label={kind === 'CP' ? 'Контрагент' : 'Организация'} selected={selected} identity={kind}
+    clearLabel={kind === 'CP' ? 'Выберите контрагента' : 'Выберите организацию'} change={change}
+    resolve={signal => selected ? detail<RecordData>(`${path}/${encodeURIComponent(selected)}`, signal).then(row => row.name) : Promise.resolve('')}
+    load={async (q, signal) => (await searchPage(path, new URLSearchParams({q, limit: '100'}), signal)).items.map(row => ({
+      id: row.id, name: row.name, hint: row.inn ? `ИНН ${row.inn}` : row.id,
+    }))}/>;
+}
+
 export function TypePicker({selected, change, can, editable, currentType, label = 'Тип техники', filter = false}: {
   selected: Scalar | undefined; change: (value: Scalar) => void; can: Can; editable: boolean; currentType?: Scalar; label?: string; filter?: boolean;
 }) {

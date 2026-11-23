@@ -209,6 +209,7 @@ def test_document_parent_typed_access_picker_and_history(api):
         base,
         base + "/" + record["id"],
         base + "/kinds",
+        base + "/counts",
         "/api/arm2/history/DOCUMENT/" + record["id"],
         "/api/arm2/history/events/" + str(event),
     ]
@@ -274,3 +275,6 @@ def test_scoped_picker_and_document_pagination_search_the_complete_parent_select
         f"DOCUMENT-{number:06}" for number in range(101, 106)
     ]
     assert client.get(path("org", parents["org"])).json() == []
+    assert client.post(base + "/DOCUMENT-000105/operations/archive", json={"expected_version": 1}).status_code == 200
+    assert client.get(base + "/counts").json() == {"all": 105, "non_archived": 104, "archived": 1}
+    assert client.get(path("org", parents["org"]) + "/counts").json() == {"all": 0, "non_archived": 0, "archived": 0}

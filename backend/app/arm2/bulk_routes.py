@@ -52,6 +52,7 @@ class ExportQuery(Command):
     owner_kind: Literal["CP", "ORG", "NONE"] | None = None
     owner_id: Annotated[str | None, Field(pattern=r"^(CP|ORG)-[0-9]{6,}$")] = None
     state: Literal["Действующая", "Архивная"] | None = None
+    wialon: Literal["missing"] | None = None
     sort: Literal["name", "plate_number", "type", "owner", "accounting_state"] = "name"
     direction: Literal["asc", "desc"] = "asc"
 

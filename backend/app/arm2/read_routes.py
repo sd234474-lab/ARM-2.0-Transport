@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import case, func, literal, or_, select
+from sqlalchemy import case, func, literal, or_, select, true
 
 from app.arm2.counterparty_models import Counterparty
 from app.arm2.counterparty_rules import PERSON, counterparty_response
@@ -36,38 +36,30 @@ class VehicleSearchItem(VehicleResponse):
     owner_name: str | None
 
 
-class VehiclePage(BaseModel):
-    items: list[VehicleSearchItem]
+class CatalogPage(BaseModel):
     total: int
     matched: int
     limit: int
     offset: int
+    facets: dict[str, int]
+
+
+class VehiclePage(CatalogPage):
+    items: list[VehicleSearchItem]
     without_owner: int
     without_wialon: int
 
 
-class PartyPage(BaseModel):
+class PartyPage(CatalogPage):
     items: list[CounterpartyResponse | PartyResponse]
-    total: int
-    matched: int
-    limit: int
-    offset: int
 
 
-class TypePage(BaseModel):
+class TypePage(CatalogPage):
     items: list[VehicleTypeResponse]
-    total: int
-    matched: int
-    limit: int
-    offset: int
 
 
-class DocumentKindPage(BaseModel):
+class DocumentKindPage(CatalogPage):
     items: list[DocumentKindResponse]
-    total: int
-    matched: int
-    limit: int
-    offset: int
 
 
 def _like(value):
@@ -90,6 +82,19 @@ def _page(db, stmt, model, sort_column, direction, limit, offset):
             'matched': matched, 'limit': limit, 'offset': offset}
 
 
+def _with_facets(db, stmt, selected, groups):
+    """Count each option with the other filters applied, before LIMIT/OFFSET."""
+    counts = [func.count().filter(
+        condition, *(value for key, value in selected.items() if key != group)
+    ).label(option) for group, options in groups.items() for option, condition in options.items()]
+    summary = db.execute(stmt.with_only_columns(*counts, maintain_column_froms=True)).mappings().one()
+    return stmt.where(*selected.values()), dict(summary)
+
+
+def _missing(column):
+    return or_(column.is_(None), func.trim(column) == '')
+
+
 @router.get('/vehicles/search', response_model=VehiclePage)
 def search_vehicles(
     db: Db, user: CurrentUser, q: TextQuery = '', limit: Limit = 100, offset: Offset = 0,
@@ -99,6 +104,7 @@ def search_vehicles(
     state: Literal['Действующая', 'Архивная'] | None = None,
     sort: Literal['name', 'plate_number', 'type', 'owner', 'accounting_state'] = 'name',
     direction: Direction = 'asc',
+    wialon: Literal['missing'] | None = None,
 ):
     check_permission(user, Permission.ARM2_VEH_VIEW)
     type_view = has_permission(user, Permission.ARM2_TYPE_VIEW)
@@ -133,26 +139,32 @@ def search_vehicles(
                               Vehicle.plate_number.ilike(_like(plate), escape='\\')))
     if type_id:
         stmt = stmt.where(Vehicle.type_id == type_id)
+    no_owner = Vehicle.owner_cp_id.is_(None) & Vehicle.owner_org_id.is_(None)
+    no_wialon = _missing(Vehicle.wialon_unit_id)
+    selected = {}
     if state:
-        stmt = stmt.where(Vehicle.accounting_state == state)
+        selected['state'] = Vehicle.accounting_state == state
     if owner_kind == 'NONE':
-        stmt = stmt.where(Vehicle.owner_cp_id.is_(None), Vehicle.owner_org_id.is_(None))
+        selected['owner'] = no_owner
     elif owner_kind:
         column = Vehicle.owner_cp_id if owner_kind == 'CP' else Vehicle.owner_org_id
-        stmt = stmt.where(column == owner_id if owner_id else column.is_not(None))
+        selected['owner'] = column == owner_id if owner_id else column.is_not(None)
+    if wialon:
+        selected['wialon'] = no_wialon
     sorts = {'name': Vehicle.name, 'plate_number': Vehicle.plate_number, 'type': VehicleType.name,
              'owner': owner_name, 'accounting_state': Vehicle.accounting_state}
-    # Aggregate exactly the same permission-filtered relation, before pagination.
-    filtered = stmt.order_by(None).subquery()
-    counts = db.execute(select(
-        func.count().filter(filtered.c.owner_cp_id.is_(None), filtered.c.owner_org_id.is_(None)),
-        func.count().filter(or_(filtered.c.wialon_unit_id.is_(None), func.trim(filtered.c.wialon_unit_id) == '')),
-    ).select_from(filtered)).one()
+    stmt, facets = _with_facets(db, stmt, selected, {
+        'state': {'all_states': true(), 'active': Vehicle.accounting_state == 'Действующая',
+                  'archived': Vehicle.accounting_state == 'Архивная'},
+        'owner': {'no_owner': no_owner}, 'wialon': {'no_wialon': no_wialon},
+        'legacy': {'without_owner': no_owner, 'without_wialon': no_wialon},
+    })
+    without_owner, without_wialon = facets.pop('without_owner'), facets.pop('without_wialon')
     return {**_page(db, stmt, Vehicle, sorts[sort], direction, limit, offset),
-            'without_owner': counts[0], 'without_wialon': counts[1]}
+            'facets': facets, 'without_owner': without_owner, 'without_wialon': without_wialon}
 
 
-def _search_party(db, user, model, permission, q, legal_form, sort, direction, limit, offset):
+def _search_party(db, user, model, permission, q, legal_form, sort, direction, limit, offset, inn, party_type=None):
     check_permission(user, permission)
     stmt = select(*[getattr(model, field).label(field) for field in PartyResponse.model_fields])
     if model is Counterparty:
@@ -167,10 +179,18 @@ def _search_party(db, user, model, permission, q, legal_form, sort, direction, l
                                     *(['last_name', 'first_name', 'middle_name'] if model is Counterparty else [])]]))
     if legal_form:
         stmt = stmt.where(model.legal_form == legal_form)
+    no_inn = _missing(model.inn)
+    selected = {'inn': no_inn} if inn else {}
+    groups = {'inn': {'no_inn': no_inn}}
+    if model is Counterparty:
+        if party_type:
+            selected['type'] = model.type == party_type
+        groups['type'] = {'all_types': true(), 'person': model.type == PERSON, 'legal': model.type == 'Юридическое лицо'}
+    stmt, facets = _with_facets(db, stmt, selected, groups)
     result = _page(db, stmt, model, full_name if sort == 'full_name' else getattr(model, sort), direction, limit, offset)
     if model is Counterparty:
         result['items'] = [counterparty_response(row) for row in result['items']]
-    return result
+    return {**result, 'facets': facets}
 
 
 PartySort = Literal['name', 'full_name', 'legal_form', 'inn']
@@ -179,19 +199,24 @@ PartySort = Literal['name', 'full_name', 'legal_form', 'inn']
 @router.get('/counterparties/search', response_model=PartyPage)
 def search_counterparties(db: Db, user: CurrentUser, request: Request, q: TextQuery = '',
                          legal_form: Annotated[str | None, Query(max_length=500, pattern=r'^[^\x00]*$')] = None, sort: PartySort = 'name',
-                         direction: Direction = 'asc', limit: Limit = 100, offset: Offset = 0):
+                         direction: Direction = 'asc', limit: Limit = 100, offset: Offset = 0,
+                         inn: Literal['missing'] | None = None,
+                         party_type: Literal['Физическое лицо', 'Юридическое лицо'] | None = None):
     if 'status' in request.query_params:
         raise HTTPException(422, 'У CP нет фильтра полноты status')
-    return _search_party(db, user, Counterparty, Permission.ARM2_CP_VIEW, q, legal_form, sort, direction, limit, offset)
+    return _search_party(db, user, Counterparty, Permission.ARM2_CP_VIEW, q, legal_form, sort, direction, limit, offset,
+                         inn, party_type)
 
 
 @router.get('/organizations/search', response_model=PartyPage)
 def search_organizations(db: Db, user: CurrentUser, request: Request, q: TextQuery = '',
                         legal_form: Annotated[str | None, Query(max_length=500, pattern=r'^[^\x00]*$')] = None, sort: PartySort = 'name',
-                        direction: Direction = 'asc', limit: Limit = 100, offset: Offset = 0):
+                        direction: Direction = 'asc', limit: Limit = 100, offset: Offset = 0,
+                        inn: Literal['missing'] | None = None):
     if 'status' in request.query_params:
         raise HTTPException(422, 'У ORG нет фильтра полноты status')
-    return _search_party(db, user, Organization, Permission.ARM2_ORG_VIEW, q, legal_form, sort, direction, limit, offset)
+    return _search_party(db, user, Organization, Permission.ARM2_ORG_VIEW, q, legal_form, sort, direction, limit, offset,
+                         inn)
 
 
 @router.get('/types/search', response_model=TypePage)
@@ -201,15 +226,21 @@ def search_types(db: Db, user: CurrentUser, q: TextQuery = '', limit: Limit = 10
     stmt = select(*[getattr(VehicleType, field).label(field) for field in VehicleTypeResponse.model_fields])
     if q.strip():
         stmt = stmt.where(_text_match(VehicleType.name, q.strip()))
-    if status:
-        stmt = stmt.where(VehicleType.status == status)
-    return _page(db, stmt, VehicleType, VehicleType.name, 'asc', limit, offset)
+    selected = {'status': VehicleType.status == status} if status else {}
+    stmt, facets = _with_facets(db, stmt, selected, {'status': {
+        'all_statuses': true(), 'review': VehicleType.status == 'REVIEW', 'confirmed': VehicleType.status == 'CONFIRMED',
+    }})
+    return {**_page(db, stmt, VehicleType, VehicleType.name, 'asc', limit, offset), 'facets': facets}
 
 
 @router.get('/document-kinds/search', response_model=DocumentKindPage)
-def search_document_kinds(db: Db, user: CurrentUser, q: TextQuery = '', limit: Limit = 100, offset: Offset = 0):
+def search_document_kinds(db: Db, user: CurrentUser, q: TextQuery = '', limit: Limit = 100, offset: Offset = 0,
+                          parent: Literal['CP', 'ORG', 'VEH'] | None = None):
     check_permission(user, Permission.ARM2_DOC_KIND_VIEW)
     stmt = select(*[getattr(DocumentKind, field).label(field) for field in DocumentKindResponse.model_fields])
     if q.strip():
         stmt = stmt.where(_text_match(DocumentKind.name, q.strip()))
-    return _page(db, stmt, DocumentKind, DocumentKind.id, 'asc', limit, offset)
+    parents = {key: DocumentKind.applicable_object_types.contains([key]) for key in ('CP', 'ORG', 'VEH')}
+    selected = {'parent': parents[parent]} if parent else {}
+    stmt, facets = _with_facets(db, stmt, selected, {'parent': {'all_parents': true(), **parents}})
+    return {**_page(db, stmt, DocumentKind, DocumentKind.id, 'asc', limit, offset), 'facets': facets}

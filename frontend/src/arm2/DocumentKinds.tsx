@@ -1,3 +1,5 @@
+import { CatalogRow } from './CatalogRow';
+import { CatalogFilters } from './CatalogFilters';
 import {useDraftGuard} from './useDraftGuard';
 import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -11,7 +13,7 @@ const names = {CP: 'Контрагенты', ORG: 'Собственные орг
 const canonical = (values: DocumentParent[]) => parents.filter(value => values.includes(value));
 const applicability = (values: DocumentParent[]) => canonical(values).map(value => names[value]).join(' / ');
 const multiplicity = (value: number | null) => value === null ? 'Без ограничения' : String(value);
-interface Page {items: DocumentKind[]; total: number; matched: number; limit: number; offset: number}
+interface Page {items: DocumentKind[]; total: number; matched: number; limit: number; offset: number; facets?: Record<string, number>}
 interface Draft {name: string; parents: DocumentParent[]; mode: '' | 'unlimited' | 'limited'; maximum: string; template: '' | 'DOCUMENT_NAME' | 'PARENT_AND_KIND' | 'VEH_CALIBRATION'}
 interface ParkedDraft {original?: DocumentKind; draft: Draft; denied: boolean; error: unknown}
 // Only a cancelled POP may need to remount a form before its listener runs.
@@ -33,12 +35,25 @@ function KindList({editable}: {editable: boolean}) {
   const location = useLocation();
   const q = params.get('q') || '', raw = Number(params.get('offset') || 0);
   const offset = Number.isSafeInteger(raw) && raw >= 0 && raw % 100 === 0 ? raw : 0;
-  const result = useLoad(signal => api<Page>(`${base}/search?${new URLSearchParams({q, limit: '100', offset: String(offset)})}`, 'GET', undefined, signal), [q, offset]);
-  const change = (query: string, next: number, replace = false) => setParams({q: query, offset: String(next)}, {replace});
+  const parent = params.get('parent') || '';
+  const query = new URLSearchParams({q, limit:'100', offset:String(offset), ...(parent ? {parent} : {})}).toString();
+  const result = useLoad(signal => api<Page>(`${base}/search?${query}`, 'GET', undefined, signal), [query]);
+  const change = (search: string, next: number, replace = false) => {
+    const updated = new URLSearchParams(params);
+    updated.set('q', search);
+    updated.set('offset', String(next));
+    setParams(updated, {replace});
+  };
+  const counts = result.data?.facets;
   return <><header className="arm2-actions"><h2>Типы документов</h2>{editable && <Link className="arm2-create" to={base + '/new'} state={{from: location.pathname + location.search}}>+ Новая запись</Link>}</header>
+    <CatalogFilters items={[
+      {label:'Все типы документов',count:counts?.all_parents,active:!parent,select:() => setParams({q}, {replace:true})},
+      ...parents.map(key => ({label:`Для ${ {CP:'контрагентов', ORG:'организаций', VEH:'техники'}[key] }`,
+        count:counts?.[key],active:parent===key,select:() => setParams({q,parent:key}, {replace:true})})),
+    ]}/>
     <label className="arm2-field">Поиск по имени во всём справочнике<input value={q} onChange={event => change(event.target.value, 0, true)}/></label>
     <ErrorMessage error={result.error} retry={result.reload}/>{result.loading && <p role="status">Загружаем типы документов…</p>}
-    {result.data && <><p>Найдено: {result.data.matched} / Всего: {result.data.total}</p><div className="arm2-table"><table><thead><tr><th>Имя</th><th>Постоянный ID</th><th>Применимость</th><th>Максимум актуальных документов</th><th>Версия</th></tr></thead><tbody>{result.data.items.map(row => <tr key={row.id}><td><Link to={base + '/' + encodeURIComponent(row.id)} state={{from: location.pathname + location.search}}>{row.name}</Link></td><td>{row.id}</td><td>{applicability(row.applicable_object_types)}</td><td>{multiplicity(row.max_current_documents)}</td><td>{row.version}</td></tr>)}</tbody></table></div>
+    {result.data && <><p>Найдено: {result.data.matched} / Всего: {result.data.total}</p><div className="arm2-table arm2-catalog-table"><table><thead><tr><th>Имя</th><th>Постоянный ID</th><th>Применимость</th><th>Максимум актуальных документов</th><th>Версия</th></tr></thead><tbody>{result.data.items.map(row => <CatalogRow key={row.id}><td><Link to={base + '/' + encodeURIComponent(row.id)} state={{from: location.pathname + location.search}}>{row.name}</Link></td><td>{row.id}</td><td>{applicability(row.applicable_object_types)}</td><td>{multiplicity(row.max_current_documents)}</td><td>{row.version}</td></CatalogRow>)}</tbody></table></div>
       {!result.data.items.length && <p>По заданным условиям типов документов нет</p>}<nav className="arm2-actions" aria-label="Страницы типов документов"><button type="button" disabled={!offset} onClick={() => change(q, Math.max(0, offset - 100))}>Предыдущая страница</button><span>Страница {offset / 100 + 1}</span><button type="button" disabled={offset + result.data.items.length >= result.data.matched} onClick={() => change(q, offset + 100)}>Следующая страница</button></nav></>}
   </>;
 }

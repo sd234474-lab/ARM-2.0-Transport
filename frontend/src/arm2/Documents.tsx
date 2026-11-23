@@ -2,7 +2,7 @@ import {CalibrationConfirmation} from './Calibration';
 import {useDraftGuard} from './useDraftGuard';
 import type {ReactNode} from 'react';
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../api';
 import { catalogs, searchPage } from './api';
 import { apiUrl } from '../workspace';
@@ -10,6 +10,9 @@ import {openFilePreview} from './filePreviewWindow';
 import type { DocumentKind, DocumentParent, DocumentRecord, RecordData, DocumentFile, EventDetail, FileBundle, FileStage } from './api';
 import type { Can } from './Workspace';
 import { ErrorMessage, History, Pagination, useAlive, useLoad } from './shared';
+import { CatalogRow } from './CatalogRow';
+import { CatalogFilters } from './CatalogFilters';
+import { PartyPicker } from './Selectors';
 
 interface Scope {parentType: DocumentParent; parentId: string; can: Can}
 const endpoint = (type: DocumentParent, id: string) => `/arm2/${type.toLowerCase()}/${encodeURIComponent(id)}/documents`;
@@ -19,6 +22,18 @@ const edit = (scope: Pick<Scope, 'parentType' | 'can'>) => view(scope) && scope.
 
 export default function Documents(scope: Scope) {
   return view(scope) ? <DocumentList {...scope}/> : <p>Нет прав просмотра документов этой карточки.</p>;
+}
+
+export function PartyDocuments({kind, can}: {kind: 'CP' | 'ORG'; can: Can}) {
+  const [params, setParams] = useSearchParams();
+  const key = kind.toLowerCase();
+  const id = params.get(key) || '';
+  if (!view({parentType: kind, can})) return <p>Нет прав на просмотр документов {kind === 'CP' ? 'контрагентов' : 'организаций'}</p>;
+  return <section className="arm2-search-catalog">
+    <h2>Документы {kind === 'CP' ? 'контрагентов' : 'организаций'}</h2>
+    <PartyPicker kind={kind} selected={id} change={value => setParams(value ? {[key]: value} : {}, {replace: true})}/>
+    {id && <DocumentList key={id} parentType={kind} parentId={id} can={can} catalog/>}
+  </section>;
 }
 
 function DocumentFiles({path, original, editable, blocked, draft, setDraft, refreshed, onDenied}: {
@@ -146,18 +161,25 @@ function DocumentFiles({path, original, editable, blocked, draft, setDraft, refr
 
   </section>;
 }
-function DocumentList(scope: Scope) {
+function DocumentList({catalog = false, ...scope}: Scope & {catalog?: boolean}) {
   const {parentType, parentId} = scope;
   const [archive, setArchive] = useState('non_archived'), [offset, setOffset] = useState(0);
   const [moves,setMoves]=useState(false);
   const path = endpoint(parentType, parentId);
   const result = useLoad(signal => api<DocumentRecord[]>(`${path}?${new URLSearchParams({archive, limit: '100', offset: String(offset)})}`, 'GET', undefined, signal), [path, archive, offset]);
-  return <section aria-label="Документы родителя"><header className="arm2-actions"><h3>Документы</h3>{edit(scope) && <Link to={path + '/new'}>Добавить документ</Link>}</header>
-    <label className="arm2-field">Архивность<select value={archive} onChange={event => {setArchive(event.target.value); setOffset(0);}}><option value="non_archived">Неархивные</option><option value="archived">Архивные</option><option value="all">Все</option></select></label>
+  const counts = useLoad(signal => catalog ? api<Record<string, number>>(path + '/counts', 'GET', undefined, signal) : Promise.resolve(undefined), [catalog, path]);
+  const changeArchive = (value: string) => {setArchive(value); setOffset(0);};
+  const Row = catalog ? CatalogRow : 'tr';
+  return <section aria-label="Документы родителя"><header className="arm2-actions">{!catalog && <h3>Документы</h3>}{edit(scope) && <Link to={path + '/new'}>Добавить документ</Link>}</header>
+    {catalog ? <><CatalogFilters items={[
+      ['all', 'Все документы'], ['non_archived', 'Неархивные'], ['archived', 'Архивные'],
+    ].map(([value,label]) => ({label, count:counts.data?.[value], active:archive===value, select:() => changeArchive(value)}))}/>
+      <ErrorMessage error={counts.error} retry={counts.reload}/></> :
+      <label className="arm2-field">Архивность<select value={archive} onChange={event => changeArchive(event.target.value)}><option value="non_archived">Неархивные</option><option value="archived">Архивные</option><option value="all">Все</option></select></label>}
     <ErrorMessage error={result.error} retry={result.reload}/>{result.loading && <p role="status">Загружаем документы…</p>}
-    {result.data && <><div className="arm2-table"><table><thead><tr><th>Тип документа</th><th>Название карточки</th><th>Состояние документа</th></tr></thead><tbody>{result.data.map(row => <tr key={row.id}><td>{row.kind_name}</td><td><Link to={path + '/' + encodeURIComponent(row.id)}>{row.name}</Link></td><td>{row.display_state}</td></tr>)}</tbody></table></div>
+    {result.data && <><div className={catalog ? 'arm2-table arm2-catalog-table' : 'arm2-table'}><table><thead><tr><th>Тип документа</th><th>Название карточки</th><th>Состояние документа</th></tr></thead><tbody>{result.data.map(row => <Row key={row.id}><td>{row.kind_name}</td><td><Link to={path + '/' + encodeURIComponent(row.id)}>{row.name}</Link></td><td>{row.display_state}</td></Row>)}</tbody></table></div>
       {!result.data.length && <p>Документов по заданным условиям нет</p>}<Pagination offset={offset} count={result.data.length} change={setOffset}/></>}
-    <button type="button" aria-expanded={moves} onClick={()=>setMoves(value=>!value)}>{moves?'Закрыть историю перемещений':'История перемещений документов'}</button>{moves && <DocumentMoveHistory scope={scope}/>}
+    {!catalog && <button type="button" aria-expanded={moves} onClick={()=>setMoves(value=>!value)}>{moves?'Закрыть историю перемещений':'История перемещений документов'}</button>}{moves && <DocumentMoveHistory scope={scope}/>}
   </section>;
 }
 

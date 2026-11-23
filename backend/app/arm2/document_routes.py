@@ -1,7 +1,7 @@
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.arm2.document_file_routes import router as file_router
 from app.arm2.document_file_store import display_state
@@ -91,6 +91,15 @@ def list_documents(
     elif archive == "non_archived":
         stmt = stmt.where(Document.archive_state == "Неархивный")
     return [response(db, row) for row in db.scalars(stmt.order_by(Document.id).limit(limit).offset(offset))]
+
+
+@router.get("/{parent_type}/{parent_id}/documents/counts", response_model=dict[str, int])
+def document_counts(parent_type: ParentToken, parent_id: str, db: Db, user: CurrentUser):
+    scope(db, user, parent_type, parent_id)
+    total, archived = db.execute(select(
+        func.count(), func.count().filter(Document.archive_state == "Архивный"),
+    ).where(Document.parent_type == parent_type.upper(), Document.parent_id == parent_id)).one()
+    return {"all": total, "non_archived": total - archived, "archived": archived}
 
 
 @router.get("/{parent_type}/{parent_id}/documents/{document_id}", response_model=DocumentResponse)

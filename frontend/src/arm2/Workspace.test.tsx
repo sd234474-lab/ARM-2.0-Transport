@@ -28,7 +28,7 @@ afterEach(async () => {await act(async () => root.unmount()); element.remove(); 
 async function mount(path: string, can: Can = () => true, userLookupAllowed = false) {await act(async () => {root.render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/arm2/*" element={<Workspace can={can} userLookupAllowed={userLookupAllowed}/>}/></Routes></MemoryRouter>); await tick();});}
 function button(text: string) {const found = [...element.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === text); if (!found) throw Error('No button: ' + text); return found;}
 async function click(text: string) {await act(async () => {button(text).click(); await tick();});}
-async function follow(text: string) {await act(async () => {const a = [...element.querySelectorAll<HTMLAnchorElement>('a')].find(item => item.textContent === text); if (!a) throw Error('No link: ' + text); a.click(); await tick();});}
+async function follow(text: string) {await act(async () => {const a = [...element.querySelectorAll<HTMLAnchorElement>('a')].find(item => (item.getAttribute('aria-label') || item.textContent) === text); if (!a) throw Error('No link: ' + text); a.click(); await tick();});}
 function control(label: string) {const item = [...element.querySelectorAll('label')].find(item => item.textContent?.startsWith(label)); const input = item?.querySelector<HTMLInputElement | HTMLSelectElement>('input,select'); if (!input) throw Error('No field: ' + label); return input;}
 async function change(label: string, value: string) {
   await act(async () => {const input = control(label); Object.getOwnPropertyDescriptor(input instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype, 'value')!.set!.call(input, value); input.dispatchEvent(new Event(input instanceof HTMLSelectElement ? 'change' : 'input', {bubbles: true})); await tick();});
@@ -70,6 +70,63 @@ it('no catalog permission makes no API requests and exposes no editable deep lin
   expect(element.textContent).toContain('Нет прав на просмотр');
   expect(api).not.toHaveBeenCalled();
   expect(element.querySelector('form')).toBeNull();
+});
+
+it('opens a vehicle card from the plate cell and keeps the section selected', async () => {
+  mockAPI(async path => path.startsWith('/arm2/vehicles?') ? [vehicle] : defaults(path));
+  await mount('/arm2/veh');
+  const section = element.querySelector('nav[aria-label="Справочники АРМ 2.0"]');
+  const tabs = element.querySelector('nav[aria-label="Подразделы техники"]');
+  expect([...tabs!.querySelectorAll('a')].map(a => a.textContent)).toEqual(['Техника', 'Типы техники', 'Согласование с заказчиком']);
+  expect(section?.querySelector('[aria-current]')?.getAttribute('aria-label')).toBe('Техника');
+  const plate = element.querySelector<HTMLTableCellElement>('tr.arm2-catalog-row td:nth-child(2)')!;
+  expect(plate.textContent).toContain('001');
+  await act(async () => {plate.click(); await tick();});
+  expect(api).toHaveBeenCalledWith('/arm2/vehicles/VEH-1', 'GET', undefined, expect.any(AbortSignal));
+  expect(section?.querySelector('[aria-current]')?.getAttribute('aria-label')).toBe('Техника');
+});
+
+it('loads counterparty documents through the selected parent and keeps tabs scoped', async () => {
+  mockAPI(async path => path.startsWith('/arm2/cp/CP-1/documents?') ? [
+    {id:'DOCUMENT-1', name:'Карточка предприятия', kind_name:'Реквизиты', display_state:'Доступен'},
+  ] : defaults(path));
+  await mount('/arm2/cp/documents');
+  const tabs = element.querySelector('nav[aria-label="Подразделы контрагентов"]');
+  expect([...tabs!.querySelectorAll('a')].map(a => a.textContent)).toEqual(['Контрагенты', 'Анкеты', 'Документы']);
+  expect(tabs?.querySelector('[aria-current="page"]')?.textContent).toBe('Документы');
+  expect(api).not.toHaveBeenCalled();
+  const picker = element.querySelector<HTMLInputElement>('input[role="combobox"]')!;
+  await act(async () => {picker.focus(); await tick();});
+  const option = [...element.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(b => b.textContent?.startsWith('Партнёр'))!;
+  await act(async () => {option.click(); await tick();});
+  expect(element.querySelector('tr.arm2-catalog-row a')?.getAttribute('href')).toBe('/arm2/cp/CP-1/documents/DOCUMENT-1');
+});
+
+it('does not request documents or show their tab without document access', async () => {
+  await mount('/arm2/cp/documents', permission => permission === 'arm2_cp_view');
+  expect(element.querySelector('nav[aria-label="Подразделы контрагентов"] a[href="/arm2/cp/documents"]')).toBeNull();
+  expect(element.textContent).toContain('Нет прав на просмотр документов контрагентов');
+  expect(api).not.toHaveBeenCalled();
+});
+
+it('combines clickable counters with server search, preserving the query and resetting the page', async () => {
+  vi.mocked(api).mockImplementation(async path => path.startsWith('/arm2/vehicles/search?') ? {
+    items:[vehicle], total:130, matched:120, limit:100, offset:0,
+    facets:{all_states:120, active:80, archived:40, no_owner:60, no_wialon:25},
+  } : []);
+  await mount('/arm2/veh?q=Машина&offset=100');
+  const filters = element.querySelector('[aria-label="Быстрые фильтры"]')!;
+  const click = async (label: string) => {
+    const target = [...filters.querySelectorAll('button')].find(button => button.textContent?.startsWith(label))!;
+    await act(async () => {target.click(); await tick();});
+    expect(target.getAttribute('aria-pressed')).toBe('true');
+  };
+  await click('Архивные: 40');
+  await click('Без операционного владельца: 60');
+  await click('Без Wialon ID: 25');
+  const calls = vi.mocked(api).mock.calls.filter(([path]) => path.startsWith('/arm2/vehicles/search?'));
+  const query = new URLSearchParams(calls.at(-1)![0].split('?')[1]);
+  expect(Object.fromEntries(query)).toMatchObject({offset:'0', q:'Машина', state:'Архивная', owner_kind:'NONE', wialon:'missing'});
 });
 
 it('server search resets pagination, shows exact counters, filtering and empty results', async () => {

@@ -121,6 +121,15 @@ def test_full_filtered_export_text_cells_and_signed_noop(bulk):
     assert "Подлинный" in w["warning"] and counts(engine) == before
     assert c.get("/api/arm2/bulk/vehicles/export?limit=100").status_code == 422
 
+    with Session(engine) as db:
+        db.scalar(select(Vehicle).where(Vehicle.plate_number == "А104АА86")).wialon_unit_id = "1001"
+        db.commit()
+    missing = c.get("/api/arm2/bulk/vehicles/export?wialon=missing")
+    assert missing.status_code == 200
+    missing_book = load_workbook(io.BytesIO(missing.content))
+    assert missing_book.active.max_row == 105
+    assert all("А104АА86" not in row for row in missing_book.active.values)
+
 
 def test_create_default_name_normalization_duplicate_groups_and_independent_errors(bulk):
     c, engine, _, _, _ = bulk
