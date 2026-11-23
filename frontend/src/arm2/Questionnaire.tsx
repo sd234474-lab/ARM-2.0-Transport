@@ -44,6 +44,7 @@ export default function Questionnaire({can}:{can:Can}) {
   const [params,setParams]=useSearchParams(),identifier=params.get('draft');
   const [draft,setDraft]=useState<QuestionnaireDraft>(),[list,setList]=useState<Awaited<ReturnType<typeof questionnaireApi.list>>>([]),[receipts,setReceipts]=useState<QuestionnaireReceipt[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[receipt,setReceipt]=useState<QuestionnaireReceipt>(),[retry,setRetry]=useState(false);
   const [editor,setEditor]=useState<FieldEditor>();
+  const uploadedDraft=useRef<string|undefined>(undefined);
   const command=useRef<string|undefined>(undefined),alive=useRef(true);
   const commandMode=useRef(false),commandDraft=useRef<QuestionnaireDraft|undefined>(undefined);
   const storageDialog=useRef<HTMLDialogElement>(null);
@@ -54,6 +55,9 @@ export default function Questionnaire({can}:{can:Can}) {
   useEffect(()=>{void refresh().catch(setError);},[]);
   useEffect(()=>{
     if(!identifier)return;
+    // The upload response already contains the current review. A second GET
+    // can arrive after the operator has started editing and replace the form.
+    if(uploadedDraft.current===identifier){uploadedDraft.current=undefined;return;}
     let active=true;setBusy(true);setError(undefined);
     questionnaireApi.reopen(identifier).then(value=>{if(active){setEditor(undefined);setDraft(value);setReceipt(value.receipt);setRetry(false);command.current=undefined;}}).catch(e=>{if(active)setError(e);}).finally(()=>{if(active)setBusy(false);});
     return()=>{active=false;};
@@ -77,7 +81,7 @@ export default function Questionnaire({can}:{can:Can}) {
     void saveField(vehicle(key,fieldDecision(choice?.fields,choice?.edits,field,action,value)));
   };
   const open=async()=>{if(!draft)return;setBusy(true);try{setDraft(await questionnaireApi.reopen(draft.id));setEditor(undefined);setRetry(false);command.current=undefined;setError(undefined);}catch(e){setError(e);}finally{setBusy(false);}};
-  const upload=async(file:File)=>{setBusy(true);setError(undefined);try{const value=await questionnaireApi.upload(file);if(alive.current){setEditor(undefined);setDraft(value);setReceipt(undefined);setRetry(false);setParams({draft:value.id});await refresh();}}catch(e){setError(e);}finally{setBusy(false);}};
+  const upload=async(file:File)=>{setBusy(true);setError(undefined);try{const value=await questionnaireApi.upload(file);if(alive.current){if(identifier!==value.id)uploadedDraft.current=value.id;setEditor(undefined);setDraft(value);setReceipt(undefined);setRetry(false);setParams({draft:value.id});await refresh();}}catch(e){setError(e);}finally{setBusy(false);}};
   const apply=async(withoutDocuments=commandMode.current)=>{
     if(!draft||editor)return;
     if(!command.current||commandMode.current!==withoutDocuments){

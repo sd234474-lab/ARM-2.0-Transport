@@ -231,6 +231,7 @@ it('T01 opens comparison on file selection with no second upload confirmation an
   expect(host.textContent).toContain('Черновик сохранён на сервере');
   expect(host.textContent).not.toContain('Hint only');
   expect(api).toHaveBeenCalledWith('/arm2/questionnaires?filename=synthetic.xlsx','POST',expect.any(File));
+  expect(vi.mocked(api).mock.calls.some(([path, method])=>path==='/arm2/questionnaires/'+draft.id && method==='GET')).toBe(false);
   expect(vi.mocked(api).mock.calls.some(([p])=>p.endsWith('/apply'))).toBe(false);
 });
 
