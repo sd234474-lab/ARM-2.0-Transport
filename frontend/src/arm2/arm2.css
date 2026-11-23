@@ -68,9 +68,6 @@
 
 /* Shared ARM2 document card: compact presentation, unchanged operation contracts. */
 .arm2:has(.arm2-document) > h1 { font-size:1.25rem; margin:0 0 8px; }
-.arm2:has(.arm2-document) .arm2-sections { display:flex; flex-wrap:wrap; gap:6px 16px; margin:8px 0; }
-.arm2:has(.arm2-document) .arm2-section { min-height:0; padding:4px 0; border:0; border-radius:0; }
-.arm2:has(.arm2-document) .arm2-section small { display:none; }
 .arm2-document { max-width:1100px; min-width:0; }
 .arm2-document .arm2-document-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; margin:10px 0 6px; }
 .arm2-document .arm2-document-heading h2 { margin:0; overflow-wrap:anywhere; }
@@ -123,14 +120,15 @@
 .arm2-owner-confirm {display:flex;align-items:flex-start;gap:.6rem;margin-block:1rem;}
 .arm2-owner-confirm input {width:auto;flex-shrink:0;}
 .arm2-vehicle-fields {border:0;margin:0;padding:0;min-width:0;}
-.arm2 .arm2-sections {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:stretch}
-.arm2 .arm2-section {min-width:0;min-height:86px;padding:16px;display:flex;flex-direction:column;justify-content:center;box-sizing:border-box}
+.arm2 .arm2-sections {display:flex;flex-wrap:nowrap;gap:8px;align-items:stretch;overflow-x:auto;max-width:100%;margin:12px 0;padding:2px 0}
+.arm2 .arm2-section {flex:0 0 auto;min-width:0;min-height:44px;padding:10px 14px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;white-space:nowrap;background:#edf4ec}
+.arm2 .arm2-section:focus-visible {outline:2px solid var(--green,#245e4e);outline-offset:-2px}
+:root[data-theme="dark"] .arm2 .arm2-section {background:var(--accent-surface)}
 .arm2 .arm2-subsections {display:flex;flex-wrap:wrap;gap:16px;margin:16px 0;align-items:center}
 .arm2 .arm2-actions:has(>h2) {display:flex;justify-content:space-between;align-items:center;gap:12px}
 .arm2 .arm2-create {background:#174c3e;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none}
 .arm2 .arm2-counts {display:flex;gap:20px;flex-wrap:wrap;margin:12px 0}
 .arm2 [aria-label="Предложения очистки"] {border:1px solid #a47c35;padding:12px;margin:16px 0;display:grid;gap:10px}
-@media(max-width:760px){.arm2 .arm2-sections {grid-template-columns:repeat(2,minmax(0,1fr))}.arm2 .arm2-actions:has(>h2){flex-wrap:wrap}.arm2 .arm2-create{margin-left:auto}}
-@media(max-width:420px){.arm2 .arm2-sections{grid-template-columns:1fr}}
+@media(max-width:760px){.arm2 .arm2-actions:has(>h2){flex-wrap:wrap}.arm2 .arm2-create{margin-left:auto}}
 
 .arm2-document .arm2-file-list li:has(.arm2-file-more):not(:has(.arm2-file-more[open])) > .arm2-file-technical { display:none; }
