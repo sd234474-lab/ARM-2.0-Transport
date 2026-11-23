@@ -293,9 +293,41 @@ it('VEH keeps existing REVIEW TYPE, disables new REVIEW and switches CP to ORG t
   expect(options.find(option => option.textContent?.startsWith('Самосвал'))?.disabled).toBe(false); expect(options.find(option => option.textContent?.startsWith('Незавершённый'))?.disabled).toBe(true);
   await choose('Операционный владелец', 'Организация · Своя организация'); await submit();
   expect(saved).toMatchObject({owner_cp_id: null, owner_org_id: 'ORG-1', model: 'Модель', type_id: 'TYPE-1'});
-  await change('Рабочее имя', 'Новое имя'); await submit(); expect(saved.owner_org_id).toBe('ORG-1');
+  expect(control('Гос.номер').value).toBe(vehicle.plate_number);
+  expect(control('ID Vialon').value).toBe('');
+  await change('Имя', 'Новое имя'); await submit(); expect(saved.owner_org_id).toBe('ORG-1');
   await choose('Операционный владелец', 'Без владельца'); await submit(); expect(saved).toMatchObject({owner_cp_id: null, owner_org_id: null, version: 6});
   expect(element.textContent).not.toContain('Состояние по последнему ответу сервера');
+});
+it('shows volume on the source document and opens previews directly from the vehicle documents tab', async () => {
+  const revision = 'DOCUMENT-REV-000001';
+  const file = {id: 'FILE-000010', original_upload_name: 'Тарировка.pdf'};
+  const other = {id: 'FILE-000011', original_upload_name: 'Оборот.png'};
+  const documents = [
+    {id: 'DOCUMENT-000001', kind_name: 'Тарировка', name: 'Действующая тарировка', display_state: 'Доступен',
+      calibration_m3: 29.5, current_revision_id: revision, preview_files: [file]},
+    {id: 'DOCUMENT-000002', kind_name: 'СТС', name: 'Свидетельство', display_state: 'Доступен',
+      calibration_m3: null, current_revision_id: 'DOCUMENT-REV-000002', preview_files: [file, other]},
+    {id: 'DOCUMENT-000003', kind_name: 'Тарировка', name: 'Карточка без файла', display_state: 'Не загружен',
+      calibration_m3: null, current_revision_id: null, preview_files: []},
+  ];
+  mockAPI(async path => path.startsWith('/arm2/veh/VEH-1/documents?') ? documents : defaults(path));
+  const open = vi.spyOn(window, 'open').mockReturnValue({opener: null} as unknown as Window);
+  await mount('/arm2/veh/VEH-1?tab=documents');
+  const list = element.querySelector('[aria-label="Документы родителя"]')!;
+  expect(list.querySelector('h3')).toBeNull();
+  expect(list.querySelector('a.arm2-create')?.textContent).toBe('Добавить документ');
+  const rows = list.querySelectorAll('tbody tr');
+  expect([...rows].map(row => row.querySelectorAll('td')[3].textContent)).toEqual(['29,5', '—', '—']);
+  expect(rows[2].querySelector('button')).toBeNull();
+  await click('Просмотр');
+  await click('Оборот.png');
+  const sources = open.mock.calls.map(([url]) => new URLSearchParams(String(url).split('#')[1]).get('path'));
+  expect(sources).toEqual([
+    `/arm2/veh/VEH-1/documents/DOCUMENT-000001/revisions/${revision}/files/${file.id}/preview`,
+    '/arm2/veh/VEH-1/documents/DOCUMENT-000002/revisions/DOCUMENT-REV-000002/files/FILE-000011/preview',
+  ]);
+  expect(vi.mocked(api).mock.calls.filter(([path]) => path.startsWith('/arm2/veh/VEH-1/documents'))).toHaveLength(1);
 });
 it.each(['cp', 'org'])('%s preserves untouched requisites and string bank accounts, then reopens', async kind => {
   let saved: RecordData = {...party, id: kind === 'cp' ? 'CP-1' : 'ORG-1'};
@@ -413,7 +445,7 @@ it.each(['TYPE', 'CP', 'ORG', 'VEH', 'CPREP', 'ORGREP'] as const)('%s accepts a 
     }
     return {...server};
   });
-  const nameLabel = rep ? 'ФИО / Имя' : 'Рабочее имя';
+  const nameLabel = rep ? 'ФИО / Имя' : kind === 'VEH' ? 'Имя' : 'Рабочее имя';
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
   await mount(cardRoute); await change(nameLabel, 'Мой несохранённый черновик'); await submit();
   expect(element.querySelector('[role=alert]')).not.toBeNull(); expect(element.textContent).not.toContain('Сохранено сервером');

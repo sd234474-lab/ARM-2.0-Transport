@@ -81,10 +81,10 @@ def revision_files(db, document_id, revision_id):
     )
 
 
-def display_state(db, document):
+def display_state(db, document, *, current_files=None):
     if document.archive_state == "Архивный":
         return "Архивный"
-    current = revision_files(db, document.id, document.current_revision_id)
+    current = current_files if current_files is not None else revision_files(db, document.id, document.current_revision_id)
     if not current:
         return "Не загружен"
     # No stale positive cache: unknown, timeout and missing/corrupt bytes fail closed.

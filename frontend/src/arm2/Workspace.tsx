@@ -94,6 +94,7 @@ function Card({kind, initial, can, reload}: {kind: Kind; initial: RecordData; ca
     return alive.current&&window.confirm(`Изменить операционного владельца: ${before} → ${after}? Это не изменение юридической собственности. Запись произойдёт только после «Сохранить».`);
   };
   const [identityConfirmed,setIdentityConfirmed]=useState(false);
+  const vehicleChanged = kind === 'VEH' && JSON.stringify(draft) !== JSON.stringify(original);
   const change = (field: string, value: Scalar) => {if(['type','legal_form'].includes(field))setIdentityConfirmed(false);setDraft(current => ({...current, ...(kind==='CP'&&field==='type'&&current.type===person&&value===legal?{full_name:rawParty(current,'full_name')??null,short_name:rawParty(current,'short_name')??null}:{}), [field]: value}));};
   const fields = (keys: string[]) => <div className="arm2-grid">{keys.map(field => <Field key={field} field={field} value={draft[field]} change={value => change(field, value)} required={field === 'name' || field === 'plate_number'}/>)}</div>;
   const tabs = isParty(kind) ? ['Основное', 'Контакты', 'Банковские счета', 'Документы', 'Техника'] : kind === 'TYPE' ? ['Основное', 'Виды работ'] : ['Основное', 'Документы'];
@@ -108,7 +109,28 @@ function Card({kind, initial, can, reload}: {kind: Kind; initial: RecordData; ca
       if (!original.id) navigate(link(kind, saved.id), {replace: true});
     }}>{editable => <>
       {isParty(kind)&&JSON.stringify(draft)!==JSON.stringify(original)&&<button type="button" disabled={!editable} onClick={()=>{setDraft(original);setIdentityConfirmed(false);}}>Отменить изменения</button>}
-      {tab === 'Основное' && kind === 'VEH' && <fieldset className="arm2-vehicle-fields" disabled={!!ownerChoice}><div className="arm2-grid arm2-vehicle-main">{['name', 'plate_number', 'model', 'wialon_unit_id'].map(field => <Field key={field} field={field} value={draft[field]} required={field === 'name' || field === 'plate_number'} change={value => change(field, value)}/>)}<Field field="accounting_state" value={draft.accounting_state} change={value => change('accounting_state', value)} options={['Действующая', 'Архивная'].map(value => ({value, label: value}))}/><VehicleSelectors draft={draft} change={change} can={can} editable={editable&&!ownerChoice} currentType={original.type_id} beforeOwnerChange={ownerChanged}/></div></fieldset>}
+      {tab === 'Основное' && kind === 'VEH' && <fieldset className="arm2-vehicle-fields" disabled={!!ownerChoice}>
+        <div className="arm2-vehicle-main">
+          {Object.entries({name: 'Имя', plate_number: 'Гос.номер', model: 'Модель', wialon_unit_id: 'ID Vialon'}).map(([field, label]) =>
+            <Field key={field} field={field} label={label} value={draft[field]} required={field === 'name' || field === 'plate_number'} change={value => change(field, value)}/>)}
+          <Field field="accounting_state" value={draft.accounting_state} change={value => change('accounting_state', value)} options={['Действующая', 'Архивная'].map(value => ({value, label: value}))}/>
+          <TypePicker selected={draft.type_id} change={value => change('type_id', value)} currentType={original.type_id} can={can} editable={editable && !ownerChoice}/>
+        </div>
+        <div className="arm2-vehicle-support">
+          <div className="arm2-vehicle-owner">
+            <OwnerPicker cp={draft.owner_cp_id} org={draft.owner_org_id} change={(cp, org) => {change('owner_cp_id', cp); change('owner_org_id', org);}} can={can} editable={editable && !ownerChoice} beforeChange={ownerChanged}/>
+            {editable && original.id && ownerOf(original).kind && !ownerChoice && <>
+              <button type="button" disabled={vehicleChanged} onClick={() => setOwnerChoice({record: original, ready: true, action: 'clear', confirmed: false})}>Снять привязку</button>
+              {vehicleChanged && <small className="arm2-note">Сначала сохраните изменения основной карточки.</small>}
+            </>}
+          </div>
+          {original.id && (can('arm2_document_view') ? <CalibrationSummary vehicleId={original.id} vehicleVersion={original.version}/> :
+            <section className="arm2-vehicle-calibration" aria-label="Тарировка">
+              <div className="arm2-vehicle-calibration-line"><h3>Тарировка</h3><strong>{original.calibration_m3 == null ? 'Объём не подтверждён' : `${original.calibration_m3} м³`}</strong></div>
+              <details><summary>Сведения о тарировке</summary><p>Дата: {original.calibration_confirmed_at ? new Date(String(original.calibration_confirmed_at)).toLocaleString('ru-RU') : '—'} · Автор: {original.calibration_confirmed_by ?? '—'}</p><p className="arm2-note">Для проверки оригинала нужны права на документы.</p></details>
+            </section>)}
+        </div>
+      </fieldset>}
       {tab === 'Основное' && kind === 'TYPE' && <><div className="arm2-grid arm2-type-main"><Field field="name" value={draft.name} required change={value => change('name', value)}/><Field field="plate_category" value={draft.plate_category} change={value => change('plate_category', value || null)} options={[{value: '', label: 'Не заполнено'}, ...['Автомобильный', 'Самоходная техника'].map(value => ({value, label: value}))]}/></div><h3>Требования к технике этого типа</h3><div className="arm2-grid">{requirements.map(field => <Field key={field} field={field} value={draft[field] == null ? '' : String(draft[field])} change={value => change(field, value === 'true' ? true : value === 'false' ? false : null)} options={field === 'requires_sts' ? [...(draft.requires_sts == null ? [{value: '', label: 'Исторически не заполнено — выберите «Требуется»'}] : []), {value: 'true', label: 'Требуется'}] : [{value: '', label: 'Не заполнено'}, {value: 'true', label: 'Требуется'}, {value: 'false', label: 'Не требуется'}]}/>)}</div></>}
       {tab === 'Основное' && isParty(kind) && <PartyFields kind={kind as 'CP'|'ORG'} draft={draft} original={original} change={change} confirmed={identityConfirmed} confirm={setIdentityConfirmed} editable={editable}/>}
       {tab === 'Банковские счета' && <><p>Один актуальный комплект реквизитов</p>{fields(['bank_name', 'bik', 'settlement_account', 'correspondent_account'])}</>}
@@ -116,15 +138,10 @@ function Card({kind, initial, can, reload}: {kind: Kind; initial: RecordData; ca
       {tab === 'Контакты' && (original.id ? <Representatives kind={kind} parent={original} signer={draft.primary_signer_id} changeSigner={value => change('primary_signer_id', value)} editable={editable}/> : <p>Сначала сохраните карточку, затем добавьте представителей и подписанта.</p>)}
       {tab === 'Техника' && (original.id ? <OwnedVehicles kind={kind} id={original.id} name={original.name} can={can} active={editable} choice={ownerChoice} setChoice={setOwnerChoice} selecting={ownerSelecting} setSelecting={setOwnerSelecting} query={ownerQuery} setQuery={setOwnerQuery} offset={ownerOffset} setOffset={setOwnerOffset} refresh={ownerRefresh} completed={()=>{ownerGuard.current=false;ownerDrafts.delete(key);setOwnerChoice(undefined);setOwnerSelecting(false);setOwnerRefresh(value=>value+1);}}/> : <p>Сначала сохраните карточку.</p>)}
     </>}</SaveForm>
-    {kind==='VEH'&&original.id&&tab==='Основное'&&can('arm2_document_view')&&<CalibrationSummary vehicleId={original.id}/>}
-    {kind==='VEH'&&original.id&&tab==='Основное'&&!can('arm2_document_view')&&<p>Подтверждённый объём: {original.calibration_m3??'Не подтверждён'} м³ · Дата: {original.calibration_confirmed_at?new Date(String(original.calibration_confirmed_at)).toLocaleString('ru-RU'):'—'} · Автор: {original.calibration_confirmed_by??'—'}. Для проверки оригинала нужны права на документы.</p>}
-    {kind==='VEH'&&original.id&&tab==='Основное'&&can('arm2_veh_view')&&can('arm2_veh_edit')&&<section aria-label="Снятие операционного владельца">{!ownerChoice && ownerOf(original).kind && <button type="button" disabled={JSON.stringify(draft)!==JSON.stringify(original)} onClick={()=>setOwnerChoice({record:original,ready:true,action:'clear',confirmed:false})}>Снять привязку</button>}{JSON.stringify(draft)!==JSON.stringify(original)&&<p>Сначала сохраните изменения основной карточки. Снятие привязки их не отправляет.</p>}{ownerChoice&&<OwnerCommandEditor choice={ownerChoice} setChoice={setOwnerChoice} target={{kind:null,id:null}} can={can} active={can('arm2_veh_edit')} completed={record=>{ownerGuard.current=false;ownerDrafts.delete(key);setOwnerChoice(undefined);setOriginal(record);setDraft(record);}}/>}</section>}
+    {kind === 'VEH' && tab === 'Основное' && ownerChoice && <OwnerCommandEditor choice={ownerChoice} setChoice={setOwnerChoice} target={{kind: null, id: null}} can={can} active={can('arm2_veh_edit')} completed={record => {ownerGuard.current = false; ownerDrafts.delete(key); setOwnerChoice(undefined); setOriginal(record); setDraft(record);}}/>}
     {tab === 'Документы' && kind !== 'TYPE' && (original.id ? <Documents parentType={kind} parentId={original.id} can={can}/> : <p>Сначала сохраните родительскую карточку, затем добавьте документ без файла.</p>)}
     {original.id && <div className="arm2-history-control">{history && <History type={kind} id={original.id}/>}</div>}
   </article>;
-}
-function VehicleSelectors({draft, change, can, editable, currentType,beforeOwnerChange}: {draft: RecordData; change: (field: string, value: Scalar) => void; can: Can; editable: boolean; currentType: Scalar | undefined;beforeOwnerChange:(cp:string|null,org:string|null)=>Promise<boolean>}) {
-  return <><TypePicker selected={draft.type_id} change={value => change('type_id', value)} currentType={currentType} can={can} editable={editable}/><OwnerPicker cp={draft.owner_cp_id} org={draft.owner_org_id} change={(cp, org) => {change('owner_cp_id', cp); change('owner_org_id', org);}} can={can} editable={editable} beforeChange={beforeOwnerChange}/></>;
 }
 function RepRoute({kind, can}: {kind: Kind; can: Can}) {
   const {id = 'new', parentId = ''} = useParams(); return <RepLoader key={`${kind}:${parentId}:${id}`} kind={kind} can={can} id={id} parentId={parentId}/>;

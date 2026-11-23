@@ -3,8 +3,9 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import func, select
 
+from app.arm2.document_file_models import DocumentFileCorrection
 from app.arm2.document_file_routes import router as file_router
-from app.arm2.document_file_store import display_state
+from app.arm2.document_file_store import display_state, revision_files
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_models import Document
 from app.arm2.document_store import create_document, operate_document, parent_access, update_document
@@ -13,10 +14,12 @@ from app.arm2.read_routes import _text_match
 from app.arm2.schemas import (
     DocumentCreate,
     DocumentKindResponse,
+    DocumentListResponse,
     DocumentOperation,
     DocumentResponse,
     DocumentUpdate,
 )
+from app.arm2.vehicle_models import Vehicle, calibration_matches_document
 from app.auth import CurrentUser, Db
 
 router = APIRouter()
@@ -37,7 +40,7 @@ def scope(db, user, token, parent_id):
         raise HTTPException(422, str(error)) from error
 
 
-def response(db, record):
+def response(db, record, *, current_files=None):
     return {
         "id": record.id,
         "parent_type": record.parent_type,
@@ -47,7 +50,7 @@ def response(db, record):
         "name": record.name,
         "description": record.description,
         "archive_state": record.archive_state,
-        "display_state": display_state(db, record),
+        "display_state": display_state(db, record, current_files=current_files),
         "version": record.version,
     }
 
@@ -72,7 +75,11 @@ def applicable_kinds(
     ]
 
 
-@router.get("/{parent_type}/{parent_id}/documents", response_model=list[DocumentResponse])
+@router.get(
+    "/{parent_type}/{parent_id}/documents",
+    response_model=list[DocumentListResponse],
+    response_model_exclude_unset=True,
+)
 def list_documents(
     parent_type: ParentToken,
     parent_id: str,
@@ -81,6 +88,7 @@ def list_documents(
     archive: Literal["non_archived", "archived", "all"] = "non_archived",
     limit: Limit = 100,
     offset: Offset = 0,
+    include_card_details: bool = False,
 ):
     scope(db, user, parent_type, parent_id)
     stmt = select(Document).where(
@@ -90,7 +98,35 @@ def list_documents(
         stmt = stmt.where(Document.archive_state == "Архивный")
     elif archive == "non_archived":
         stmt = stmt.where(Document.archive_state == "Неархивный")
-    return [response(db, row) for row in db.scalars(stmt.order_by(Document.id).limit(limit).offset(offset))]
+    rows = db.scalars(stmt.order_by(Document.id).limit(limit).offset(offset))
+    if parent_type != "veh" or not include_card_details:
+        return [response(db, row) for row in rows]
+
+    vehicle = db.get(Vehicle, parent_id)
+    result = []
+    for row in rows:
+        originals = revision_files(db, row.id, row.current_revision_id)
+        data = response(db, row, current_files=originals)
+        preview_files = [
+            {"id": file.id, "original_upload_name": file.original_upload_name}
+            for file in originals
+            if db.get(DocumentFileCorrection, file.id) is None
+        ]
+        confirmed = (
+            vehicle is not None
+            and row.archive_state == "Неархивный"
+            and data["kind_name"].strip().casefold() == "тарировка"
+            and bool(preview_files)
+            and len(preview_files) == len(originals)
+            and calibration_matches_document(vehicle, row)
+        )
+        data.update(
+            calibration_m3=vehicle.calibration_m3 if confirmed else None,
+            current_revision_id=row.current_revision_id,
+            preview_files=preview_files,
+        )
+        result.append(data)
+    return result
 
 
 @router.get("/{parent_type}/{parent_id}/documents/counts", response_model=dict[str, int])

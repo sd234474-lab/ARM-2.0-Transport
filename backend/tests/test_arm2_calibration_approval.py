@@ -199,6 +199,14 @@ def test_confirmation_readonly_noop_stale_and_two_documents(qa):
     ready = ok(c.get(f"/api/arm2/veh/{vehicle_id}/calibration"))
     assert ready["letter_eligible"] and ready["document_id"] == document["id"]
     assert ready["work_readiness_complete"] is False
+    listing = path.rsplit("/", 1)[0] + "?include_card_details=true"
+    rows = {row["id"]: row for row in ok(c.get(listing))}
+    confirmed_row = rows[document["id"]]
+    assert confirmed_row["calibration_m3"] == 25
+    assert confirmed_row["current_revision_id"] == command["revision_id"]
+    assert [file["id"] for file in confirmed_row["preview_files"]] == ready["file_ids"]
+    assert all(set(file) == {"id", "original_upload_name"} for file in confirmed_row["preview_files"])
+    assert rows[extra["id"]]["calibration_m3"] is None and not rows[extra["id"]]["preview_files"]
     # Missing source bytes blocks the same card/candidate/letter algorithm.
     original = db.get(DocumentFile, ready["file_ids"][0])
     fake.location(original.storage_ref).unlink()
@@ -206,6 +214,11 @@ def test_confirmation_readonly_noop_stale_and_two_documents(qa):
     _, response = letter(c, vehicles)
     assert response.status_code == 422
     assert db.scalar(select(func.count()).select_from(ApprovalRequest)) == 0
+    ok(accept(c, path, document["version"], [stage(c, path, pdf("replacement"))]))
+    replaced = next(row for row in ok(c.get(listing)) if row["id"] == document["id"])
+    assert replaced["current_revision_id"] != command["revision_id"]
+    assert replaced["calibration_m3"] is None
+    assert [file["id"] for file in replaced["preview_files"]] != ready["file_ids"]
 
 
 def test_missing_header_storage_failure_atomic_and_retry(qa):

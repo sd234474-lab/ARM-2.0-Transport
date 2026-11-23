@@ -106,7 +106,7 @@ it('the existing VEH OwnerPicker warns before replacement and cancellation chang
 });
 
 it('unlink from VEH is disabled while its main fields are unsaved and does not send them implicitly',async()=>{
-  await mount('/arm2/veh/VEH-000001');await change('Рабочее имя','Мой черновик');expect([...host.querySelectorAll<HTMLButtonElement>('button')].find(node=>node.textContent==='Снять привязку')?.disabled).toBe(true);expect(posts()).toHaveLength(0);expect(host.textContent).toContain('Сначала сохраните изменения основной карточки');
+  await mount('/arm2/veh/VEH-000001');await change('Имя','Мой черновик');expect([...host.querySelectorAll<HTMLButtonElement>('button')].find(node=>node.textContent==='Снять привязку')?.disabled).toBe(true);expect(posts()).toHaveLength(0);expect(host.textContent).toContain('Сначала сохраните изменения основной карточки');
 });
 
 it('a slow preview GET cannot reopen an owner choice after the operator cancels it',async()=>{

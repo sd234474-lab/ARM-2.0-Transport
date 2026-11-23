@@ -37,6 +37,17 @@ class DocumentResponse(StrictModel):
     version: int
 
 
+class DocumentPreviewFile(StrictModel):
+    id: str
+    original_upload_name: str
+
+
+class DocumentListResponse(DocumentResponse):
+    calibration_m3: float | None = None
+    current_revision_id: str | None = None
+    preview_files: list[DocumentPreviewFile] = Field(default_factory=list)
+
+
 class DocumentOperation(StrictModel):
     expected_version: PositiveVersion
     kind_ref: str | None = None

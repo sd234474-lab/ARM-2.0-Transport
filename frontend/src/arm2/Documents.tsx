@@ -7,7 +7,7 @@ import { api, ApiError } from '../api';
 import { catalogs, searchPage } from './api';
 import { apiUrl } from '../workspace';
 import {openFilePreview} from './filePreviewWindow';
-import type { DocumentKind, DocumentParent, DocumentRecord, RecordData, DocumentFile, EventDetail, FileBundle, FileStage } from './api';
+import type { DocumentKind, DocumentListRecord, DocumentParent, DocumentRecord, RecordData, DocumentFile, EventDetail, FileBundle, FileStage } from './api';
 import type { Can } from './Workspace';
 import { CatalogHeader, ErrorMessage, History, Pagination, useAlive, useLoad } from './shared';
 import { CatalogRow } from './CatalogRow';
@@ -19,6 +19,8 @@ const endpoint = (type: DocumentParent, id: string) => `/arm2/${type.toLowerCase
 const parentLink = (type: DocumentParent, id: string) => `/arm2/${type.toLowerCase()}/${encodeURIComponent(id)}?tab=documents`;
 const view = ({parentType, can}: Pick<Scope, 'parentType' | 'can'>) => can(catalogs[parentType].permission + '_view') && can('arm2_document_view');
 const edit = (scope: Pick<Scope, 'parentType' | 'can'>) => view(scope) && scope.can(catalogs[scope.parentType].permission + '_edit') && scope.can('arm2_document_edit');
+const previewOriginal = (path: string, revisionId: string, file: Pick<DocumentFile, 'id' | 'original_upload_name' | 'download_name'>) =>
+  openFilePreview(`${path}/revisions/${revisionId}/files/${file.id}/preview`, file.download_name ?? file.original_upload_name);
 
 export default function Documents(scope: Scope) {
   return view(scope) ? <DocumentList {...scope}/> : <p>Нет прав просмотра документов этой карточки.</p>;
@@ -135,7 +137,7 @@ function DocumentFiles({path, original, editable, blocked, calibration, draft, s
   const fileRows = (files: DocumentFile[], revisionId: string) => <ol className="arm2-file-list">{files.map(file => <li key={file.id}>
     <div className="arm2-file-name"><span>{file.original_upload_name}</span><small>{file.extension.toUpperCase()} · {Math.max(1,Math.round(file.size/1024))} КБ</small></div>
     <div className="arm2-file-actions">{file.correction ? <span className="arm2-correction">Исправленная ошибочная загрузка · {new Date(file.correction.occurred_at).toLocaleString('ru-RU')} · Автор {file.correction.actor_id} · Событие {file.correction.history_event_id}</span> : <>
-      <button type="button" onClick={() => {try {openFilePreview(`${path}/revisions/${revisionId}/files/${file.id}/preview`, file.download_name ?? file.original_upload_name);} catch (e) {setError(e);}}}>Открыть файл</button>
+      <button type="button" onClick={() => {try {previewOriginal(path, revisionId, file);} catch (e) {setError(e);}}}>Открыть файл</button>
       <a href={apiUrl(`${path}/revisions/${revisionId}/files/${file.id}/download`)}>Скачать файл</a>
       <details className="arm2-file-more"><summary>Ещё</summary>{allowed && revisionId === current?.id && <button type="button" disabled={busy || blocked || !!draft} onClick={()=>beginCorrect(file)}>Исправить ошибочную загрузку</button>}</details>
     </>}</div>
@@ -175,22 +177,53 @@ function DocumentList({catalog = false, ...scope}: Scope & {catalog?: boolean}) 
   const {parentType, parentId} = scope;
   const [archive, setArchive] = useState('non_archived'), [offset, setOffset] = useState(0);
   const [moves,setMoves]=useState(false);
+  const [previewError, setPreviewError] = useState<unknown>();
   const path = endpoint(parentType, parentId);
-  const result = useLoad(signal => api<DocumentRecord[]>(`${path}?${new URLSearchParams({archive, limit: '100', offset: String(offset)})}`, 'GET', undefined, signal), [path, archive, offset]);
+  const vehicle = parentType === 'VEH';
+  const result = useLoad(signal => {
+    const query = new URLSearchParams({archive, limit: '100', offset: String(offset)});
+    if (vehicle) query.set('include_card_details', 'true');
+    return api<DocumentListRecord[]>(`${path}?${query}`, 'GET', undefined, signal);
+  }, [path, archive, offset]);
   const counts = useLoad(signal => catalog ? api<Record<string, number>>(path + '/counts', 'GET', undefined, signal) : Promise.resolve(undefined), [catalog, path]);
-  const changeArchive = (value: string) => {setArchive(value); setOffset(0);};
+  const changeArchive = (value: string) => {setArchive(value); setOffset(0); setPreviewError(undefined);};
+  const archiveFilter = <label className="arm2-field">Архивность<select value={archive} onChange={event => changeArchive(event.target.value)}><option value="non_archived">Неархивные</option><option value="archived">Архивные</option><option value="all">Все</option></select></label>;
   const Row = catalog ? CatalogRow : 'tr';
-  return <section aria-label="Документы родителя">{!catalog && <header className="arm2-actions"><h3>Документы</h3>{edit(scope) && <Link to={path + '/new'}>Добавить документ</Link>}</header>}
+  return <section aria-label="Документы родителя">
+    {vehicle && <div className="arm2-vehicle-document-toolbar">{archiveFilter}<div className="arm2-catalog-actions">
+      {edit(scope) && <Link className="arm2-create" to={path + '/new'}>Добавить документ</Link>}
+    </div></div>}
+    {!catalog && !vehicle && <header className="arm2-actions"><h3>Документы</h3>{edit(scope) && <Link to={path + '/new'}>Добавить документ</Link>}</header>}
     {catalog ? <><CatalogFilters items={[
       ['all', 'Все документы'], ['non_archived', 'Неархивные'], ['archived', 'Архивные'],
     ].map(([value,label]) => ({label, count:counts.data?.[value], active:archive===value, select:() => changeArchive(value)}))}/>
-      <ErrorMessage error={counts.error} retry={counts.reload}/></> :
-      <label className="arm2-field">Архивность<select value={archive} onChange={event => changeArchive(event.target.value)}><option value="non_archived">Неархивные</option><option value="archived">Архивные</option><option value="all">Все</option></select></label>}
+      <ErrorMessage error={counts.error} retry={counts.reload}/></> : !vehicle && archiveFilter}
+    <ErrorMessage error={previewError}/>
     <ErrorMessage error={result.error} retry={result.reload}/>{result.loading && <p role="status">Загружаем документы…</p>}
-    {result.data && <><div className={catalog ? 'arm2-table arm2-catalog-table' : 'arm2-table'}><table><thead><tr><th>Тип документа</th><th>Название карточки</th><th>Состояние документа</th></tr></thead><tbody>{result.data.map(row => <Row key={row.id}><td>{row.kind_name}</td><td><Link to={path + '/' + encodeURIComponent(row.id)}>{row.name}</Link></td><td>{row.display_state}</td></Row>)}</tbody></table></div>
+    {result.data && <><div className={catalog ? 'arm2-table arm2-catalog-table' : 'arm2-table'}><table><thead><tr><th>Тип документа</th><th>Название карточки</th><th>Состояние документа</th>{vehicle && <><th>Объём кузова, м³</th><th>Просмотр</th></>}</tr></thead>
+      <tbody>{result.data.map(row => {
+        const documentPath = path + '/' + encodeURIComponent(row.id);
+        return <Row key={row.id}><td>{row.kind_name}</td><td><Link to={documentPath}>{row.name}</Link></td><td>{row.display_state}</td>
+          {vehicle && <><td>{row.calibration_m3 == null ? '—' : row.calibration_m3.toLocaleString('ru-RU', {maximumFractionDigits: 20})}</td>
+            <td><DocumentListPreview path={documentPath} row={row} onError={setPreviewError}/></td></>}
+        </Row>;
+      })}</tbody></table></div>
       {!result.data.length && <p>Документов по заданным условиям нет</p>}<Pagination offset={offset} count={result.data.length} change={setOffset}/></>}
     {!catalog && <button type="button" aria-expanded={moves} onClick={()=>setMoves(value=>!value)}>{moves?'Закрыть историю перемещений':'История перемещений документов'}</button>}{moves && <DocumentMoveHistory scope={scope}/>}
   </section>;
+}
+
+function DocumentListPreview({path, row, onError}: {path: string; row: DocumentListRecord; onError: (error: unknown) => void}) {
+  const {current_revision_id: revisionId, preview_files: files} = row;
+  if (!revisionId || !files?.length) return '—';
+  const open = (file: typeof files[number]) => {
+    onError(undefined);
+    try {previewOriginal(path, revisionId, file);} catch (error) {onError(error);}
+  };
+  return files.length === 1 ? <button type="button" onClick={() => open(files[0])}>Просмотр</button> :
+    <details className="arm2-document-list-preview"><summary>Просмотр ({files.length})</summary>
+      {files.map(file => <button type="button" key={file.id} onClick={() => open(file)}>{file.original_upload_name}</button>)}
+    </details>;
 }
 
 function DocumentMoveHistory({scope}:{scope:Scope}) {

@@ -14,15 +14,29 @@ export interface CalibrationState {
 }
 const stateName = (state: string | null) => state === 'APPROVED' ? 'Согласовано' : state === 'REJECTED' ? 'Отклонено' : state === 'PENDING' ? 'Ожидает ответа' : 'Нет решения';
 
-export function CalibrationSummary({vehicleId}: {vehicleId: string}) {
-  const result = useLoad(signal => api<CalibrationState>(`/arm2/veh/${vehicleId}/calibration`, 'GET', undefined, signal), [vehicleId]);
-  return <section aria-label="Подтверждённая тарировка"><h3>Подтверждённая тарировка</h3><ErrorMessage error={result.error} retry={result.reload}/>{result.data && <>
-    <p>Объём: <strong>{result.data.volume_m3 == null ? 'Не подтверждён' : `${result.data.volume_m3} м³`}</strong> · Дата: {result.data.confirmed_at ? new Date(result.data.confirmed_at).toLocaleString('ru-RU') : '—'} · Автор: {result.data.confirmed_by ?? '—'}</p>
-    {result.data.document_id && <Link to={`/arm2/veh/${vehicleId}/documents/${result.data.document_id}`}>Открыть источник тарировки</Link>}
-    <p>К письму: {result.data.letter_eligible ? 'Допущена' : result.data.reasons.join('; ')}. Заказчик: {stateName(result.data.customer.state)}.</p>
-    {result.data.customer.request_id && <Link to={`/arm2/approvals/${result.data.customer.request_id}`}>Открыть согласование</Link>}
-    <p className="arm2-note">{result.data.work_readiness_notice}</p>
-  </>}</section>;
+export function CalibrationSummary({vehicleId, vehicleVersion}: {vehicleId: string; vehicleVersion?: number}) {
+  const result = useLoad(signal => api<CalibrationState>(`/arm2/veh/${vehicleId}/calibration`, 'GET', undefined, signal), [vehicleId, vehicleVersion]);
+  const data = result.data;
+  return <section className="arm2-vehicle-calibration" aria-label="Тарировка">
+    <div className="arm2-vehicle-calibration-line"><h3>Тарировка</h3>
+      {data && <><strong>{data.volume_m3 == null ? 'Объём не подтверждён' : `${data.volume_m3} м³`}</strong>
+        {data.document_id && <Link to={`/arm2/veh/${vehicleId}/documents/${data.document_id}`}>Открыть источник тарировки</Link>}</>}
+    </div>
+    <ErrorMessage error={result.error} retry={result.reload}/>
+    {result.loading && <small role="status">Загружаем тарировку…</small>}
+    {data && <>
+      <div className="arm2-vehicle-calibration-line"><span>К письму: {data.letter_eligible ? 'Допущена' : 'Не допущена'}</span>
+        <span>Заказчик: {stateName(data.customer.state)}</span>
+        {data.customer.request_id && <Link to={`/arm2/approvals/${data.customer.request_id}`}>Открыть согласование</Link>}
+      </div>
+      <details>
+        <summary>Сведения о тарировке</summary>
+        <p>Дата: {data.confirmed_at ? new Date(data.confirmed_at).toLocaleString('ru-RU') : '—'} · Автор: {data.confirmed_by ?? '—'}</p>
+        {data.reasons.length > 0 && <p>{data.reasons.join('; ')}</p>}
+        <p className="arm2-note">{data.work_readiness_notice}</p>
+      </details>
+    </>}
+  </section>;
 }
 
 export function CalibrationConfirmation({vehicleId, documentId, bundle, editable, blocked}: {

@@ -56,6 +56,11 @@ export const questionnaireApi = {
 };
 export type ObjectType = Kind | 'CPREP' | 'ORGREP' | 'DOC-KIND' | 'DOCUMENT' | 'APPROVAL' | 'APPROVAL-ITEM';
 export interface DocumentRecord extends RecordData {parent_type: DocumentParent; parent_id: string; kind_ref: string; kind_name: string; description: string | null; archive_state: 'Неархивный' | 'Архивный'; display_state: 'Не загружен' | 'Доступен' | 'Файл недоступен' | 'Архивный'}
+export type DocumentListRecord = Pick<DocumentRecord, 'id' | 'kind_name' | 'name' | 'display_state'> & {
+  calibration_m3?: number | null;
+  current_revision_id?: string | null;
+  preview_files?: Pick<DocumentFile, 'id' | 'original_upload_name'>[];
+};
 export type DocumentParent = 'CP' | 'ORG' | 'VEH';
 export type FileNamingPreset = 'DOCUMENT_NAME' | 'PARENT_AND_KIND' | 'VEH_CALIBRATION';
 export interface DocumentKind {id: string; name: string; applicable_object_types: DocumentParent[]; max_current_documents: number | null; version: number; file_naming_template?: FileNamingPreset | null}
