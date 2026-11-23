@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import io
+import re
 import stat
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -1245,8 +1246,73 @@ def test_ole_document_with_internal_zip_is_opaque_and_open_draft_is_repaired(b5)
     url = f'/api/arm2/cp/{parents["cp"]}/documents/{document.id}/revisions/{document.current_revision_id}/files/{f.id}'
     response = c.get(url + '/download')
     assert response.content == original and hashlib.sha256(response.content).hexdigest() == f.sha256
+    assert '.bin' in response.headers['content-disposition']  # The opaque fixture is not a valid Word document.
     assert c.get(url + '/preview').headers['content-disposition'].startswith('attachment')
     assert len(saved['objects']) == 1
+
+
+def binary_word_fixture():
+    from struct import pack_into
+
+    end, free = 0xFFFFFFFE, 0xFFFFFFFF
+    header = bytearray(512)
+    header[:8] = bytes.fromhex('D0CF11E0A1B11AE1')
+    pack_into('<5H', header, 24, 0x003E, 3, 0xFFFE, 9, 6)
+    pack_into('<9I', header, 40, 0, 1, 1, 0, 4096, end, 0, end, 0)
+    pack_into('<109I', header, 76, 0, *([free] * 108))
+    fat = bytearray(512)
+    chain = [0xFFFFFFFD, end, *range(3, 10), end, *range(11, 18), end]
+    pack_into('<128I', fat, 0, *chain, *([free] * (128 - len(chain))))
+    directory = bytearray(512)
+
+    def entry(index, name, kind, *, left=free, child=free, start=end, size=0):
+        offset = index * 128
+        encoded = (name + '\0').encode('utf-16-le')
+        directory[offset:offset + len(encoded)] = encoded
+        pack_into('<HBB3I', directory, offset + 64, len(encoded), kind, 1, left, free, child)
+        pack_into('<IQ', directory, offset + 116, start, size)
+
+    entry(0, 'Root Entry', 5, child=1)
+    entry(1, 'WordDocument', 2, left=2, start=2, size=4096)
+    entry(2, '0Table', 2, start=10, size=4096)
+    word = bytearray(4096)
+    pack_into('<2H', word, 0, 0xA5EC, 0x00C1)
+    return bytes(header + fat + directory + word + bytes(4096))
+
+
+def test_verified_word_is_downloadable_and_named_zip_roundtrips_without_duplicate(b5):
+    c, db, _, parents, *_ = b5
+    doc_kind(c, 'Карточка предприятия', 'CP')
+    original = binary_word_fixture()
+    draft = upload(c, transport(workbook({'B28': 'company.doc'}), {'company.doc': original}), True)
+    draft = choose(c, draft, cp_target=parents['cp'], documents={'company': {'accept': True}})
+    apply(c, draft)
+    document = db.scalar(select(Document))
+    file = db.scalar(select(DocumentFile))
+    assert file.extension == 'bin' and file.stored_name.endswith('.bin')
+    root = f'/api/arm2/cp/{parents["cp"]}/documents/{document.id}/revisions/{document.current_revision_id}/files/{file.id}'
+    for action in ('download', 'preview'):
+        reply = c.get(root + '/' + action)
+        assert reply.status_code == 200 and reply.content == original
+        assert reply.headers['content-disposition'].startswith('attachment')
+        assert (file.id + '.doc') in reply.headers['content-disposition']
+        assert reply.headers['content-type'] == 'application/octet-stream'
+
+    endpoint = '/api/arm2/questionnaires/exports/' + parents['cp']
+    xlsx1 = check(c.post(endpoint, json={'format': 'xlsx'}))
+    xlsx2 = check(c.post(endpoint, json={'format': 'xlsx'}))
+    assert re.fullmatch(r'Анкета CP — \d{4}-\d\d-\d\d_\d\d-\d\d-\d\d-\d{6}\.xlsx', xlsx1['filename'])
+    assert xlsx1['filename'] != xlsx2['filename']
+    zipped = check(c.post(endpoint, json={'format': 'zip'}))
+    assert zipped['filename'].startswith('Анкета CP с документами — ') and zipped['filename'].endswith('.zip')
+    data = base64.b64decode(zipped['data'])
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        attachment = next(name for name in archive.namelist() if name.startswith('files/'))
+        assert attachment.endswith(file.id + '.doc') and archive.read(attachment) == original
+    before = snapshot(db)
+    draft = choose(c, upload(c, data, True), cp_target=parents['cp'])
+    assert any(candidate.get('equal') and candidate.get('document_id') == document.id for candidate in draft['comparison']['documents'])
+    assert apply(c, draft)[0]['no_op'] and snapshot(db) == before
 
 
 @pytest.mark.parametrize('source_id', ['', 'VEH-999999'])

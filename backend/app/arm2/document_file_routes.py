@@ -331,7 +331,8 @@ def read_file(
             raise ObjectNotFoundError("Файл не входит в указанную редакцию этого документа")
         name = export_name(db, document, row, revision_id=revision_id)
         path = files.download(row)
-        return protected_response(path, name, row.media_type, action == "preview", temporary=True)
+        return protected_response(path, files.verified_download_name(name, path), row.media_type,
+                                  action == "preview", temporary=True)
 
     return translated(db, operation)
 

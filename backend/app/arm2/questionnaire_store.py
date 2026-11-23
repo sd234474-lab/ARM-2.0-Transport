@@ -6,6 +6,7 @@ import zipfile
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, text
 
@@ -51,6 +52,7 @@ from app.arm2.representative_store import create_representative
 from app.arm2.vehicle_models import Vehicle
 from app.arm2.vehicle_store import create_vehicle, set_operational_owner
 from app.arm2.vehicle_type_models import VehicleType
+from app.config import settings
 from app.models import LoginSession, User
 from app.permissions import Permission, has_permission
 
@@ -812,12 +814,13 @@ def export(db, user, cp_id, *, with_files=False, incomplete_reason=None):
             for doc in db.scalars(select(Document).where(Document.parent_type == ptype, Document.parent_id == pid,
                                                          Document.archive_state == 'Неархивный').order_by(Document.id)):
                 for file in revision_files(db, doc.id, doc.current_revision_id):
-                    name = 'files/' + export_name(db, doc, file)
+                    name = export_name(db, doc, file)
                     try:
                         if db.get(DocumentFileCorrection, file.id):
                             raise files.StorageUnavailable('Исправленная ошибочная загрузка')
                         path = files.download(file)
                         try:
+                            name = 'files/' + files.verified_download_name(name, path)
                             originals[name] = path.read_bytes()
                         finally:
                             path.unlink(missing_ok=True)
@@ -862,7 +865,12 @@ def export(db, user, cp_id, *, with_files=False, incomplete_reason=None):
         data, media, suffix = zipped.getvalue(), 'application/zip', 'zip'
     if len(data) > MAX_COMPRESSED:
         raise ValueError('Выгрузка превышает 32 МиБ; файлы не пропущены')
-    db.add(QuestionnaireExport(id=str(uuid4()), author_id=user.id, cp_id=cp.id,
+    exported_at = datetime.now(UTC)
+    stamp = exported_at.astimezone(ZoneInfo(settings().app_timezone)).strftime('%Y-%m-%d_%H-%M-%S-%f')
+    contractor = files.safe_filename_stem(cp.name, punctuation=' .-_()', max_bytes=155)
+    content_label = ' с документами' if with_files else ''
+    filename = f'Анкета {contractor}{content_label} — {stamp}.{suffix}'
+    db.add(QuestionnaireExport(id=str(uuid4()), author_id=user.id, cp_id=cp.id, at=exported_at,
         incomplete_reason=incomplete_reason.strip() if incomplete_reason else None, missing=missing))
     db.commit()
-    return {'data': data, 'media_type': media, 'filename': 'questionnaire.' + suffix}
+    return {'data': data, 'media_type': media, 'filename': filename}

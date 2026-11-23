@@ -6,10 +6,12 @@ import os
 import re
 import secrets
 import shutil
+import struct
 import time
 import unicodedata
 import zipfile
 
+import olefile
 from PIL import Image
 
 from app.config import settings
@@ -160,17 +162,20 @@ def content_type(path):
         "GIF": ("image/gif", "gif"),
         "WEBP": ("image/webp", "webp"),
     }
-    try:
-        with Image.open(path) as image:
-            if image.format not in images or image.width * image.height > settings().max_image_pixels:
-                raise ValueError("Недопустимый формат или размер изображения")
-            result = images[image.format]
-            image.verify()
-            return result
-    except Image.DecompressionBombError:
-        raise ValueError("Изображение превышает допустимый размер") from None
-    except (OSError, SyntaxError):
-        pass
+    # With olefile installed, Pillow probes OLE through its optional MIC plugin.
+    # OLE is outside B3's image formats and stays in the existing opaque path.
+    if not head.startswith(olefile.MAGIC):
+        try:
+            with Image.open(path) as image:
+                if image.format not in images or image.width * image.height > settings().max_image_pixels:
+                    raise ValueError("Недопустимый формат или размер изображения")
+                result = images[image.format]
+                image.verify()
+                return result
+        except Image.DecompressionBombError:
+            raise ValueError("Изображение превышает допустимый размер") from None
+        except (OSError, SyntaxError):
+            pass
     if head.startswith(b"PK\x03\x04"):
         try:
             with zipfile.ZipFile(path) as archive:
@@ -219,6 +224,15 @@ def validate_naming_template(preset, name, parents):
         raise ValueError("Шаблон тарировки допустим только для типа «Тарировка» с применимостью только VEH")
 
 
+def safe_filename_stem(value, *, punctuation=" -_", max_bytes=180):
+    text = unicodedata.normalize("NFKC", value)
+    text = "".join(c if (c.isalnum() or c in punctuation) and unicodedata.category(c)[0] != "C" else "_" for c in text)
+    text = re.sub(r"\s+", " ", text).strip(" ._-")[:100].rstrip() or MISSING_NAME_VALUE
+    while len(text.encode("utf8")) > max_bytes:
+        text = text[:-1]
+    return text
+
+
 def safe_name(preset, document, parent, kind, file_id, extension, *, generated_bundle=False,
               revision_id=CURRENT_REVISION):
     if (
@@ -249,13 +263,33 @@ def safe_name(preset, document, parent, kind, file_id, extension, *, generated_b
     literal, fields = NAMING_TEMPLATES[preset]
     values = [str(parameters[field]) if parameters[field] is not None and str(parameters[field]).strip()
               else MISSING_NAME_VALUE for field in fields]
-    text = unicodedata.normalize('NFKC', ' '.join(([literal] if literal else []) + values))
-    text = ''.join(c if (c.isalnum() or c in ' -_') and unicodedata.category(c)[0] != 'C' else '_' for c in text)
-    text = re.sub(r'\s+', ' ', text).strip(' ._-')[:100].rstrip() or MISSING_NAME_VALUE
     # Limit UTF-8 bytes too, for portable Disk/ZIP names. No procedural date.
-    while len(text.encode("utf8")) > 180:
-        text = text[:-1]
-    return f"{text}-{file_id}.{extension}"
+    stem = safe_filename_stem(" ".join(([literal] if literal else []) + values))
+    return f"{stem}-{file_id}.{extension}"
+
+
+def verified_download_name(name, path):
+    """Only change the external suffix of an already verified, recognized Word original."""
+    if not name.endswith(".bin"):
+        return name
+    try:
+        if not olefile.isOleFile(str(path)):
+            return name
+        size = path.stat().st_size
+        with olefile.OleFileIO(str(path), raise_defects=olefile.DEFECT_INCORRECT) as compound:
+            if not compound.exists("WordDocument") or not 32 <= compound.get_size("WordDocument") <= size:
+                return name
+            with compound.openstream("WordDocument") as stream:
+                fib = stream.read(32)
+            if len(fib) != 32 or fib[:2] != b"\xec\xa5":
+                return name
+            # MS-DOC FibBase selects exactly one of the two Table streams.
+            table = "1Table" if int.from_bytes(fib[10:12], "little") & 0x0200 else "0Table"
+            if compound.exists(table) and 0 < compound.get_size(table) <= size:
+                return name.removesuffix(".bin") + ".doc"
+    except (OSError, ValueError, IndexError, struct.error):
+        pass  # Unknown or malformed opaque originals keep their download-only suffix.
+    return name
 
 
 def prepare_original(path, *, file_id, namespace, name, original_upload_name, generated_bundle=False):
