@@ -36,6 +36,13 @@ export type QuestionnaireChoices = {cp_target?: string | null; cp_fields?: strin
   vehicles?: Record<string,{fields?: string[]; include?: boolean; type_id?: string | null; without_type?: boolean; confirm_owner?: boolean; edits?:Record<string,string>;volume?:string|null}>;
   documents?: Record<string,{upload_id?: string | null; parent_key?: string | null; kind_id?: string | null; document_id?: string | null; replace_file_id?: string | null; append?: boolean; accept?: boolean}>};
 export type QuestionnaireReceipt = {without_documents?:boolean;documents_pending?:boolean;command_id: string; draft_id: string; cp_id: string | null; filled_date: string | null; uploaded_at: string; accepted_at: string; correlation_id: string; no_op: boolean; event_ids: number[]; changes?:{kind:string;id:string;operation:string;url?:string;fields:Record<string,{before:unknown;after:unknown}>}[];objects: {kind: string; name?:string;url?:string; id?: string; document_id?: string; version: number}[]};
+export type QuestionnaireOperation = {
+  id:string; draft_id:string; filename:string; revision:number; updated_at:string; without_documents:boolean;
+  state:'QUEUED'|'RUNNING'|'SUCCEEDED'|'FAILED';
+  progress:{phase:'QUEUED'|'PREPARING'|'TRANSFERRING'|'SAVING'; done?:number; total?:number};
+  failure?:{code:string;message:string;retryable:boolean;can_save_without_documents?:boolean}|null;
+  receipt?:QuestionnaireReceipt|null;
+};
 export type QuestionnaireRow = {key: string; row: number; id: string | null; plate_number: string | null; version: number | null; fields: Record<string,QuestionnaireField>; errors: string[]; withdrawal: boolean; confirm_owner: boolean; without_type: boolean; source: string; volume_proposal: string; volume_notice: string; legacy_hint?: string; diagnostic_hint?: string; calibration?:{value:string;current:number|null;numeric:number|null;error:string|null;selected:boolean;document_keys:string[]}};
 export type QuestionnaireDocument = {key: string; upload_id?: string; name: string; attachment_options?:{id:string;name:string}[]; parent_key: string | null; role: string; parent_type?: 'CP'|'VEH'; parent_id?: string; document_id?: string | null; kind_id?: string | null; version?: number; revision_id?: string; replace_file_id?: string | null; selected: boolean; equal?: boolean; error?: string | null; sha256?: string; media_type?: string; candidates?: {id:string; name:string; kind_id:string}[]; current_files?: {id:string; name:string; sha256:string}[]};
 export type QuestionnaireDraft = {id:string; revision:number; status:'OPEN'|'ACCEPTED'|'CANCELLED'; approval_reset?:boolean; documents_pending?:boolean; filename?:string; choices?:QuestionnaireChoices; preview_id?:string; receipt?:QuestionnaireReceipt;
@@ -49,7 +56,9 @@ export const questionnaireApi = {
   upload:(file:File)=>api<QuestionnaireDraft>('/arm2/questionnaires?filename='+encodeURIComponent(file.name),'POST',file),
   reopen:(id:string)=>api<QuestionnaireDraft>('/arm2/questionnaires/'+encodeURIComponent(id)),
   edit:(draft:QuestionnaireDraft,choices:QuestionnaireChoices)=>api<QuestionnaireDraft>('/arm2/questionnaires/'+draft.id,'PUT',{revision:draft.revision,choices}),
-  apply:(draft:QuestionnaireDraft,command_id:string,without_documents=false)=>api<QuestionnaireReceipt>('/arm2/questionnaires/'+draft.id+'/apply','POST',{command_id,revision:draft.revision,preview_id:draft.preview_id,...(without_documents?{without_documents:true}:{})}),
+  start:(draft:QuestionnaireDraft,command_id:string,without_documents=false)=>api<QuestionnaireOperation>('/arm2/questionnaires/'+draft.id+'/operation','POST',{command_id,revision:draft.revision,preview_id:draft.preview_id,...(without_documents?{without_documents:true}:{})}),
+  operation:(id:string,signal?:AbortSignal)=>api<QuestionnaireOperation|null>('/arm2/questionnaires/'+encodeURIComponent(id)+'/operation','GET',undefined,signal),
+  operations:(signal?:AbortSignal)=>api<QuestionnaireOperation[]>('/arm2/questionnaires/operations','GET',undefined,signal),
   cancel:(id:string)=>api<{id:string;status:string;cleanup?:{pending:number}}>('/arm2/questionnaires/'+id,'DELETE'),
   cleanupCandidates:()=>api<{id:string;filename:string;status:string}[]>('/arm2/questionnaires/cleanup'),
   cleanup:(id:string)=>api<{pending:number}>('/arm2/questionnaires/'+id+'/cleanup','POST',{}),

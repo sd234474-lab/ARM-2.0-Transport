@@ -29,6 +29,7 @@ from app.arm2.object_save import (
     SaveContext,
     update_object,
 )
+from app.arm2.operation_models import ACTIVE, BackgroundOperation
 from app.arm2.questionnaire_diff import CP_FIELDS, REP_FIELDS, VEH_EDIT_FIELDS, VEH_FIELDS, authorized, build
 from app.arm2.questionnaire_excel import build_workbook
 from app.arm2.questionnaire_models import (
@@ -54,6 +55,7 @@ from app.models import LoginSession, User
 from app.permissions import Permission, has_permission
 
 OLE_SIGNATURE = b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'
+APPLY_OPERATION = 'QUESTIONNAIRE_APPLY'
 
 
 class QuestionnaireDiskUnavailable(files.StorageUnavailable):
@@ -78,10 +80,10 @@ def attachment_format(path):
         return None, None, str(failure)
 
 
-def owned(db, user, identifier, *, open_only=True):
+def owned(db, user, identifier, *, open_only=True, lock=True):
     authorized(db, user, 'arm2_cp_view')
-    draft = db.scalar(select(QuestionnaireDraft).where(QuestionnaireDraft.id == identifier).with_for_update()
-                      .execution_options(populate_existing=True))
+    stmt = select(QuestionnaireDraft).where(QuestionnaireDraft.id == identifier)
+    draft = db.scalar((stmt.with_for_update() if lock else stmt).execution_options(populate_existing=True))
     if draft is None or draft.author_id != user.id:
         raise ObjectAuthorizationError('Черновик доступен только его автору')
     if open_only and draft.status != 'OPEN':
@@ -89,11 +91,29 @@ def owned(db, user, identifier, *, open_only=True):
     return draft
 
 
-def view(db, user, draft, *, reset_on_change=True):
+def active_apply(db, identifier):
+    return db.scalar(select(BackgroundOperation).where(
+        BackgroundOperation.kind == APPLY_OPERATION, BackgroundOperation.resource_id == identifier,
+        BackgroundOperation.state.in_(ACTIVE)))
+
+
+def require_idle(db, identifier, operation_id=None):
+    active = active_apply(db, identifier)
+    if active and active.id != operation_id:
+        raise ObjectVersionConflictError('Приёмка анкеты выполняется. Проверьте состояние в журнале загрузок')
+
+
+def view(db, user, draft, *, reset_on_change=True, read_only=False):
     if draft.status != 'OPEN':
-        receipt = db.scalar(select(QuestionnaireReceipt).where(QuestionnaireReceipt.draft_id == draft.id))
+        receipt = db.scalar(select(QuestionnaireReceipt).where(QuestionnaireReceipt.draft_id == draft.id)
+                            .order_by(QuestionnaireReceipt.accepted_at.desc()).limit(1))
         return {'id': draft.id, 'revision': draft.revision, 'status': draft.status,
                 'receipt': receipt.result if receipt else None}
+    if read_only or active_apply(db, draft.id):
+        return {'id': draft.id, 'revision': draft.revision, 'status': draft.status, 'filename': draft.filename,
+                'documents_pending': bool(draft.payload.get('_documents_pending')),
+                'choices': draft.choices, 'comparison': draft.preview,
+                'preview_id': review_hash(draft.preview, draft.choices)}
     # Existing V2 drafts predate the signer contact projection. Add proposals only;
     # ordinary comparison/approval guards still govern every saved representative field.
     added_contacts = {}
@@ -313,6 +333,7 @@ def propose_new(db, user, draft, previous):
 def edit(db, user, identifier, revision, choices):
     with attempt_lease(db, 'B5:' + identifier):
         draft = owned(db, user, identifier)
+        require_idle(db, identifier)
         if draft.revision != revision:
             raise ObjectVersionConflictError('Черновик изменён в другом окне; откройте его заново')
         if draft.preview and review_hash(build(db, user, draft), draft.choices) != review_hash(draft.preview, draft.choices):
@@ -492,7 +513,8 @@ def prepare_files(db, user, draft, comparison, docs, command_id, signature):
     return draft.staging['groups']
 
 
-def apply(db, principal, identifier, command_id, revision, preview_id, session_hash=None, *, without_documents=False):
+def apply(db, principal, identifier, command_id, revision, preview_id, session_hash=None, *,
+          without_documents=False, operation_id=None, progress=None):
     request = {'draft': identifier, 'command_id': command_id, 'revision': revision, 'preview_id': preview_id}
     if without_documents:
         request['without_documents'] = True
@@ -504,6 +526,7 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
             if old.author_id != principal.id or old.draft_id != identifier or old.fingerprint != signature:
                 raise ObjectVersionConflictError('UUID уже использован с другим содержимым')
             return old.result
+        require_idle(db, identifier, operation_id)
         # Revocation is an ACCESS failure even when it also changes the visible preview.
         decisions = draft.choices
         if decisions.get('cp_fields') or decisions.get('cp_target') == 'new' or any(r.get('target') for r in decisions.get('representatives', {}).values()):
@@ -521,24 +544,29 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
             raise ObjectVersionConflictError('Карточки изменены; повторно откройте сверку и подтвердите решения')
         cp_fields, reps, rows, docs = selected(comparison, draft.choices, without_documents=without_documents)
         groups = [] if without_documents else prepare_files(db, principal, draft, comparison, docs, command_id, signature)
-        for group in groups:
-            for item in group['files']:
-                if files.verify_remote(type('Metadata', (), item)):
-                    continue
+        originals = [item for group in groups for item in group['files']]
+        if progress and originals:
+            progress('TRANSFERRING', 0, len(originals))
+        for index, item in enumerate(originals, 1):
+            if not files.verify_remote(type('Metadata', (), item)):
                 if item['existing']:
-                    raise QuestionnaireDiskUnavailable('Текущий оригинал недоступен; SQL-публикация отменена')
+                    raise QuestionnaireDiskUnavailable('Текущий оригинал недоступен в хранилище документов')
                 stage = db.get(QuestionnaireUpload, item['upload_id'])
                 path = files.verified_stage(stage)
                 db.commit()
                 try:
                     files.storage().upload(path, item['storage_ref'], item['sha256'])
                 except Exception:
-                    raise QuestionnaireDiskUnavailable('Хранилище не подтвердило оригинал; повторите ту же команду') from None
+                    raise QuestionnaireDiskUnavailable('Яндекс.Диск не подтвердил загрузку файла') from None
                 if not files.verify_remote(type('Metadata', (), item)):
-                    raise QuestionnaireDiskUnavailable('Хранилище не подтвердило SHA/размер; карточки не изменены')
+                    raise QuestionnaireDiskUnavailable('Яндекс.Диск не подтвердил целостность загруженного файла')
                 stage = db.get(QuestionnaireUpload, item['upload_id'])
                 stage.state = 'UPLOADED'
                 db.commit()  # Private uploaded ledger, not accepted FILE/DOCUMENT.
+            if progress:
+                progress('TRANSFERRING', index, len(originals))
+        if progress:
+            progress('SAVING', len(originals), len(originals))
         try:
             draft = owned(db, principal, identifier)
             # Follow B3 kind->parent lock order, B2 VEH->CP order. Common SAVE rechecks under these locks.
@@ -628,7 +656,10 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
             published_documents = {}
             for group in groups:
                 parent_id = identities.get(group['parent_key']) or group['parent_id']
-                published = publish_prepared_revision_in_transaction(db, {**group, 'parent_id': parent_id}, user, context)
+                try:
+                    published = publish_prepared_revision_in_transaction(db, {**group, 'parent_id': parent_id}, user, context)
+                except files.StorageUnavailable:
+                    raise QuestionnaireDiskUnavailable('Яндекс.Диск не подтвердил целостность файла перед сохранением') from None
                 outcomes.append({'kind': 'DOCUMENT', **published})
                 group_key = group['document_id'] or f"{group['parent_key']}:{group['kind_id']}"
                 published_documents[group_key] = published['document_id']
@@ -721,6 +752,7 @@ def cleanup_local(db, draft_id):
 def cancel(db, user, identifier):
     with attempt_lease(db, 'B5:' + identifier):
         draft = owned(db, user, identifier)
+        require_idle(db, identifier)
         draft.status = 'CANCELLED'
         draft.payload, draft.choices, draft.preview, draft.staging = {}, {}, {}, {}
         db.commit()

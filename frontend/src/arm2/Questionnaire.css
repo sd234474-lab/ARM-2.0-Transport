@@ -40,3 +40,5 @@
 .arm2-questionnaire-preview { margin: 16px auto; padding: 0 16px; max-width: 1100px; font-family: system-ui, sans-serif; }
 .arm2-questionnaire .arm2-storage-dialog[open] { position:fixed; inset:0; margin:auto; width:min(640px,90vw); max-height:85vh; overflow:auto; z-index:1000; padding:1.25rem; border:1px solid var(--line,#dbe4df); border-radius:10px; background:var(--panel,#fff); color:inherit; }
 .arm2-questionnaire .arm2-storage-dialog::backdrop { background:rgb(0 0 0 / 45%); }
+.arm2-questionnaire-operation { background:var(--arm2-catalog-tint); border:1px solid var(--border,#8886); margin:10px 0; padding:10px 12px; border-radius:8px; }
+.arm2-questionnaire-operation p { margin:4px 0 0; }

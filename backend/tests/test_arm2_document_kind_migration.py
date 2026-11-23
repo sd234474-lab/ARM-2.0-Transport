@@ -49,7 +49,7 @@ def test_upgrade_downgrade_roundtrip_preserves_legacy_objects_history_and_ids(is
     settings.cache_clear()
     engine = create_engine(isolated_arm2_database_url, poolclass=NullPool)
     try:
-        assert ScriptDirectory.from_config(configuration()).get_heads() == ["0073"]
+        assert ScriptDirectory.from_config(configuration()).get_heads() == ["0074"]
         # This test exercises the historical B3 migration boundary. New TYPE
         # categories and their guarded downgrade have their own B4 tests.
         command.downgrade(configuration(), "0064")
@@ -132,7 +132,7 @@ def test_downgrade_refuses_existing_document_kind_data_without_deleting_it(isola
         assert snapshot(engine) == before
         assert "arm2_document_kinds" in inspect(engine).get_table_names()
         with engine.connect() as conn:
-            assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0073"
+            assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0074"
             if existing == "row":
                 assert conn.scalar(text("SELECT name FROM arm2_document_kinds")) == "Сохранить"
     finally:

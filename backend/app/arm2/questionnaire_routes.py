@@ -13,7 +13,9 @@ from starlette.concurrency import run_in_threadpool
 from starlette.responses import FileResponse
 
 from app.arm2 import document_file_storage as files
+from app.arm2 import questionnaire_jobs as jobs
 from app.arm2 import questionnaire_store as store
+from app.arm2.background_operations import operation_lifespan
 from app.arm2.http_errors import CONTROLLED_ERRORS, controlled_error, rollback
 from app.arm2.http_limits import bounded_route
 from app.arm2.questionnaire_diff import authorized
@@ -23,7 +25,8 @@ from app.auth import CurrentUser, Db
 
 BoundedRoute = bounded_route(MAX_COMPRESSED, "Транспорт больше 32 МиБ")
 
-router = APIRouter(prefix='/questionnaires', route_class=BoundedRoute)
+router = APIRouter(prefix='/questionnaires', route_class=BoundedRoute,
+                   lifespan=operation_lifespan({store.APPLY_OPERATION: jobs.apply_job}))
 
 
 class Command(BaseModel):
@@ -150,6 +153,11 @@ def cleanup_candidates(db: Db, user: CurrentUser):
     return translated(db, operation)
 
 
+@router.get('/operations')
+def operations(db: Db, user: CurrentUser):
+    return translated(db, lambda: jobs.journal(db, user))
+
+
 @router.post('', status_code=201)
 async def upload(request: Request, db: Db, user: CurrentUser,
                  filename: Annotated[str, Query(max_length=255)] = 'questionnaire.xlsx'):
@@ -159,7 +167,13 @@ async def upload(request: Request, db: Db, user: CurrentUser,
 
 @router.get('/{identifier}')
 def reopen(identifier: UUID, db: Db, user: CurrentUser):
-    return translated(db, lambda: store.view(db, user, store.owned(db, user, str(identifier), open_only=False)))
+    def operation():
+        key = str(identifier)
+        draft = store.owned(db, user, key, open_only=False, lock=False)
+        if store.active_apply(db, key):
+            return store.view(db, user, draft, read_only=True)
+        return store.view(db, user, store.owned(db, user, key, open_only=False))
+    return translated(db, operation)
 
 
 @router.put('/{identifier}')
@@ -173,6 +187,18 @@ def apply(identifier: UUID, body: Apply, request: Request, db: Db, user: Current
     return translated(db, lambda: store.apply(db, user, str(identifier), str(body.command_id), body.revision,
         body.preview_id, session_hash=session.token_hash if session else None,
         without_documents=body.without_documents), questionnaire_apply=True)
+
+
+@router.get('/{identifier}/operation')
+def operation_state(identifier: UUID, db: Db, user: CurrentUser):
+    return translated(db, lambda: jobs.state_for(db, user, str(identifier)))
+
+
+@router.post('/{identifier}/operation', status_code=202)
+def start_operation(identifier: UUID, body: Apply, request: Request, db: Db, user: CurrentUser):
+    session = getattr(request.state, 'login_session', None)
+    return translated(db, lambda: jobs.enqueue(db, user, str(identifier), str(body.command_id), body.revision,
+        body.preview_id, session.token_hash if session else None, body.without_documents))
 
 
 @router.delete('/{identifier}')

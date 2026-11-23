@@ -5,6 +5,8 @@ import io
 import stat
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
+from threading import Event
+from time import monotonic, sleep
 from uuid import uuid4
 
 import pytest
@@ -23,6 +25,7 @@ from app.arm2.counterparty_models import Counterparty
 from app.arm2.document_file_models import DocumentFile
 from app.arm2.document_models import Document
 from app.arm2.history_models import HistoryEvent
+from app.arm2.operation_models import BackgroundOperation
 from app.arm2.questionnaire_models import (
     QuestionnaireDraft,
     QuestionnaireExport,
@@ -120,6 +123,101 @@ def doc_kind(c, name='СТС', parent='VEH'):
 
 def file_choices(draft, kind):
     return {d['key']: {'kind_id': kind, 'accept': True} for d in draft['comparison']['documents'] if d.get('upload_id')}
+
+
+def operation_endpoint(draft):
+    return '/api/arm2/questionnaires/' + draft['id'] + '/operation'
+
+
+def operation_command(draft):
+    return {'command_id': str(uuid4()), 'revision': draft['revision'], 'preview_id': draft['preview_id']}
+
+
+def wait_operation(client, draft, state):
+    deadline = monotonic() + 12
+    while monotonic() < deadline:
+        result = check(client.get(operation_endpoint(draft)))
+        if result and result['state'] == state:
+            return result
+        if result and result['state'] in ('SUCCEEDED', 'FAILED'):
+            pytest.fail(f"Unexpected operation outcome: {result['state']} {result.get('failure')}")
+        sleep(0.05)
+    pytest.fail('Background operation did not reach ' + state)
+
+
+def background_draft(client, parent):
+    kind = doc_kind(client, name='Карточка предприятия', parent='CP')
+    data = transport(workbook({'B18': 'Synthetic background phone', 'B28': 'card.pdf'}), {'card.pdf': pdf()})
+    draft = upload(client, data, True)
+    return choose(client, draft, cp_target=parent, cp_fields=['phone'], documents=file_choices(draft, kind))
+
+
+def test_background_acceptance_shows_real_progress_and_coalesces_requests(b5, monkeypatch):
+    client, db, _, parents, _, disk = b5
+    entered, release = Event(), Event()
+    upload_original = disk.upload
+
+    def hold_upload(*args):
+        entered.set()
+        assert release.wait(12)
+        return upload_original(*args)
+
+    monkeypatch.setattr(disk, 'upload', hold_upload)
+    draft = background_draft(client, parents['cp'])
+    before = snapshot(db)
+    path = operation_endpoint(draft)
+    body = operation_command(draft)
+    try:
+        queued = check(client.post(path, json=body), 202)
+        assert queued['id'] == body['command_id'] and queued['state'] == 'QUEUED'
+        assert entered.wait(10)
+        progress = wait_operation(client, draft, 'RUNNING')
+        assert progress['progress'] == {'phase': 'TRANSFERRING', 'done': 0, 'total': 1}
+        assert check(client.post(path, json=operation_command(draft)), 202)['id'] == queued['id']
+        assert check(client.get('/api/arm2/questionnaires/operations'))[0]['id'] == queued['id']
+        assert reopen(client, draft)['revision'] == draft['revision']
+        assert client.delete(path.removesuffix('/operation')).status_code == 409
+        assert snapshot(db) == before
+    finally:
+        release.set()
+    saved = wait_operation(client, draft, 'SUCCEEDED')
+    assert {entry['kind'] for entry in saved['receipt']['objects']} == {'CP', 'DOCUMENT'}
+    assert count(db, QuestionnaireReceipt) == 1 and len(disk.uploads) == 1
+    assert check(client.post(path, json=body), 202)['receipt'] == saved['receipt']
+    assert reopen(client, draft)['status'] == 'ACCEPTED'
+    assert 'payload' not in saved and 'session_hash' not in saved
+
+
+def test_background_failure_is_explicit_and_orphaned_running_job_recovers(b5, monkeypatch):
+    from app.arm2 import background_operations
+
+    client, db, _, parents, _, disk = b5
+    draft = background_draft(client, parents['cp'])
+    before = snapshot(db)
+    disk.fail_at = 0
+    path = operation_endpoint(draft)
+    failed_id = check(client.post(path, json=operation_command(draft)), 202)['id']
+    failed = wait_operation(client, draft, 'FAILED')
+    assert failed['failure']['code'] == 'STORAGE' and failed['failure']['can_save_without_documents']
+    assert not failed['receipt'] and snapshot(db) == before
+    assert reopen(client, draft)['choices'] == draft['choices']
+
+    # Persist the state left by a dead process before the next worker starts.
+    disk.fail_at = None
+    work = background_operations.work_once
+    with monkeypatch.context() as offline:
+        offline.setattr(background_operations, 'work_once', lambda *_: False)
+        queued = check(client.post(path, json=operation_command(draft)), 202)
+        row = db.get(BackgroundOperation, queued['id'], populate_existing=True)
+        assert row.payload['command_id'] == failed_id
+        row.state = 'RUNNING'
+        db.commit()
+        assert check(client.get(path))['state'] == 'RUNNING'
+    assert background_operations.work_once is work
+    saved = wait_operation(client, draft, 'SUCCEEDED')
+    assert saved['receipt']['command_id'] == failed_id
+    assert len(disk.uploads) == 1 and count(db, QuestionnaireReceipt) == 1
+    assert check(client.get('/api/arm2/questionnaires/operations'))[0]['id'] == queued['id']
 
 
 @pytest.mark.parametrize('cp_accept,rep_accept', [(True, True), (True, False), (False, True)])

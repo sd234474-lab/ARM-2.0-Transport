@@ -219,7 +219,7 @@ def test_migration_0072_to_0073_preserves_data_and_guards_naming_history(qa):
     from alembic import command
     c, db, *_ = qa
     config = Config(str(Path(__file__).resolve().parents[1] / 'alembic.ini'))
-    assert ScriptDirectory.from_config(config).get_heads() == ['0073']
+    assert ScriptDirectory.from_config(config).get_heads() == ['0074']
     before = db.execute(select(DocumentKind.id, DocumentKind.name, DocumentKind.version, DocumentKind.file_naming_template)).all()
     db.rollback()
     command.downgrade(config, '0072')

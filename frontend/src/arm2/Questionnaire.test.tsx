@@ -5,7 +5,7 @@ import {createRoot} from 'react-dom/client';
 import {MemoryRouter} from 'react-router-dom';
 import {afterEach, beforeEach, expect, it, vi} from 'vitest';
 import {api, ApiError} from '../api';
-import type {QuestionnaireDraft, QuestionnaireReceipt} from './api';
+import type {QuestionnaireDraft, QuestionnaireOperation, QuestionnaireReceipt} from './api';
 import * as questionnaireTransport from './api';
 import Questionnaire, {QuestionnaireExport} from './Questionnaire';
 import {errorText} from './model';
@@ -17,12 +17,18 @@ vi.mock('pdfjs-dist',()=>({getDocument:vi.fn(),GlobalWorkerOptions:{workerSrc:''
 vi.mock('../api',async original=>({...await original<typeof import('../api')>(),api:vi.fn()}));
 let host:HTMLDivElement,root:ReturnType<typeof createRoot>,draft:QuestionnaireDraft,receipt:QuestionnaireReceipt;
 let lost=false,applied=false,stale=false;
+let job:QuestionnaireOperation|null;
 const clone=<T,>(value:T):T=>structuredClone(value);
 const tick=()=>new Promise(resolve=>setTimeout(resolve,5));
+function operation(body:unknown,state:QuestionnaireOperation['state'],extra:Partial<QuestionnaireOperation>={}) {
+  const request=body as {command_id:string;revision:number;without_documents?:boolean};
+  return {id:request.command_id,draft_id:draft.id,filename:draft.filename!,revision:request.revision,
+    updated_at:receipt.accepted_at,without_documents:!!request.without_documents,state,progress:{phase:'SAVING'},...extra} satisfies QuestionnaireOperation;
+}
 beforeEach(()=>{
   (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
   host=document.createElement('div');document.body.append(host);root=createRoot(host);
-  lost=applied=stale=false;
+  lost=applied=stale=false;job=null;
   draft={id:'00000000-0000-4000-8000-000000000005',revision:1,status:'OPEN',filename:'synthetic.xlsx',preview_id:'a'.repeat(64),choices:{cp_fields:[]},comparison:{
     cp:{key:'CP',id:null,target:null,version:null,hint:'Hint only',error:'Choose CP',candidates:[{id:'CP-000001',name:'Synthetic CP',inn:null}],fields:{phone:{current:'old',proposed:'new',selected:false,equal:false,error:null},name:{current:'Same',proposed:'Same',selected:false,equal:true,error:null}}},
     representatives:[],vehicles:[],documents:[],types:[],document_kinds:[],warnings:[],filled_date:'2026-10-21',uploaded_at:'2026-11-18T08:00:00+00:00'}};
@@ -30,6 +36,8 @@ beforeEach(()=>{
   vi.mocked(api).mockReset();vi.mocked(api).mockImplementation(async(path,method='GET',body)=>{
     if(path==='/arm2/questionnaires'&&method==='GET')return [{id:draft.id,filename:draft.filename,revision:draft.revision,uploaded_at:draft.comparison?.uploaded_at}];
     if(path==='/arm2/questionnaires/receipts')return applied?[clone(receipt)]:[];
+    if(path==='/arm2/questionnaires/operations')return job?[clone(job)]:[];
+    if(path.endsWith('/operation')&&method==='GET')return clone(job);
     if(path.startsWith('/arm2/questionnaires?')&&method==='POST')return clone(draft);
     if(path==='/arm2/questionnaires/'+draft.id&&method==='GET')return applied?{...clone(draft),status:'ACCEPTED',receipt:clone(receipt)}:clone(draft);
     if(path==='/arm2/questionnaires/'+draft.id&&method==='PUT'){
@@ -53,12 +61,13 @@ beforeEach(()=>{
       }
       return clone(draft);
     }
-    if(path.endsWith('/apply')){
+    if(path.endsWith('/operation')&&method==='POST'){
       if(stale)throw new ApiError(409,'Сверка устарела');
       receipt.command_id=(body as {command_id:string}).command_id;
       applied=true;
+      job=operation(body,'SUCCEEDED',{receipt:clone(receipt)});
       if(lost){lost=false;throw new Error('Connection lost after commit');}
-      return clone(receipt);
+      return clone(job);
     }
     if(method==='DELETE')return {status:'CANCELLED'};
     if(path==='/arm2/counterparties/CP-000001')return {id:'CP-000001',name:'Synthetic CP'};
@@ -85,7 +94,7 @@ it('edits an invalid BIK as text and only accepts the saved draft revision', asy
   expect(draft.choices?.cp_edits).toEqual({bik:'012345678'});
   expect(draft.choices?.cp_fields).toContain('bik');
   await click('Принять изменения');
-  expect(vi.mocked(api).mock.calls.find(([path])=>path.endsWith('/apply'))?.[2]).toMatchObject({revision:draft.revision});
+  expect(vi.mocked(api).mock.calls.find(([path,method])=>path.endsWith('/operation')&&method==='POST')?.[2]).toMatchObject({revision:draft.revision});
 });
 
 it('CSP permits only same-origin/blob PDF workers; renderer errors retain the original download',async()=>{
@@ -190,11 +199,11 @@ it('CP clear is an explicit draft action, mutually exclusive with set, and ident
   await act(async()=>{const control=host.querySelector<HTMLSelectElement>('select[aria-label="Решение Организационно-правовая форма"]')!;control.value='clear';control.dispatchEvent(new Event('change',{bubbles:true}));await tick();});
   expect(draft.choices?.cp_clears).toEqual(['legal_form']);
   expect(draft.choices?.cp_fields).not.toContain('legal_form');
-  expect(vi.mocked(api).mock.calls.some(([p])=>p.endsWith('/apply'))).toBe(false);
+  expect(vi.mocked(api).mock.calls.some(([p,method])=>p.endsWith('/operation')&&method==='POST')).toBe(false);
   await act(async()=>{[...host.querySelectorAll('label')].find(l=>l.textContent?.startsWith('Подтверждаю использование выбранного контрагента'))!.querySelector<HTMLInputElement>('input')!.click();await tick();});
   expect(draft.choices?.confirm_identity).toBe(true);
   await click('Отклонить загрузку целиком');
-  expect(vi.mocked(api).mock.calls.some(([p])=>p.endsWith('/apply'))).toBe(false);
+  expect(vi.mocked(api).mock.calls.some(([p,method])=>p.endsWith('/operation')&&method==='POST')).toBe(false);
 });
 
 it('receipt displays actual before/after fields and a direct card link',async()=>{
@@ -221,7 +230,7 @@ it('V3 signer conflict needs an explicit source and a separate field approval; n
   expect(draft.choices!.representatives!['0'].fields).toEqual([]);
   await act(async()=>{const select=host.querySelector<HTMLSelectElement>('select[aria-label="Решение Рабочее имя"]')!;select.value='set';select.dispatchEvent(new Event('change',{bubbles:true}));await tick();});
   expect(draft.choices!.representatives!['0'].fields).toEqual(['name']);
-  expect(vi.mocked(api).mock.calls.some(([path])=>path.endsWith('/apply'))).toBe(false);
+  expect(vi.mocked(api).mock.calls.some(([path,method])=>path.endsWith('/operation')&&method==='POST')).toBe(false);
   expect(host.querySelector('input[name="user_id"]')).toBeNull();
 });
 
@@ -232,7 +241,7 @@ it('T01 opens comparison on file selection with no second upload confirmation an
   expect(host.textContent).not.toContain('Hint only');
   expect(api).toHaveBeenCalledWith('/arm2/questionnaires?filename=synthetic.xlsx','POST',expect.any(File));
   expect(vi.mocked(api).mock.calls.some(([path, method])=>path==='/arm2/questionnaires/'+draft.id && method==='GET')).toBe(false);
-  expect(vi.mocked(api).mock.calls.some(([p])=>p.endsWith('/apply'))).toBe(false);
+  expect(vi.mocked(api).mock.calls.some(([p,method])=>p.endsWith('/operation')&&method==='POST')).toBe(false);
 });
 
 it('T03/T05 only explicitly selected unequal fields are persisted in the draft before atomic SAVE',async()=>{
@@ -252,26 +261,27 @@ it.each([false,true])('storage failure offers an explicit separate data-only com
   let saved:QuestionnaireReceipt|undefined,interrupted=false;
   const requests:{command_id:string;revision:number;preview_id?:string;without_documents?:boolean}[]=[];
   vi.mocked(api).mockImplementation(async(path,method='GET',body)=>{
-    if(path.endsWith('/apply')){
+    if(path.endsWith('/operation')&&method==='POST'){
       const request=body as typeof requests[number];requests.push(clone(request));
-      if(!request.without_documents)throw new ApiError(503,{code:'QUESTIONNAIRE_STORAGE_UNAVAILABLE',can_save_without_documents:true,message:'storage unavailable'});
+      if(!request.without_documents){job=operation(body,'FAILED',{failure:{code:'STORAGE',retryable:true,can_save_without_documents:true,message:'Яндекс.Диск не подтвердил сохранение'}});return job;}
       saved||={...clone(receipt),command_id:request.command_id,without_documents:true,documents_pending:true};
+      job=operation(body,'SUCCEEDED',{receipt:clone(saved)});
       if(lostResponse&&!interrupted){interrupted=true;throw new TypeError('Failed to fetch');}
-      return clone(saved);
+      return clone(job);
     }
-    if(saved&&path==='/arm2/questionnaires/'+draft.id&&method==='GET')return {...clone(draft),revision:2,documents_pending:true,receipt:clone(saved)};
+    if(saved&&path==='/arm2/questionnaires/'+draft.id&&method==='GET')return {...clone(draft),revision:draft.revision+1,documents_pending:true,receipt:clone(saved)};
     return original(path,method,body);
   });
   await mount('/arm2/questionnaires?draft='+draft.id);await selectCP();await acceptPhone();
   await click('Принять изменения');
-  expect(host.textContent).toContain('Сейчас нет доступа к хранилищу документов на Яндекс.Диске');
+  expect(host.textContent).toContain('Яндекс.Диск не подтвердил сохранение');
   expect(host.querySelector<HTMLDialogElement>('dialog')?.open).toBe(true);
   expect(requests).toHaveLength(1);expect(requests[0].without_documents).toBeUndefined();
   await click('Сохранить выбранные данные без документов');
-  if(lostResponse)await click('Повторить ту же команду');
+  if(lostResponse)await act(async()=>{await tick();});
   expect(requests[1].without_documents).toBe(true);
   expect(requests[1].command_id).not.toBe(requests[0].command_id);
-  if(lostResponse)expect(requests[2]).toEqual(requests[1]);
+  expect(requests).toHaveLength(2);
   expect(host.textContent).toContain('Данные сохранены без документов');
   expect(host.textContent).toContain('Для дозагрузки проверьте привязки');
   expect(host.querySelector('[aria-label="Сверка анкеты"]')).not.toBeNull();
@@ -280,7 +290,10 @@ it.each([false,true])('storage failure offers an explicit separate data-only com
 it('leaves the storage failure dialog without saving or losing choices and unlocks review',async()=>{
   const original=vi.mocked(api).getMockImplementation()!;
   vi.mocked(api).mockImplementation(async(path,method='GET',body)=>{
-    if(path.endsWith('/apply'))throw new ApiError(503,{code:'QUESTIONNAIRE_STORAGE_UNAVAILABLE'});
+    if(path.endsWith('/operation')&&method==='POST'){
+      job=operation(body,'FAILED',{failure:{code:'STORAGE',retryable:true,can_save_without_documents:true,message:'Яндекс.Диск недоступен'}});
+      return job;
+    }
     return original(path,method,body);
   });
   await mount('/arm2/questionnaires?draft='+draft.id);await selectCP();await acceptPhone();
@@ -290,22 +303,34 @@ it('leaves the storage failure dialog without saving or losing choices and unloc
   expect(host.querySelector('dialog')).toBeNull();
   const save=[...host.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent==='Принять изменения')!;
   expect(save.disabled).toBe(false);expect(draft.choices?.cp_fields).toContain('phone');
-  expect(vi.mocked(api).mock.calls.filter(([p])=>p.endsWith('/apply'))).toHaveLength(1);
+  expect(vi.mocked(api).mock.calls.filter(([p,method])=>p.endsWith('/operation')&&method==='POST')).toHaveLength(1);
   await click('Принять изменения');
   const dialog=host.querySelector<HTMLDialogElement>('dialog')!;
   await act(async()=>{dialog.dispatchEvent(new Event('cancel',{cancelable:true}));await tick();});
   expect(host.querySelector('dialog')).toBeNull();expect(save.disabled).toBe(false);
 });
 
-it('T04 a lost response retries the exact same command UUID and never uses per-VEH bulk apply',async()=>{
+it('T04 a lost start response recovers the saved result by reading status without another write',async()=>{
   await mount('/arm2/questionnaires?draft='+draft.id);await selectCP();await acceptPhone();lost=true;
   await click('Принять изменения');
-  expect(host.textContent).toContain('Проверьте результат запроса');
-  await click('Повторить ту же команду');
-  const calls=vi.mocked(api).mock.calls.filter(([p])=>p.endsWith('/apply'));
-  expect(calls).toHaveLength(2);expect(calls[1][2]).toEqual(calls[0][2]);
+  await act(async()=>{await tick();});
+  const calls=vi.mocked(api).mock.calls.filter(([p,method])=>p.endsWith('/operation')&&method==='POST');
+  expect(calls).toHaveLength(1);
   expect(calls.every(([p])=>p.startsWith('/arm2/questionnaires/'))).toBe(true);
   expect(host.textContent).toContain('Изменения приняты');
+});
+
+it('reopens a running acceptance and displays progress without registering a new job',async()=>{
+  job=operation({command_id:'running',revision:draft.revision},'RUNNING',{progress:{phase:'TRANSFERRING',done:14,total:20}});
+  await mount('/arm2/questionnaires?draft='+draft.id);
+  expect(host.textContent).toContain('Подготовлено файлов: 14 из 20');
+  expect(host.textContent).toContain('Можно перейти к другой работе');
+  expect([...host.querySelectorAll('button')].find(b=>b.textContent==='Принять изменения')?.disabled).toBe(true);
+  expect(vi.mocked(api).mock.calls.filter(([p,method])=>p.endsWith('/operation')&&method==='POST')).toHaveLength(0);
+  job={...job,state:'SUCCEEDED',receipt:clone(receipt)};
+  applied=true;
+  await act(async()=>{await new Promise(resolve=>setTimeout(resolve,2100));});
+  expect(host.querySelector('[aria-label="Протокол приёмки анкеты"]')).not.toBeNull();
 });
 
 it('T24 a 409 preserves the server draft and offers explicit reopen before changing decisions',async()=>{
@@ -322,7 +347,7 @@ it('T23 cancelling the whole package clears the review without calling SAVE',asy
   await mount('/arm2/questionnaires?draft='+draft.id);await click('Отклонить загрузку целиком');
   expect(api).toHaveBeenCalledWith('/arm2/questionnaires/'+draft.id,'DELETE');
   expect(host.querySelector('[aria-label="Сверка анкеты"]')).toBeNull();
-  expect(vi.mocked(api).mock.calls.some(([p])=>p.endsWith('/apply'))).toBe(false);
+  expect(vi.mocked(api).mock.calls.some(([p,method])=>p.endsWith('/operation')&&method==='POST')).toBe(false);
 });
 
 it('T25/T28 reopen shows separate completion/upload dates and accepted receipt date',async()=>{
