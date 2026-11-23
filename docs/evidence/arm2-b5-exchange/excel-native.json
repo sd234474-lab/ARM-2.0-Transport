@@ -1,0 +1,32 @@
+{
+  "changed_vehicle_selector": "PASS",
+  "new_vehicle_mode": "PASS",
+  "real_excel_recalculation": "PASS",
+  "classification": "AUTHOR-RUN synthetic Excel COM; not operator acceptance or UAT",
+  "hidden_catalog": "PASS",
+  "format": "ARM_IMPORT_V3",
+  "excel_version": "16.0",
+  "single_signer_projection": "PASS",
+  "withdrawal_identity": "PASS",
+  "archive_catalog_selection": "PASS",
+  "named_range_dropdown": "PASS",
+  "recalculated_workbook_reimport": "PASS",
+  "protected_manifest_after_excel_save": "PASS",
+  "bank_zero_preservation": "PASS",
+  "parsed_vehicle_rows": 3,
+  "parsed_representatives": 1,
+  "recalculated_xlsx_sha256": "5d2b7700577039045186ca7386cf414b8b30d0fad9ddf57eda54b5d00e8f21b9",
+  "initial_xlsx_sha256": "62503aa45916262be865503bb36d4a679a3eed326896e512e86bdfa049def822",
+  "implementation_start_commit": "7a4ae66a74b45efe88b9098b6225b749ba0fc282",
+  "source_sha256_lf": {
+    "backend/app/arm2/questionnaire_excel.py": "a53cc69e1924cd0e0d3058385c774385296729eced8a407aa26f1aa34f936bd8",
+    "backend/app/arm2/questionnaire_parse.py": "5907ba040c1316d22e3c6e053fc15ab7f336365116e464917c19d4ceb4584fc5",
+    "backend/app/arm2/questionnaire_diff.py": "a026066acb12847c5d1f181224a80826ba39d6a530b57006be9db6bde5e3bd34",
+    "backend/app/arm2/questionnaire_store.py": "8babded798fdfb30971e790f0d8de908d723f361a38878f8771861fe128ab761",
+    "backend/app/arm2/questionnaire_routes.py": "c6c931d6b1183ff0c36f04ff5057d79bab0d287644260e1eee5988137ee415d4",
+    "frontend/src/arm2/Questionnaire.tsx": "0326d5f227221befca469cb85ea7a1d524bca50ad87b5491ed2d3124e38288be",
+    "frontend/src/arm2/api.ts": "11c33bc46d20bf4c53b7dc9bbb03e26d18fce51f71250351b1b29ebbe36cdc54",
+    "backend/tests/fixtures/arm_import_v2_anonymized.json": "103fd48f33f5bb067d4e85b5105a1102558c5278b378d04949e7a89a92b2d722",
+    "backend/tests/test_arm2_questionnaire_exchange.py": "02353d45cd392cfce405df7ce8c15e4c65273b0d47c499689fffe8bfc9375511"
+  }
+}

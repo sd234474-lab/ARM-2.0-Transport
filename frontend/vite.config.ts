@@ -8,7 +8,7 @@ export default defineConfig(({command, mode}) => {
   const apiTarget = process.env.VITE_API_TARGET || 'http://127.0.0.1:8000';
   return {
     build: mode === 'citizens' ? {outDir: 'dist-citizens', rollupOptions: {input: 'citizens.html'}} :
-      {rollupOptions: {input: {main: 'index.html', citizens: 'citizens.html'}}},
+      {rollupOptions: {input: {main: 'index.html', citizens: 'citizens.html', questionnairePreview: 'questionnaire-preview.html'}}},
     define: { __APP_VERSION__: JSON.stringify(version) },
     plugins: [react(), {
       name: 'app-version',

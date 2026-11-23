@@ -1,0 +1,1427 @@
+"""T01–T33 AUTHOR-RUN: native auth/API -> SQL/FILE/HIST -> reopen; synthetic only."""
+import base64
+import hashlib
+import io
+import re
+import stat
+import zipfile
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
+from time import monotonic, sleep
+from uuid import uuid4
+
+import pytest
+from fastapi.testclient import TestClient
+from openpyxl import Workbook, load_workbook
+from PIL import Image
+from sqlalchemy import event, func, select, text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
+from test_arm2_document_file_api import accept, bundle, create, pdf, stage
+from test_arm2_document_file_api import api as api
+from test_arm2_document_file_api import qa as qa
+from test_arm2_vehicle_links import command, current
+
+from app.arm2.counterparty_models import Counterparty
+from app.arm2.document_file_models import DocumentFile
+from app.arm2.document_models import Document
+from app.arm2.history_models import HistoryEvent
+from app.arm2.operation_models import BackgroundOperation
+from app.arm2.questionnaire_models import (
+    QuestionnaireDraft,
+    QuestionnaireExport,
+    QuestionnaireReceipt,
+    QuestionnaireUpload,
+)
+from app.arm2.questionnaire_parse import MANIFEST, PASSPORT, VEHICLES
+from app.arm2.representative_models import CounterpartyRepresentative
+from app.arm2.vehicle_models import Vehicle
+from app.auth import hasher
+from app.models import User
+
+
+def workbook(cp=None, rows=None, extra=None):
+    book = Workbook()
+    passport = book.active
+    passport.title = PASSPORT
+    passport['B3'] = 'ARM_IMPORT_V2'
+    for key, value in (cp or {}).items():
+        passport[key] = value
+    sheet = book.create_sheet(VEHICLES)
+    for index, row in enumerate(rows or [], 5):
+        row = {'C': 'НОВАЯ' if row.get('I') else 'ИЗ СПРАВОЧНИКА', **row}
+        for col, value in row.items():
+            sheet[f'{col}{index}'] = value
+    book.create_sheet('Инструкция')['A1'] = 'Synthetic QA only'
+    book.create_sheet('Справочники')['A1'] = 'No arbitrary details'
+    if extra:
+        extra(book)
+    output = io.BytesIO()
+    book.save(output)
+    book.close()
+    return output.getvalue()
+
+
+def transport(book, attachments):
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('questionnaire.xlsx', book)
+        for name, data in attachments.items():
+            archive.writestr(name, data)
+    return output.getvalue()
+
+
+def check(response, status=200):
+    assert response.status_code == status, response.text[:1000]
+    return response.json()
+
+
+@pytest.fixture
+def b5(qa, monkeypatch):
+    monkeypatch.setenv('ARM2_TABLE_SIGNING_KEY', 'synthetic-b5-signing-key-no-live-secret-2026')
+    from app.config import settings
+    settings.cache_clear()
+    yield qa
+
+
+def upload(c, content, zip=False):
+    return check(c.post('/api/arm2/questionnaires', params={'filename': 'synthetic.zip' if zip else 'synthetic.xlsx'}, content=content), 201)
+
+
+def choose(c, draft, **choices):
+    return check(c.put('/api/arm2/questionnaires/' + draft['id'], json={'revision': draft['revision'],
+        'choices': {**draft.get('choices', {}), **choices}}))
+
+
+def apply(c, draft, status=200, body=None, *, without_documents=False):
+    body = body or {'command_id': str(uuid4()), 'revision': draft['revision'], 'preview_id': draft['preview_id']}
+    if without_documents:
+        body = {**body, 'without_documents': True}
+    result = check(c.post('/api/arm2/questionnaires/' + draft['id'] + '/apply', json=body), status)
+    return result, body
+
+
+def reopen(c, draft):
+    return check(c.get('/api/arm2/questionnaires/' + draft['id']))
+
+
+def count(db, model):
+    db.expire_all()
+    return db.scalar(select(func.count()).select_from(model))
+
+
+def snapshot(db):
+    db.rollback()
+    return {table: db.execute(text(f'SELECT row_to_json(t)::text FROM {table} t ORDER BY 1')).scalars().all()
+            for table in ('arm2_counterparties', 'nsi_counterparty_representatives', 'arm2_vehicles',
+                          'arm2_documents', 'arm2_document_files', 'arm2_document_revisions', 'arm2_history_events')}
+
+
+def doc_kind(c, name='СТС', parent='VEH'):
+    return check(c.post('/api/arm2/document-kinds', json={'name': name, 'applicable_object_types': [parent],
+        'max_current_documents': None, 'file_naming_template': 'DOCUMENT_NAME'}), 201)['id']
+
+
+def file_choices(draft, kind):
+    return {d['key']: {'kind_id': kind, 'accept': True} for d in draft['comparison']['documents'] if d.get('upload_id')}
+
+
+def operation_endpoint(draft):
+    return '/api/arm2/questionnaires/' + draft['id'] + '/operation'
+
+
+def operation_command(draft):
+    return {'command_id': str(uuid4()), 'revision': draft['revision'], 'preview_id': draft['preview_id']}
+
+
+def wait_operation(client, draft, state):
+    deadline = monotonic() + 12
+    while monotonic() < deadline:
+        result = check(client.get(operation_endpoint(draft)))
+        if result and result['state'] == state:
+            return result
+        if result and result['state'] in ('SUCCEEDED', 'FAILED'):
+            pytest.fail(f"Unexpected operation outcome: {result['state']} {result.get('failure')}")
+        sleep(0.05)
+    pytest.fail('Background operation did not reach ' + state)
+
+
+def background_draft(client, parent):
+    kind = doc_kind(client, name='Карточка предприятия', parent='CP')
+    data = transport(workbook({'B18': 'Synthetic background phone', 'B28': 'card.pdf'}), {'card.pdf': pdf()})
+    draft = upload(client, data, True)
+    return choose(client, draft, cp_target=parent, cp_fields=['phone'], documents=file_choices(draft, kind))
+
+
+def test_background_acceptance_shows_real_progress_and_coalesces_requests(b5, monkeypatch):
+    client, db, _, parents, _, disk = b5
+    entered, release = Event(), Event()
+    upload_original = disk.upload
+
+    def hold_upload(*args):
+        entered.set()
+        assert release.wait(12)
+        return upload_original(*args)
+
+    monkeypatch.setattr(disk, 'upload', hold_upload)
+    draft = background_draft(client, parents['cp'])
+    before = snapshot(db)
+    path = operation_endpoint(draft)
+    body = operation_command(draft)
+    try:
+        queued = check(client.post(path, json=body), 202)
+        assert queued['id'] == body['command_id'] and queued['state'] == 'QUEUED'
+        assert entered.wait(10)
+        progress = wait_operation(client, draft, 'RUNNING')
+        assert progress['progress'] == {'phase': 'TRANSFERRING', 'done': 0, 'total': 1}
+        assert check(client.post(path, json=operation_command(draft)), 202)['id'] == queued['id']
+        assert check(client.get('/api/arm2/questionnaires/operations'))[0]['id'] == queued['id']
+        assert reopen(client, draft)['revision'] == draft['revision']
+        assert client.delete(path.removesuffix('/operation')).status_code == 409
+        assert snapshot(db) == before
+    finally:
+        release.set()
+    saved = wait_operation(client, draft, 'SUCCEEDED')
+    assert {entry['kind'] for entry in saved['receipt']['objects']} == {'CP', 'DOCUMENT'}
+    assert count(db, QuestionnaireReceipt) == 1 and len(disk.uploads) == 1
+    assert check(client.post(path, json=body), 202)['receipt'] == saved['receipt']
+    assert reopen(client, draft)['status'] == 'ACCEPTED'
+    assert 'payload' not in saved and 'session_hash' not in saved
+
+
+def test_background_failure_is_explicit_and_orphaned_running_job_recovers(b5, monkeypatch):
+    from app.arm2 import background_operations
+
+    client, db, _, parents, _, disk = b5
+    draft = background_draft(client, parents['cp'])
+    before = snapshot(db)
+    disk.fail_at = 0
+    path = operation_endpoint(draft)
+    failed_id = check(client.post(path, json=operation_command(draft)), 202)['id']
+    failed = wait_operation(client, draft, 'FAILED')
+    assert failed['failure']['code'] == 'STORAGE' and failed['failure']['can_save_without_documents']
+    assert not failed['receipt'] and snapshot(db) == before
+    assert reopen(client, draft)['choices'] == draft['choices']
+
+    # Persist the state left by a dead process before the next worker starts.
+    disk.fail_at = None
+    work = background_operations.work_once
+    with monkeypatch.context() as offline:
+        offline.setattr(background_operations, 'work_once', lambda *_: False)
+        queued = check(client.post(path, json=operation_command(draft)), 202)
+        row = db.get(BackgroundOperation, queued['id'], populate_existing=True)
+        assert row.payload['command_id'] == failed_id
+        row.state = 'RUNNING'
+        db.commit()
+        assert check(client.get(path))['state'] == 'RUNNING'
+    assert background_operations.work_once is work
+    saved = wait_operation(client, draft, 'SUCCEEDED')
+    assert saved['receipt']['command_id'] == failed_id
+    assert len(disk.uploads) == 1 and count(db, QuestionnaireReceipt) == 1
+    assert check(client.get('/api/arm2/questionnaires/operations'))[0]['id'] == queued['id']
+
+
+@pytest.mark.parametrize('cp_accept,rep_accept', [(True, True), (True, False), (False, True)])
+def test_v2_passport_contacts_are_independent_signer_proposals(b5, cp_accept, rep_accept):
+    c, db, _, parents, *_ = b5
+    before = check(c.get('/api/arm2/counterparties/' + parents['cp']))
+    contacts = {'phone': '+70000000001', 'email': 'synthetic@example.invalid'}
+    d = upload(c, workbook({'B18': contacts['phone'], 'B19': contacts['email'], 'B20': 'Synthetic signer'}))
+    assert len(d['comparison']['representatives']) == 1
+    for field, value in contacts.items():
+        assert d['comparison']['cp']['fields'][field]['proposed'] == value
+        assert d['comparison']['representatives'][0]['fields'][field]['proposed'] == value
+    d = choose(c, d, cp_target=parents['cp'], cp_fields=list(contacts) if cp_accept else [],
+        representatives={'0': {'target': 'new', 'fields': ['name', *(contacts if rep_accept else [])], 'signer': True}})
+    saved, _ = apply(c, d)
+    cp = check(c.get('/api/arm2/counterparties/' + parents['cp']))
+    identifiers = [o['id'] for o in saved['objects'] if o['kind'] == 'CPREP']
+    assert len(identifiers) == 1 and cp['primary_signer_id'] == identifiers[0]
+    rep = check(c.get(f"/api/arm2/counterparties/{parents['cp']}/representatives/{identifiers[0]}"))
+    assert rep['position'] is None and rep['authority_basis'] is None
+    for field, value in contacts.items():
+        assert cp[field] == (value if cp_accept else before[field])
+        assert rep[field] == (value if rep_accept else None)
+    check(c.put('/api/arm2/counterparties/' + cp['id'], json={
+        'name': cp['name'], 'expected_version': cp['version'], 'phone': '+70000000002'}))
+    unchanged = check(c.get(f"/api/arm2/counterparties/{parents['cp']}/representatives/{identifiers[0]}"))
+    assert unchanged['phone'] == rep['phone']
+
+
+def test_existing_open_v2_draft_gets_contacts_without_approving_them(b5):
+    c, db, _, parents, *_ = b5
+    d = choose(c, upload(c, workbook({'B18': '+70000000001', 'B19': 'synthetic@example.invalid', 'B20': 'Synthetic signer'})),
+        cp_target=parents['cp'], representatives={'0': {'target': 'new', 'fields': ['name'], 'signer': True}})
+    record = db.get(QuestionnaireDraft, d['id'], populate_existing=True)
+    signer = {k: v for k, v in record.payload['representatives'][0].items() if k not in {'phone', 'email'}}
+    record.payload = {**record.payload, 'representatives': [signer]}
+    preview = {**record.preview}
+    preview['representatives'] = [{**r, 'fields': {k: v for k, v in r['fields'].items() if k not in {'phone', 'email'}}}
+        for r in preview['representatives']]
+    record.preview = preview
+    db.commit()
+    before = snapshot(db)
+    restored = reopen(c, d)
+    assert snapshot(db) == before
+    assert restored['status'] == 'OPEN' and not restored['approval_reset']
+    assert restored['revision'] > d['revision']
+    assert restored['choices']['representatives']['0']['fields'] == ['name']
+    assert restored['choices']['representatives']['0']['signer']
+    signer = restored['comparison']['representatives'][0]
+    assert signer['fields']['phone']['proposed'] == '+70000000001'
+    assert signer['fields']['email']['proposed'] == 'synthetic@example.invalid'
+    assert not signer['fields']['phone']['selected'] and not signer['fields']['email']['selected']
+
+
+@pytest.mark.parametrize('failure', ['missing_root', 'provider'])
+def test_storage_failure_explicit_data_only_and_later_documents_have_no_duplicates(b5, monkeypatch, failure):
+    c, db, _, _, _, disk = b5
+    kind = doc_kind(c)
+    data = transport(workbook({'B5': 'ИП', 'B12': 'Data only synthetic', 'B8': 'Synthetic last',
+        'B18': 'Selected phone', 'B19': 'rejected@example.invalid', 'B20': 'Synthetic signer'},
+        [{'I': 'A987BC86', 'J': 'Synthetic truck', 'P': 'sts.pdf'}]), {'sts.pdf': pdf('pending')})
+    d = choose(c, upload(c, data, True), cp_target='new', cp_fields=['type', 'name', 'last_name', 'phone'],
+        documents={'v:5:sts': {'kind_id': kind, 'accept': True}})
+    before = snapshot(db)
+    if failure == 'missing_root':
+        monkeypatch.delenv('ARM2_DOCUMENT_DISK_ROOT')
+    else:
+        disk.fail_at = 0
+    error, failed_body = apply(c, d, status=503)
+    assert error['detail']['code'] == 'QUESTIONNAIRE_STORAGE_UNAVAILABLE'
+    assert error['detail']['can_save_without_documents'] is True
+    assert snapshot(db) == before
+    body = {'command_id': str(uuid4()), 'revision': d['revision'], 'preview_id': d['preview_id'], 'without_documents': True}
+    saved, _ = apply(c, d, body=body)
+    assert saved['without_documents'] and saved['documents_pending']
+    assert not any(o['kind'] == 'DOCUMENT' for o in saved['objects'])
+    cp = db.get(Counterparty, saved['cp_id'], populate_existing=True)
+    assert cp.phone == 'Selected phone' and cp.email is None and cp.primary_signer_id
+    initial = snapshot(db)
+    repeated, _ = apply(c, d, body=body)
+    assert repeated == saved and snapshot(db) == initial
+    apply(c, d, status=409, body={**body, 'without_documents': False})
+    apply(c, d, status=409, body=failed_body)
+    pending = reopen(c, d)
+    assert pending['status'] == 'OPEN' and pending['documents_pending'] and pending['receipt'] == saved
+    assert pending['choices']['cp_target'] == cp.id
+    assert pending['choices']['representatives']['0']['target'] == cp.primary_signer_id
+    assert not pending['choices']['vehicles']['v:5']['include']
+    assert not pending['choices']['documents']['v:5:sts']['accept']
+    assert pending['comparison']['vehicles'][0]['id'] in {o['id'] for o in saved['objects'] if o['kind'] == 'VEH'}
+    assert len(disk.uploads) == 0
+    for record in db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == d['id'])):
+        from app.arm2.document_file_storage import verified_stage
+        assert verified_stage(record).is_file()
+    before_docs = {table: initial[table] for table in ('arm2_counterparties', 'nsi_counterparty_representatives', 'arm2_vehicles')}
+    monkeypatch.setenv('ARM2_DOCUMENT_DISK_ROOT', 'ARM2_TEST/B3_C')
+    disk.fail_at = None
+    pending = choose(c, pending, documents={'v:5:sts': {'kind_id': kind, 'accept': True}})
+    complete, complete_body = apply(c, pending)
+    assert not complete['documents_pending'] and len(complete['objects']) == 1
+    assert complete['objects'][0]['kind'] == 'DOCUMENT'
+    assert count(db, DocumentFile) == 1 and len(disk.uploads) == 1
+    assert all(snapshot(db)[table] == rows for table, rows in before_docs.items())
+    assert reopen(c, pending)['status'] == 'ACCEPTED'
+    assert apply(c, pending, body=complete_body)[0] == complete
+
+
+def test_data_only_failure_still_rolls_back_all_domain_changes(b5):
+    c, db, _, parents, _, _ = b5
+    d = choose(c, upload(c, workbook({'B18': 'Must rollback'})), cp_target=parents['cp'], cp_fields=['phone'])
+    before = snapshot(db)
+    def fail(connection, cursor, statement, parameters, context, many):
+        if 'INSERT INTO arm2_history_events' in statement:
+            raise SQLAlchemyError('injected history failure')
+    event.listen(db.get_bind(), 'before_cursor_execute', fail)
+    try:
+        apply(c, d, status=409, body={'command_id': str(uuid4()), 'revision': d['revision'],
+            'preview_id': d['preview_id'], 'without_documents': True})
+        assert snapshot(db) == before and count(db, QuestionnaireReceipt) == 0
+        assert reopen(c, d)['status'] == 'OPEN'
+    finally:
+        event.remove(db.get_bind(), 'before_cursor_execute', fail)
+
+
+def test_invalid_staged_original_is_not_reported_as_disk_outage(b5):
+    c, db, _, parents, _, disk = b5
+    kind = doc_kind(c)
+    d = upload(c, transport(workbook({'B18': 'No partial save'}, [{'E': 'A123BC86', 'P': 'safe.pdf'}]),
+        {'safe.pdf': pdf()}), True)
+    d = choose(c, d, cp_target=parents['cp'], cp_fields=['phone'], documents={'v:5:sts': {'kind_id': kind, 'accept': True}})
+    before = snapshot(db)
+    record = db.scalar(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == d['id']))
+    from app.arm2.document_file_storage import private_path
+    private_path(record.id).write_bytes(b'injected invalid bytes')
+    result, _ = apply(c, d, status=503)
+    assert isinstance(result['detail'], str)
+    assert snapshot(db) == before and disk.uploads == []
+
+
+def test_t01_xlsx_no_files_preview_is_private_and_single_cp_field_save(b5):
+    c, db, _, parents, *_ = b5
+    before = snapshot(db)
+    d = upload(c, workbook({'B18': '+7 synthetic'}))
+    assert snapshot(db) == before
+    d = choose(c, d, cp_target=parents['cp'], cp_fields=['phone'])
+    saved, _ = apply(c, d)
+    assert len(saved['event_ids']) == 1 and saved['cp_id'] == parents['cp']
+    assert check(c.get('/api/arm2/counterparties/' + parents['cp']))['phone'] == '+7 synthetic'
+    assert reopen(c, d)['receipt'] == saved
+    assert count(db, QuestionnaireReceipt) == 1
+
+
+def test_t02_n_p_bind_to_declared_vehicle_not_physical_filename(b5):
+    c, db, _, parents, *_ = b5
+    calibration = doc_kind(c, 'Тарировка')
+    sts = doc_kind(c)
+    book = workbook(rows=[{'E': 'A123BC86', 'N': 'not-a-vehicle-name.pdf', 'P': 'random.pdf'}])
+    d = upload(c, transport(book, {'not-a-vehicle-name.pdf': pdf('calibration'), 'random.pdf': pdf('sts')}), True)
+    d = choose(c, d, cp_target=parents['cp'], documents={'v:5:sts': {'kind_id': sts, 'accept': True},
+                'v:5:calibration': {'kind_id': calibration, 'accept': True}})
+    saved, _ = apply(c, d)
+    assert len(saved['objects']) == 2
+    for doc in db.scalars(select(Document)):
+        assert doc.parent_type == 'VEH' and doc.parent_id == parents['veh']
+    assert count(db, DocumentFile) == 2
+    assert reopen(c, d)['receipt'] == saved
+
+
+def test_t03_unchanged_fields_require_no_acceptance_or_new_history(b5):
+    c, db, _, parents, *_ = b5
+    before = snapshot(db)
+    d = choose(c, upload(c, workbook({'B12': 'CP'})), cp_target=parents['cp'])
+    result, _ = apply(c, d)
+    assert result['no_op'] and not result['event_ids'] and snapshot(db) == before
+
+
+def test_t04_lost_response_uuid_fingerprint_replays_receipt_without_duplicates(b5):
+    c, db, _, parents, *_ = b5
+    d = choose(c, upload(c, workbook({'B18': 'receipt-only'})), cp_target=parents['cp'], cp_fields=['phone'])
+    saved, body = apply(c, d)
+    before = snapshot(db)
+    assert apply(c, d, body=body)[0] == saved and snapshot(db) == before
+    apply(c, d, status=409, body={**body, 'revision': body['revision'] + 1})
+    assert count(db, QuestionnaireReceipt) == 1
+
+
+def test_t05_only_selected_field_changes_other_values_and_history_preserved(b5):
+    c, db, _, parents, *_ = b5
+    original = check(c.get('/api/arm2/counterparties/' + parents['cp']))
+    d = choose(c, upload(c, workbook({'B11': 'Not selected', 'B18': 'Selected phone', 'B19': 'not selected invalid'})),
+               cp_target=parents['cp'], cp_fields=['phone'])
+    result, _ = apply(c, d)
+    fresh = check(c.get('/api/arm2/counterparties/' + parents['cp']))
+    assert {k: fresh[k] for k in original if k not in ('phone', 'version')} == {k: v for k, v in original.items() if k not in ('phone', 'version')}
+    assert fresh['phone'] == 'Selected phone' and fresh['version'] == original['version'] + 1
+    event = db.get(HistoryEvent, result['event_ids'][0])
+    assert set(event.changes) == {'phone', 'version'}
+
+
+def test_t06_empty_inn_allowed_duplicate_inn_is_not_a_new_cp(b5):
+    c, db, _, parents, *_ = b5
+    existing = check(c.post('/api/arm2/counterparties', json={'type': 'Юридическое лицо', 'name': 'Known INN', 'inn': '1234567890'}), 201)
+    d = choose(c, upload(c, workbook({'B5': 'ООО', 'B12': 'Explicit new', 'B13': '1234567890'})), cp_target='new', cp_fields=['type', 'name', 'inn'])
+    before = count(db, Counterparty)
+    apply(c, d, status=422)
+    assert count(db, Counterparty) == before
+    assert any(r['id'] == existing['id'] for r in reopen(c, d)['comparison']['cp']['candidates'])
+    d = choose(c, upload(c, workbook({'B5': 'ООО', 'B12': 'Empty INN'})), cp_target='new', cp_fields=['type', 'name'])
+    result, _ = apply(c, d)
+    assert check(c.get('/api/arm2/counterparties/' + result['cp_id']))['inn'] is None
+
+
+def test_t07_legacy_map_formula_hints_no_arbitrary_details_or_zero_guessing(b5):
+    c, db, _, parents, *_ = b5
+    book = workbook({'B5': 'ИП', 'A13': 'inn:ИНН', 'B8': 'Synthetic last', 'B9': 'Synthetic first', 'B10': 'Synthetic middle',
+        'B18': 'Legacy phone', 'B24': '001234567', 'B25': '00000000000000000001', 'B7': 'ignored'},
+        [{'B': 'V3-old', 'E': 'A123BC86', 'G': '=1+1', 'V': 'V3 private hint'}])
+    d = choose(c, upload(c, book), cp_target=parents['cp'], confirm_identity=True,
+               cp_fields=['type', 'legal_form', 'last_name', 'first_name', 'middle_name', 'phone', 'bik', 'settlement_account'])
+    saved, _ = apply(c, d)
+    cp = check(c.get('/api/arm2/counterparties/' + parents['cp']))
+    assert cp['bik'] == '001234567' and cp['settlement_account'] == '00000000000000000001'
+    assert cp['last_name'] == 'Synthetic last' and cp['first_name'] == 'Synthetic first'
+    assert cp['middle_name'] == 'Synthetic middle' and cp['inn'] is None
+    assert 'details' not in cp and 'inn:ИНН' not in str(db.get(HistoryEvent, saved['event_ids'][0]).changes)
+    assert current(c, parents['veh'])['model'] is None
+
+
+def test_t08_identical_representative_names_do_not_merge_or_assign_users(b5):
+    c, db, _, parents, *_ = b5
+    body = workbook({'B20': 'Synthetic Person', 'B21': 'Director', 'B22': 'Charter'})
+    identifiers = []
+    for _ in range(2):
+        d = choose(c, upload(c, body), cp_target=parents['cp'], representatives={'0': {'target': 'new', 'fields': ['name', 'position', 'authority_basis']}})
+        result, _ = apply(c, d)
+        identifiers.extend(o['id'] for o in result['objects'] if o['kind'] == 'CPREP')
+    assert len(set(identifiers)) == 2
+    for identifier in identifiers:
+        rep = check(c.get(f"/api/arm2/counterparties/{parents['cp']}/representatives/{identifier}"))
+        assert rep['user_id'] is None
+
+
+def test_t09_valid_invalid_duplicate_plate_rows_are_explicit(b5):
+    c, db, _, parents, *_ = b5
+    d = upload(c, workbook(rows=[{'I': 'A124BC86', 'J': 'Valid'}, {'I': 'bad'}, {'I': 'A125BC86'}, {'I': 'А125ВС86'}]))
+    rows = d['comparison']['vehicles']
+    assert not rows[0]['errors'] and all(r['errors'] for r in rows[1:])
+    d = choose(c, d, cp_target=parents['cp'], vehicles={'v:5': {'include': True, 'fields': ['name']}})
+    apply(c, d)
+    assert count(db, Vehicle) == 2
+
+
+def test_t10_unknown_type_explicit_without_type_and_confirmed_category(b5):
+    c, db, _, parents, *_ = b5
+    d = upload(c, workbook(rows=[{'I': 'A124BC86', 'H': 'No such type', 'J': 'Without type'}]))
+    d = choose(c, d, cp_target=parents['cp'], vehicles={'v:5': {'include': True, 'fields': ['name']}})
+    apply(c, d, status=422)
+    d = choose(c, d, vehicles={'v:5': {'include': True, 'without_type': True, 'fields': ['name']}})
+    apply(c, d)
+    assert db.scalar(select(Vehicle.type_id).where(Vehicle.plate_number == 'А124ВС86')) is None
+    typ = check(c.post('/api/arm2/types', json={'name': 'Confirmed', 'plate_category': 'Автомобильный',
+        'requires_sts': True, 'requires_calibration': False, 'requires_wialon': False}), 201)
+    d = choose(c, upload(c, workbook(rows=[{'I': 'A125BC86', 'H': typ['id'], 'J': 'Typed'}])),
+        cp_target=parents['cp'], vehicles={'v:5': {'include': True, 'fields': ['name', 'type_id']}})
+    apply(c, d)
+    assert db.scalar(select(Vehicle.type_id).where(Vehicle.plate_number == 'А125ВС86')) == typ['id']
+
+
+def test_t11_archive_reactivation_is_an_explicit_field_not_readiness(b5):
+    c, db, _, parents, *_ = b5
+    v = current(c, parents['veh'])
+    check(c.put('/api/arm2/vehicles/' + v['id'], json={k: v[k] for k in ('name', 'plate_number', 'type_id', 'model', 'wialon_unit_id')} |
+        {'expected_version': v['version'], 'accounting_state': 'Архивная'}))
+    d = choose(c, upload(c, workbook(rows=[{'B': v['id'], 'E': v['plate_number'], 'C': 'ИЗ СПРАВОЧНИКА'}])), cp_target=parents['cp'])
+    assert d['comparison']['vehicles'][0]['fields']['accounting_state']['proposed'] == 'Действующая'
+    apply(c, d)
+    assert current(c, v['id'])['accounting_state'] == 'Архивная'
+    d = choose(c, upload(c, workbook(rows=[{'B': v['id'], 'E': v['plate_number']}])), cp_target=parents['cp'],
+               vehicles={'v:5': {'include': True, 'fields': ['accounting_state']}})
+    apply(c, d)
+    assert current(c, v['id'])['accounting_state'] == 'Действующая'
+
+
+def test_t12_owner_reassignment_requires_b2_confirmation(b5):
+    c, db, _, parents, *_ = b5
+    v = current(c, parents['veh'])
+    check(command(c, v, ('ORG', parents['org'])))
+    d = choose(c, upload(c, workbook(rows=[{'E': v['plate_number']}])), cp_target=parents['cp'],
+               vehicles={'v:5': {'include': True, 'fields': ['owner']}})
+    before = snapshot(db)
+    apply(c, d, status=409)
+    assert snapshot(db) == before
+    d = choose(c, d, vehicles={'v:5': {'include': True, 'fields': ['owner'], 'confirm_owner': True}})
+    apply(c, d)
+    assert current(c, v['id'])['owner_cp_id'] == parents['cp']
+
+
+def test_t13_withdrawal_only_detaches_current_declarant_never_archives(b5):
+    c, db, _, parents, *_ = b5
+    v = current(c, parents['veh'])
+    check(command(c, v, ('CP', parents['cp'])))
+    def withdraw():
+        return choose(c, upload(c, workbook(rows=[{'E': v['plate_number'], 'C': 'ВЫБЫЛО'}])), cp_target=parents['cp'],
+            vehicles={'v:5': {'include': True, 'fields': ['owner'], 'confirm_owner': True}})
+    apply(c, withdraw())
+    assert current(c, v['id'])['owner_cp_id'] is None and current(c, v['id'])['accounting_state'] == 'Действующая'
+    check(command(c, current(c, v['id']), ('ORG', parents['org'])))
+    result, _ = apply(c, withdraw())
+    assert result['no_op'] and current(c, v['id'])['owner_org_id'] == parents['org']
+
+
+def test_t14_missing_ambiguous_file_does_not_guess_parent_or_block_other_fields(b5):
+    c, db, _, parents, *_ = b5
+    content = transport(workbook({'B18': 'Independent'}, [{'E': 'A123BC86', 'N': 'same.pdf', 'P': 'missing.pdf'}]),
+                        {'a/same.pdf': pdf('a'), 'b/same.pdf': pdf('b')})
+    d = upload(c, content, True)
+    assert all(d['error'] for d in d['comparison']['documents'])
+    d = choose(c, d, cp_target=parents['cp'], cp_fields=['phone'])
+    apply(c, d)
+    assert count(db, DocumentFile) == 0 and check(c.get('/api/arm2/counterparties/' + parents['cp']))['phone'] == 'Independent'
+
+
+def test_t15_company_card_and_unbound_file_require_selected_parents(b5):
+    c, db, _, parents, *_ = b5
+    kind = doc_kind(c, 'Company card', 'CP')
+    sts = doc_kind(c)
+    d = upload(c, transport(workbook({'B28': 'card.pdf'}), {'card.pdf': pdf('company'), 'unknown.pdf': pdf('vehicle')}), True)
+    unknown = next(p for p in d['comparison']['documents'] if p['name'] == 'unknown.pdf')
+    d = choose(c, d, cp_target=parents['cp'], documents={'company': {'kind_id': kind, 'accept': True},
+        unknown['key']: {'parent_key': parents['veh'], 'kind_id': sts, 'accept': True}})
+    apply(c, d)
+    assert {(d.parent_type, d.parent_id) for d in db.scalars(select(Document))} == {('CP', parents['cp']), ('VEH', parents['veh'])}
+
+
+def seed_document(b5, multifile=False):
+    c, db, _, parents, *_ = b5
+    check(command(c, current(c, parents['veh']), ('CP', parents['cp'])))
+    url = create(b5, 'veh')
+    check(accept(c, url, 1, [stage(c, url, pdf('first'))] + ([stage(c, url, pdf('second'))] if multifile else [])))
+    return url
+
+
+def exported(c, cp, format='zip', reason=None):
+    result = check(c.post(f'/api/arm2/questionnaires/exports/{cp}', json={'format': format, **({'incomplete_reason': reason} if reason else {})}))
+    return base64.b64decode(result['data']) if 'data' in result else result
+
+
+def test_t16_signed_document_parent_identity_and_sha_return_is_noop(b5):
+    c, db, _, parents, *_ = b5
+    url = seed_document(b5)
+    archive = exported(c, parents['cp'])
+    d = choose(c, upload(c, archive, True), cp_target=parents['cp'])
+    assert all(p['equal'] for p in d['comparison']['documents'])
+    before = snapshot(db)
+    result, _ = apply(c, d)
+    assert result['no_op'] and snapshot(db) == before and len(bundle(c, url)['revisions']) == 1
+
+
+def test_t17_changed_file_new_revision_preserves_other_files_and_old_bytes(b5):
+    c, db, _, parents, *_ = b5
+    url = seed_document(b5, True)
+    before = bundle(c, url)
+    archive = exported(c, parents['cp'])
+    with zipfile.ZipFile(io.BytesIO(archive)) as source:
+        members = {n: source.read(n) for n in source.namelist()}
+    target = next(n for n in members if 'FILE-000001.' in n)
+    members[target] = pdf('changed original')
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, 'w') as z:
+        for name, data in members.items():
+            z.writestr(name, data)
+    d = choose(c, upload(c, out.getvalue(), True), cp_target=parents['cp'])
+    changed = next(p for p in d['comparison']['documents'] if p['name'] == target)
+    assert changed['document_id'] == url.split('/')[-1] and not changed['equal']
+    d = choose(c, d, documents={changed['key']: {'accept': True}})
+    saved, _ = apply(c, d)
+    after = bundle(c, url)
+    assert len(after['revisions']) == 2 and after['revisions'][1] == before['revisions'][0]
+    assert after['revisions'][0]['files'][1]['id'] == before['revisions'][0]['files'][1]['id']
+    old = before['revisions'][0]
+    assert c.get(url + f"/revisions/{old['id']}/files/{old['files'][0]['id']}/download").content == pdf('first')
+    assert reopen(c, d)['receipt'] == saved
+
+
+def test_t18_missing_attachment_never_removes_accepted_original(b5):
+    c, db, _, parents, *_ = b5
+    url = seed_document(b5)
+    before = bundle(c, url)
+    d = choose(c, upload(c, workbook(rows=[{'E': 'A123BC86', 'P': 'absent.pdf'}])), cp_target=parents['cp'])
+    apply(c, d)
+    assert bundle(c, url) == before
+
+
+def test_t19_volume_is_review_only_not_a_vehicle_write(b5):
+    c, db, _, parents, *_ = b5
+    before = current(c, parents['veh'])
+    d = choose(c, upload(c, workbook(rows=[{'E': 'A123BC86', 'L': '37.5'}])), cp_target=parents['cp'], vehicles={'v:5': {'include': True}})
+    assert d['comparison']['vehicles'][0]['volume_proposal'] == '37.5'
+    assert 'calibration' not in d['comparison']['vehicles'][0]
+    saved, _ = apply(c, d)
+    assert saved['no_op'] and current(c, parents['veh']) == before
+
+
+def test_review_manual_fields_use_domain_validation_and_preserve_leading_zero(b5):
+    c, db, _, parents, *_ = b5
+    book = workbook({'B24':'47102651', 'B20':'Синтетический представитель'}, rows=[{'E':'A123BC86'}])
+    draft = choose(c, upload(c, book), cp_target=parents['cp'])
+    assert draft['comparison']['cp']['fields']['bik']['error']
+    draft = choose(c, draft, cp_fields=['bik'], cp_edits={'bik':'012345678'},
+                   representatives={'0': {'target':'new', 'fields':['name','email'], 'edits':{'email':'review@example.invalid'}}},
+                   vehicles={'v:5': {'include':True, 'fields':['model'], 'edits':{'model':'Проверенная модель'}}})
+    assert reopen(c, draft)['choices']['cp_edits'] == {'bik':'012345678'}
+    bad = choose(c, draft, cp_edits={'bik':'12'})
+    assert bad['comparison']['cp']['fields']['bik']['error']
+    before = snapshot(db)
+    apply(c, bad, 422)
+    assert snapshot(db) == before
+    draft = choose(c, bad, cp_edits={'bik':'012345678'})
+    receipt, _ = apply(c, draft)
+    assert check(c.get('/api/arm2/counterparties/' + parents['cp']))['bik'] == '012345678'
+    rep_id = next(row['id'] for row in receipt['objects'] if row['kind']=='CPREP')
+    assert check(c.get(f"/api/arm2/counterparties/{parents['cp']}/representatives/{rep_id}"))['email'] == 'review@example.invalid'
+    assert current(c, parents['veh'])['model'] == 'Проверенная модель'
+
+
+def test_review_saves_edited_volume_only_with_accepted_calibration_file(b5):
+    c, db, _, parents, *_ = b5
+    kind = doc_kind(c, 'Тарировка')
+    book = workbook(rows=[{'E':'A123BC86', 'L':'26', 'M':'ДА', 'N':'calibration.pdf'}])
+    loaded = upload(c, transport(book, {'calibration.pdf':pdf('synthetic calibration')}), True)
+    draft = choose(c, loaded, cp_target=parents['cp'], vehicles={'v:5':{'include':True,'volume':'27,5'}})
+    file = draft['comparison']['documents'][0]
+    assert file['kind_id'] == kind
+    assert not draft['comparison']['vehicles'][0]['calibration']['document_keys']
+    draft = choose(c, draft, documents={file['key']:{'kind_id':kind,'accept':True}})
+    assert draft['comparison']['vehicles'][0]['calibration']['numeric'] == 27.5
+    _, retry = apply(c, draft)
+    accepted = current(c, parents['veh'])
+    assert accepted['calibration_m3'] == 27.5
+    assert accepted['calibration_document_id'] and accepted['calibration_revision_id']
+    check(c.post('/api/arm2/questionnaires/' + draft['id'] + '/apply', json=retry))
+    assert current(c, parents['veh']) == accepted
+
+
+def test_review_without_documents_does_not_save_calibration_volume(b5):
+    c, _, _, parents, *_ = b5
+    kind = doc_kind(c, 'Тарировка')
+    book = workbook(rows=[{'E':'A123BC86', 'L':'26', 'M':'ДА', 'N':'calibration.pdf'}])
+    draft = choose(c, upload(c, transport(book, {'calibration.pdf':pdf('synthetic calibration')}), True), cp_target=parents['cp'])
+    key = draft['comparison']['documents'][0]['key']
+    draft = choose(c, draft, documents={key:{'kind_id':kind,'accept':True}}, vehicles={'v:5':{'include':True,'volume':'26'}})
+    receipt, _ = apply(c, draft, without_documents=True)
+    assert receipt['documents_pending'] and current(c, parents['veh'])['calibration_m3'] is None
+
+
+def test_t20_file_acceptance_does_not_invent_or_clear_vehicle_approval(b5):
+    c, db, _, parents, *_ = b5
+    before = current(c, parents['veh'])
+    kind = doc_kind(c)
+    d = upload(c, transport(workbook(rows=[{'E': 'A123BC86', 'P': 'sts.pdf', 'L': '40'}]), {'sts.pdf': pdf('new')}), True)
+    d = choose(c, d, cp_target=parents['cp'], documents={'v:5:sts': {'kind_id': kind, 'accept': True}})
+    apply(c, d)
+    assert current(c, parents['veh']) == before
+
+
+def test_t21_three_valid_and_one_unselected_error_are_one_atomic_set(b5):
+    c, db, _, parents, *_ = b5
+    d = upload(c, workbook(rows=[{'I': f'A12{i}BC86', 'J': f'Valid {i}'} for i in (4, 5, 6)] + [{'I': 'invalid'}]))
+    d = choose(c, d, cp_target=parents['cp'], vehicles={f'v:{r}': {'include': True, 'fields': ['name']} for r in (5, 6, 7)})
+    saved, _ = apply(c, d)
+    assert count(db, Vehicle) == 4 and len(saved['event_ids']) == 3
+    assert {db.get(HistoryEvent, e).correlation_id for e in saved['event_ids']} == {saved['command_id']}
+
+
+def test_t22_rejected_proposal_does_not_change_object(b5):
+    c, db, _, parents, *_ = b5
+    d = choose(c, upload(c, workbook({'B18': 'Rejected'})), cp_target=parents['cp'], cp_fields=[])
+    before = snapshot(db)
+    saved, _ = apply(c, d)
+    assert saved['no_op'] and snapshot(db) == before
+
+
+def test_t23_cancel_deletes_private_payload_and_temp_files_not_domain_objects(b5):
+    c, db, _, parents, *_ = b5
+    d = upload(c, transport(workbook({'B18': 'Cancelled'}), {'unbound.pdf': pdf()}), True)
+    before = snapshot(db)
+    stage_record = db.scalar(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == d['id']))
+    from app.arm2.document_file_storage import private_path
+    assert private_path(stage_record.id).exists()
+    check(c.delete('/api/arm2/questionnaires/' + d['id']))
+    assert snapshot(db) == before and not private_path(stage_record.id).exists()
+    db.expire_all()
+    assert db.get(QuestionnaireDraft, d['id']).payload == {} and reopen(c, d)['status'] == 'CANCELLED'
+
+
+@pytest.mark.parametrize('failure', ['HIST', 'SQL', 'provider'])
+def test_t24_selected_failure_rolls_back_whole_set_and_retries_private_upload(b5, failure):
+    c, db, _, parents, _, disk = b5
+    kind = doc_kind(c)
+    d = upload(c, transport(workbook({'B18': 'Must rollback'}, [{'E': 'A123BC86', 'P': 'safe.pdf'}]), {'safe.pdf': pdf()}), True)
+    d = choose(c, d, cp_target=parents['cp'], cp_fields=['phone'], documents={'v:5:sts': {'kind_id': kind, 'accept': True}})
+    before = snapshot(db)
+    def fail(connection, cursor, statement, parameters, context, many):
+        if (failure == 'HIST' and 'INSERT INTO arm2_history_events' in statement) or (failure == 'SQL' and 'INSERT INTO arm2_questionnaire_receipts' in statement):
+            raise SQLAlchemyError('Injected selected SQL failure')
+    if failure == 'provider':
+        disk.fail_at = 0
+    else:
+        event.listen(db.get_bind(), 'before_cursor_execute', fail)
+    try:
+        _, body = apply(c, d, status=503 if failure == 'provider' else 409)
+        assert snapshot(db) == before and count(db, QuestionnaireReceipt) == 0
+    finally:
+        if failure != 'provider':
+            event.remove(db.get_bind(), 'before_cursor_execute', fail)
+        disk.fail_at = None
+    saved, _ = apply(c, d, body=body)
+    assert saved['event_ids'] and count(db, DocumentFile) == 1 and len(disk.uploads) == 1
+
+
+@pytest.mark.parametrize('without_documents', [False, True])
+def test_t24_stale_version_and_revocation_do_not_apply_any_selected_change(b5, without_documents):
+    c, db, user, parents, *_ = b5
+    d = choose(c, upload(c, workbook({'B18': 'stale'})), cp_target=parents['cp'], cp_fields=['phone'])
+    original = check(c.get('/api/arm2/counterparties/' + parents['cp']))
+    check(c.put('/api/arm2/counterparties/' + parents['cp'], json={'name': original['name'], 'expected_version': original['version'], 'phone': 'Other operator'}))
+    before = snapshot(db)
+    apply(c, d, status=409, without_documents=without_documents)
+    assert snapshot(db) == before
+    d = reopen(c, d)
+    assert d['approval_reset'] and d['choices']['cp_fields'] == []
+    d = choose(c, d, cp_fields=['phone'])
+    with Session(db.get_bind()) as other:
+        actor = other.get(User, user.id)
+        actor.role, actor.permissions = 'OPERATOR', ['arm2_cp_view']
+        other.commit()
+    apply(c, d, status=403, without_documents=without_documents)
+    assert snapshot(db) == before
+
+
+def test_t25_server_draft_reopens_in_new_authenticated_session(b5):
+    c, db, user, parents, *_ = b5
+    d = choose(c, upload(c, workbook({'B18': 'Durable'})), cp_target=parents['cp'], cp_fields=['phone'])
+    db.get_bind().dispose()
+    with TestClient(c.app) as other:
+        check(other.post('/api/auth/login', json={'login': user.login, 'password': 'document-test-password'}))
+        other.headers['X-CSRF-Token'] = other.cookies['csrf']
+        reopened = reopen(other, d)
+        assert reopened['choices'] == d['choices'] and reopened['preview_id'] == d['preview_id']
+        apply(other, reopened)
+    assert check(c.get('/api/arm2/counterparties/' + parents['cp']))['phone'] == 'Durable'
+
+
+def test_t26_export_contains_all_vehicle_ids_without_other_cp_requisites(b5):
+    c, db, _, parents, *_ = b5
+    check(c.post('/api/arm2/counterparties', json={'type': 'Юридическое лицо', 'name': 'DO_NOT_LEAK_OTHER_CP', 'inn': '1111111111'}), 201)
+    for i in range(101, 251):
+        db.add(Vehicle(id=f'VEH-{i:06}', name=f'Catalog {i}', plate_number=f'В{i}ВС86',
+            accounting_state='Архивная' if i % 2 else 'Действующая', version=1))
+    db.commit()
+    data = exported(c, parents['cp'], 'xlsx')
+    book = load_workbook(io.BytesIO(data))
+    catalog = book['Справочники']
+    assert catalog.max_row == 152 and catalog.sheet_state == 'veryHidden'
+    all_cells = ' '.join(str(cell.value) for ws in book for row in ws for cell in row)
+    assert 'VEH-000250' in all_cells and 'DO_NOT_LEAK_OTHER_CP' not in all_cells and '1111111111' not in all_cells
+    assert MANIFEST in book.sheetnames
+    book.close()
+
+
+def test_t27_missing_current_file_requires_explicit_incomplete_export_reason(b5):
+    c, db, user, parents, _, disk = b5
+    seed_document(b5)
+    file = db.scalar(select(DocumentFile))
+    disk.location(file.storage_ref).unlink()
+    result = exported(c, parents['cp'])
+    assert result['confirmation_required'] and result['missing'][0]['file_id'] == file.id
+    before = snapshot(db)
+    data = exported(c, parents['cp'], reason='Synthetic missing provider file acknowledged')
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        assert z.namelist() == ['questionnaire.xlsx']
+    audit = db.scalar(select(QuestionnaireExport))
+    assert audit.author_id == user.id and audit.incomplete_reason and audit.missing
+    assert snapshot(db) == before
+
+
+def test_t28_three_dates_old_questionnaire_is_not_rejected(b5):
+    c, db, _, parents, *_ = b5
+    d = choose(c, upload(c, workbook({'B4': '21 октября 2026г', 'B18': 'Old but useful'})), cp_target=parents['cp'], cp_fields=['phone'])
+    saved, _ = apply(c, d)
+    assert saved['filled_date'] == '2026-10-21' and saved['uploaded_at'] < saved['accepted_at']
+    assert 'payload' not in saved and 'phone' not in saved
+    assert reopen(c, d)['receipt'] == saved
+
+
+def test_t29_historic_review_type_link_is_preserved_and_not_newly_assigned(b5):
+    c, db, _, parents, *_ = b5
+    db.execute(text("INSERT INTO arm2_vehicle_types(id,name,status,version) VALUES('TYPE-700001','Legacy REVIEW','REVIEW',3)"))
+    db.execute(text("UPDATE arm2_vehicles SET type_id='TYPE-700001' WHERE id=:id"), {'id': parents['veh']})
+    db.commit()
+    d = choose(c, upload(c, workbook(rows=[{'E': 'A123BC86', 'D': 'TYPE-700001', 'G': 'Changed model'}])),
+        cp_target=parents['cp'], vehicles={'v:5': {'include': True, 'fields': ['model']}})
+    apply(c, d)
+    assert current(c, parents['veh'])['type_id'] == 'TYPE-700001'
+    d = choose(c, upload(c, workbook(rows=[{'I': 'A124BC86', 'H': 'TYPE-700001'}])), cp_target=parents['cp'],
+        vehicles={'v:5': {'include': True, 'fields': ['type_id']}})
+    apply(c, d, status=422)
+
+
+def test_t30_other_author_has_no_draft_file_or_receipt_access(b5):
+    c, db, _, parents, *_ = b5
+    d = upload(c, transport(workbook(), {'private.pdf': pdf()}), True)
+    attachment = next(p['upload_id'] for p in d['comparison']['documents'] if p.get('upload_id'))
+    other = User(login='b5-other', name='Synthetic other', role='ADMIN_OPERATOR', active=True, permissions=[],
+                 password_hash=hasher.hash('synthetic-other-password'))
+    db.add(other)
+    db.commit()
+    with TestClient(c.app) as client:
+        check(client.post('/api/auth/login', json={'login': other.login, 'password': 'synthetic-other-password'}))
+        client.headers['X-CSRF-Token'] = client.cookies['csrf']
+        assert client.get('/api/arm2/questionnaires/' + d['id']).status_code == 403
+        assert client.get(f"/api/arm2/questionnaires/{d['id']}/files/{attachment}/preview").status_code == 403
+        assert client.delete('/api/arm2/questionnaires/' + d['id']).status_code == 403
+        assert check(client.get('/api/arm2/questionnaires/receipts')) == []
+
+
+def test_t31_zip_transport_is_never_a_document_or_file(b5):
+    c, db, _, parents, *_ = b5
+    d = choose(c, upload(c, transport(workbook({'B18': 'Only phone'}), {}), True), cp_target=parents['cp'], cp_fields=['phone'])
+    apply(c, d)
+    assert count(db, DocumentFile) == count(db, Document) == 0
+    db.expire_all()
+    assert db.get(QuestionnaireDraft, d['id']).payload == {}
+
+
+def test_t32_nested_zip_is_unsupported_attachment_not_extracted(b5):
+    c, db, _, parents, *_ = b5
+    nested = transport(workbook(), {'hidden.pdf': pdf('must not extract')})
+    d = upload(c, transport(workbook({'B18': 'Still useful'}, [{'E': 'A123BC86', 'P': 'sts.zip'}]), {'sts.zip': nested}), True)
+    assert d['comparison']['documents'][0]['error']
+    assert count(db, QuestionnaireUpload) == 1
+    d = choose(c, d, cp_target=parents['cp'], cp_fields=['phone'])
+    apply(c, d)
+    assert count(db, DocumentFile) == 0
+
+
+@pytest.mark.parametrize('format,suffix', [('PDF', 'pdf'), ('JPEG', 'jpg'), ('JPEG', 'jpeg'), ('PNG', 'png')])
+def test_t33_verified_pdf_jpg_jpeg_png_preview_and_accept(b5, format, suffix):
+    c, db, _, parents, *_ = b5
+    data = pdf('verified')
+    if format != 'PDF':
+        output = io.BytesIO()
+        Image.new('RGB', (32, 32), 'blue').save(output, format=format)
+        data = output.getvalue()
+    kind = doc_kind(c)
+    filename = 'declared.' + suffix
+    d = upload(c, transport(workbook(rows=[{'E': 'A123BC86', 'P': filename}]), {filename: data}), True)
+    candidate = d['comparison']['documents'][0]
+    response = c.get(f"/api/arm2/questionnaires/{d['id']}/files/{candidate['upload_id']}/preview")
+    assert response.status_code == 200 and response.content == data and response.headers['x-content-type-options'] == 'nosniff'
+    d = choose(c, d, cp_target=parents['cp'], documents={candidate['key']: {'kind_id': kind, 'accept': True}})
+    apply(c, d)
+    file = db.scalar(select(DocumentFile))
+    assert file.sha256 == hashlib.sha256(data).hexdigest()
+
+
+@pytest.mark.parametrize('attack', ['slip', 'absolute', 'duplicate', 'symlink', 'external', 'xxe', 'macro'])
+def test_transport_security_attacks_are_rejected_before_drafts(b5, attack):
+    c, db, *_ = b5
+    content = workbook()
+    if attack in ('external', 'xxe', 'macro'):
+        with zipfile.ZipFile(io.BytesIO(content)) as z:
+            entries = {n: z.read(n) for n in z.namelist()}
+        if attack == 'macro':
+            entries['xl/vbaProject.bin'] = b'forbidden'
+        elif attack == 'xxe':
+            entries['xl/workbook.xml'] = b'<!DOCTYPE x [<!ENTITY y SYSTEM "file:///private">]>' + entries['xl/workbook.xml']
+        else:
+            entries['xl/externalLinks/externalLink1.xml'] = b'<external/>'
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, 'w') as z:
+            for n, data in entries.items():
+                z.writestr(n, data)
+        content, filename = output.getvalue(), 'attack.xlsx'
+    else:
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, 'w') as z:
+            z.writestr('questionnaire.xlsx', content)
+            if attack == 'symlink':
+                item = zipfile.ZipInfo('link.pdf')
+                item.create_system, item.external_attr = 3, (stat.S_IFLNK | 0o777) << 16
+                z.writestr(item, '/private')
+            else:
+                name = '../escape.pdf' if attack == 'slip' else '/absolute.pdf' if attack == 'absolute' else 'same.pdf'
+                z.writestr(name, pdf())
+                if attack == 'duplicate':
+                    z.writestr(name, pdf())
+        content, filename = output.getvalue(), 'attack.zip'
+    response = c.post('/api/arm2/questionnaires', params={'filename': filename}, content=content)
+    assert response.status_code == 422 and count(db, QuestionnaireDraft) == 0
+
+
+def test_all_cp_rep_vehicle_document_classes_publish_together_with_final_versions(b5):
+    c, db, *_ = b5
+    kind = doc_kind(c)
+    d = upload(c, transport(workbook({'B5': 'ИП', 'B12': 'Brand new synthetic CP', 'B8': 'Normalized surname', 'B20': 'Separate signer'},
+        [{'I': 'A888AA86', 'J': 'New fleet item', 'P': 'sts.pdf'}]), {'sts.pdf': pdf('all classes')}), True)
+    d = choose(c, d, cp_target='new', cp_fields=['type', 'name', 'last_name'],
+        representatives={'0': {'target': 'new', 'fields': ['name'], 'signer': True}},
+        vehicles={'v:5': {'include': True, 'fields': ['name', 'owner']}},
+        documents={'v:5:sts': {'kind_id': kind, 'accept': True}})
+    saved, _ = apply(c, d)
+    assert {o['kind'] for o in saved['objects']} == {'CP', 'CPREP', 'VEH', 'DOCUMENT'}
+    cp = check(c.get('/api/arm2/counterparties/' + saved['cp_id']))
+    assert cp['primary_signer_id'] and cp['last_name'] == 'Normalized surname'
+    cp_receipt = next(o for o in saved['objects'] if o['kind'] == 'CP')
+    assert cp_receipt['version'] == cp['version'] == 2
+    vehicle = db.scalar(select(Vehicle).where(Vehicle.plate_number == 'А888АА86'))
+    assert vehicle.owner_cp_id == cp['id']
+    document = db.scalar(select(Document))
+    assert document.parent_id == vehicle.id and count(db, DocumentFile) == 1
+    assert {db.get(HistoryEvent, identifier).correlation_id for identifier in saved['event_ids']} == {saved['command_id']}
+    assert reopen(c, d)['receipt'] == saved
+
+
+def test_two_operators_same_version_only_one_atomic_command_can_win(b5):
+    c, db, _, parents, *_ = b5
+    actor = User(login='competing-operator', name='Synthetic competing operator', role='ADMIN_OPERATOR', active=True,
+                 permissions=[], password_hash=hasher.hash('synthetic-competing-password'))
+    db.add(actor)
+    db.commit()
+    first = choose(c, upload(c, workbook({'B18': 'First operator'})), cp_target=parents['cp'], cp_fields=['phone'])
+    with TestClient(c.app) as other:
+        check(other.post('/api/auth/login', json={'login': actor.login, 'password': 'synthetic-competing-password'}))
+        other.headers['X-CSRF-Token'] = other.cookies['csrf']
+        second = choose(other, upload(other, workbook({'B18': 'Second operator'})), cp_target=parents['cp'], cp_fields=['phone'])
+        def submit(client, draft):
+            return client.post('/api/arm2/questionnaires/' + draft['id'] + '/apply', json={
+                'command_id': str(uuid4()), 'revision': draft['revision'], 'preview_id': draft['preview_id']})
+        with ThreadPoolExecutor(2) as pool:
+            tasks = [pool.submit(submit, c, first), pool.submit(submit, other, second)]
+            responses = [task.result(30) for task in tasks]
+        assert sorted(r.status_code for r in responses) == [200, 409]
+        loser_client, loser = (c, first) if responses[0].status_code == 409 else (other, second)
+        refreshed = reopen(loser_client, loser)
+        assert refreshed['approval_reset'] and refreshed['choices']['cp_fields'] == []
+    assert count(db, QuestionnaireReceipt) == 1
+    assert check(c.get('/api/arm2/counterparties/' + parents['cp']))['version'] == 2
+
+
+def test_unselected_changed_vehicle_does_not_veto_selected_cp_change(b5):
+    c, db, _, parents, *_ = b5
+    d = choose(c, upload(c, workbook({'B18': 'Independent CP edit'}, [{'E': 'A123BC86'}])),
+               cp_target=parents['cp'], cp_fields=['phone'])
+    v = current(c, parents['veh'])
+    check(command(c, v, ('CP', parents['cp'])))
+    saved, _ = apply(c, d)
+    assert len(saved['event_ids']) == 1
+    assert check(c.get('/api/arm2/counterparties/' + parents['cp']))['phone'] == 'Independent CP edit'
+
+
+def test_selected_missing_file_rejects_whole_set_and_representative_user_injection_is_forbidden(b5):
+    c, db, _, parents, *_ = b5
+    d = choose(c, upload(c, workbook({'B18': 'Must not commit'}, [{'E': 'A123BC86', 'P': 'missing.pdf'}])),
+               cp_target=parents['cp'], cp_fields=['phone'], documents={'v:5:sts': {'accept': True}})
+    before = snapshot(db)
+    apply(c, d, status=422)
+    assert snapshot(db) == before
+    response = c.put('/api/arm2/questionnaires/' + d['id'], json={'revision': d['revision'], 'choices': {
+        'cp_target': parents['cp'], 'representatives': {'0': {'target': 'new', 'fields': ['user_id'], 'user_id': 1}}}})
+    assert response.status_code == 422
+
+
+def test_cp_viewer_cannot_write_other_cp_or_its_documents(b5):
+    c, db, user, parents, *_ = b5
+    d = choose(c, upload(c, workbook({'B18': 'Denied'})), cp_target=parents['cp'], cp_fields=['phone'])
+    with Session(db.get_bind()) as administrator:
+        actor = administrator.get(User, user.id)
+        actor.role, actor.permissions = 'OPERATOR', ['arm2_cp_view', 'arm2_document_view']
+        administrator.commit()
+    before = snapshot(db)
+    apply(c, d, status=403)
+    assert snapshot(db) == before
+
+
+def test_s1_issue78_v2_preselected_package_two_vehicles_and_arbitrary_document_names(b5):
+    from test_arm2_document_file_api import docx
+
+    from app.arm2 import document_file_storage as storage
+    c, db, _, parents, *rest = b5
+    for name, parent in [('Карточка предприятия', 'CP'), ('СТС', 'VEH'), ('Тарировка', 'VEH')]:
+        doc_kind(c, name, parent)
+    types = []
+    for name, category in [('Synthetic truck', 'Автомобильный'), ('Synthetic loader', 'Самоходная техника')]:
+        types.append(check(c.post('/api/arm2/types', json={'name': name, 'requires_sts': True,
+            'requires_calibration': False, 'requires_wialon': False, 'plate_category': category}), 201))
+    cp = {'B5': 'ИП', 'B8': 'Тестов', 'B9': 'Иван', 'B12': 'Synthetic S1 party', 'B13': '001234567890',
+          'B18': '+70000000000', 'B19': 'synthetic@example.invalid', 'B20': 'Synthetic signer',
+          'B21': 'Director', 'B22': 'Authority', 'B24': '001234567', 'B25': '00000000000000000001',
+          'B27': 'ДА', 'B28': 'card.doc'}
+    rows = [{'C': 'НОВАЯ', 'I': 'A234BC86', 'H': types[0]['name'], 'J': 'Truck', 'K': 'Truck model',
+             'E': 'B999BC86', 'F': 'WRONG fallback', 'N': 'qqq.doc', 'P': 'scan_1.docx', 'L': '999'},
+            {'C': 'НОВАЯ', 'I': '1234AB86', 'H': types[1]['name'], 'J': 'Loader', 'K': 'Loader model', 'P': 'abc.pdf'}]
+    originals = {'card.doc': b'legacy-company-document', 'qqq.doc': b'legacy-calibration-document',
+                 'scan_1.docx': docx(), 'abc.pdf': pdf('vehicle row 6')}
+    before = snapshot(db)
+    d = upload(c, transport(workbook(cp, rows), originals), True)
+    assert snapshot(db) == before
+    d = choose(c, d, cp_target='new')
+    assert all(f['selected'] for f in d['comparison']['cp']['fields'].values() if not f['error'])
+    assert d['choices']['representatives']['0']['target'] == 'new'
+    assert all(v['include'] for v in d['choices']['vehicles'].values())
+    assert all(doc['selected'] and not doc['error'] for doc in d['comparison']['documents'])
+    assert len(d['comparison']['documents']) == 4
+    assert d['comparison']['vehicles'][0]['plate_number'] != 'В999ВС86'
+    # One optional exclusion; every other valid new value is already proposed.
+    d = choose(c, d, cp_fields=[f for f in d['choices']['cp_fields'] if f != 'email'])
+    saved, body = apply(c, d)
+    record = db.get(Counterparty, saved['cp_id'])
+    assert (record.type, record.legal_form, record.inn, record.bik, record.settlement_account, record.email) == (
+        'Физическое лицо', 'ИП', '001234567890', '001234567', '00000000000000000001', None)
+    reps = list(db.scalars(select(CounterpartyRepresentative).where(CounterpartyRepresentative.parent_id == record.id)))
+    assert len(reps) == 1 and (reps[0].name, reps[0].position, reps[0].authority_basis) == ('Synthetic signer', 'Director', 'Authority')
+    assert record.primary_signer_id == reps[0].id
+    vehicles = list(db.scalars(select(Vehicle).where(Vehicle.owner_cp_id == record.id).order_by(Vehicle.id)))
+    assert len(vehicles) == 2
+    assert [(v.name, v.model, v.type_id) for v in vehicles] == [('Truck', 'Truck model', types[0]['id']), ('Loader', 'Loader model', types[1]['id'])]
+    expected = {'Карточка предприятия': ('CP', record.id, 'card.doc'),
+                'Тарировка': ('VEH', vehicles[0].id, 'qqq.doc')}
+    for document in db.scalars(select(Document)):
+        bundle_url = f'/api/arm2/{document.parent_type.lower()}/{document.parent_id}/documents/{document.id}'
+        current_bundle = bundle(c, bundle_url)
+        revision = current_bundle['revisions'][0]
+        f = revision['files'][0]
+        if document.name in expected:
+            assert (document.parent_type, document.parent_id, f['original_upload_name']) == expected[document.name]
+        else:
+            assert document.name == 'СТС' and document.parent_id == (vehicles[0].id if f['original_upload_name'] == 'scan_1.docx' else vehicles[1].id)
+        response = c.get(bundle_url + f"/revisions/{revision['id']}/files/{f['id']}/download")
+        assert response.content == originals[f['original_upload_name']]
+        assert hashlib.sha256(response.content).hexdigest() == f['sha256']
+        if f['extension'] == 'bin':
+            preview = c.get(bundle_url + f"/revisions/{revision['id']}/files/{f['id']}/preview")
+            assert preview.headers['content-disposition'].startswith('attachment')
+    assert len(saved['objects']) == 8  # CP + REP + 2 VEH + 4 DOCUMENT
+    assert not any(storage.private_path(s.id).exists() for s in db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == d['id'])))
+    after = snapshot(db)
+    assert apply(c, d, body=body)[0] == saved and snapshot(db) == after
+
+
+def test_s2_issue78_existing_identity_and_owner_guards_preserve_revision_and_replay(b5):
+    c, db, _, parents, kind, disk = b5
+    check(command(c, current(c, parents['veh']), ('CP', parents['cp'])))
+    url = create(b5, 'veh')
+    check(accept(c, url, 1, [stage(c, url, pdf('old retained'))]))
+    old = bundle(c, url)['revisions'][0]
+    target = check(c.post('/api/arm2/counterparties', json={'name': 'New selected owner', 'type': 'Юридическое лицо'}), 201)
+    cp = {'B5': 'ИП', 'B6': parents['cp'], 'B12': 'Never overwrite working name', 'B18': 'Accepted phone', 'B19': 'reject@example.invalid'}
+    d = upload(c, transport(workbook(cp, [{'B': parents['veh'], 'C': 'ИЗ СПРАВОЧНИКА', 'E': 'A123BC86', 'P': 'abc.pdf'}]), {'abc.pdf': pdf('new revision')}), True)
+    d = choose(c, d, cp_target=target['id'], cp_fields=['phone', 'type'],
+        vehicles={'v:5': {'include': True, 'fields': ['owner']}},
+        documents={'v:5:sts': {'document_id': url.split('/')[-1], 'kind_id': kind, 'accept': True}})
+    assert d['comparison']['cp']['identity_conflict_reasons']
+    before = snapshot(db)
+    response = c.post('/api/arm2/questionnaires/' + d['id'] + '/apply', json={'command_id': str(uuid4()), 'revision': d['revision'], 'preview_id': d['preview_id']})
+    assert response.status_code == 409 and 'Отдельно подтвердите конфликт личности' in response.json()['detail']
+    assert snapshot(db) == before and not disk.uploads[1:]
+    d = choose(c, d, confirm_identity=True)
+    apply(c, d, status=409)  # Existing owner A -> B still needs its independent confirmation.
+    assert snapshot(db) == before
+    d = choose(c, d, vehicles={'v:5': {'include': True, 'fields': ['owner'], 'confirm_owner': True}})
+    disk.fail_at = len(disk.uploads)
+    apply(c, d, status=503)  # Identity guard is passed; this is a real provider failure, never another identity 409.
+    assert snapshot(db) == before
+    disk.fail_at = None
+    saved, body = apply(c, d)
+    fresh = check(c.get('/api/arm2/counterparties/' + target['id']))
+    assert fresh['name'] == target['name'] and fresh['phone'] == 'Accepted phone' and fresh['email'] is None
+    assert current(c, parents['veh'])['owner_cp_id'] == target['id']
+    after = bundle(c, url)
+    assert len(after['revisions']) == 2 and after['revisions'][1] == old
+    assert c.get(url + f"/revisions/{old['id']}/files/{old['files'][0]['id']}/download").content == pdf('old retained')
+    before = snapshot(db)
+    assert apply(c, d, body=body)[0] == saved and snapshot(db) == before
+
+
+def test_s3_issue78_unselected_invalid_rows_and_nested_zip_cancel_and_partial_save(b5):
+    from app.arm2 import document_file_storage as storage
+    c, db, *_ = b5
+    doc_kind(c)
+    cp = {'B5': 'ООО', 'B12': 'Synthetic partial party'}
+    rows = [{'C': 'НОВАЯ', 'I': 'A345BC86', 'J': 'Valid truck', 'P': 'arbitrary.pdf'},
+            {'C': 'НОВАЯ', 'J': 'Missing number', 'P': 'missing.pdf'}]
+    nested = io.BytesIO()
+    with zipfile.ZipFile(nested, 'w') as z:
+        z.writestr('anything.txt', 'No extraction')
+    data = transport(workbook(cp, rows), {'arbitrary.pdf': pdf('valid partial'), 'sts.zip': nested.getvalue()})
+    before = snapshot(db)
+    first = choose(c, upload(c, data, True), cp_target='new')
+    tokens = [s.id for s in db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == first['id']))]
+    check(c.delete('/api/arm2/questionnaires/' + first['id']))
+    assert snapshot(db) == before and all(not storage.private_path(t).exists() for t in tokens)
+    d = choose(c, upload(c, data, True), cp_target='new')
+    assert d['choices']['vehicles']['v:5']['include'] and not d['choices']['vehicles']['v:6']['include']
+    assert any('Вложенный ZIP' in (doc.get('error') or '') for doc in d['comparison']['documents'])
+    assert any(doc['name'] == 'missing.pdf' and doc['error'] for doc in d['comparison']['documents'])
+    assert sum(doc['selected'] for doc in d['comparison']['documents']) == 1
+    saved, _ = apply(c, d)
+    assert len(list(db.scalars(select(Vehicle).where(Vehicle.owner_cp_id == saved['cp_id'])))) == 1
+    assert count(db, Document) == 1 and count(db, DocumentFile) == 1
+    assert len(b5[-1].uploads) == 1
+    assert all(not storage.private_path(s.id).exists() for s in db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == d['id'])))
+
+
+def test_issue78_supported_formats_keep_b3_classification_and_unknown_zip_is_rejected(b5, monkeypatch):
+    from test_arm2_document_file_api import docx, png
+    c, db, *_ = b5
+    sheets = Workbook()
+    sheets.active['A1'] = 'Ordinary document'
+    xlsx = io.BytesIO()
+    sheets.save(xlsx)
+    sheets.close()
+    pptx = io.BytesIO()
+    with zipfile.ZipFile(pptx, 'w') as archive:
+        archive.writestr('[Content_Types].xml', '<Types/>')
+        archive.writestr('ppt/presentation.xml', '<presentation/>')
+    nested = io.BytesIO()
+    with zipfile.ZipFile(nested, 'w') as archive:
+        archive.writestr('opaque.txt', 'Not an individual document')
+    attachments = {'one.pdf': pdf(), 'two.png': png(), 'three.docx': docx(), 'four.xlsx': xlsx.getvalue(),
+                   'five.pptx': pptx.getvalue(), 'six.doc': b'legacy opaque bytes', 'nested.zip': nested.getvalue(),
+                   'not-a-zip.doc': b'PK ordinary unknown bytes'}
+    d = upload(c, transport(workbook({'B5': 'ООО', 'B12': 'Formats only'}), attachments), True)
+    stages = {s.name: s for s in db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == d['id']))}
+    for name, extension in [('one.pdf', 'pdf'), ('two.png', 'png'), ('three.docx', 'docx'), ('four.xlsx', 'xlsx'),
+                            ('five.pptx', 'pptx'), ('six.doc', 'bin'), ('not-a-zip.doc', 'bin')]:
+        assert stages[name].extension == extension and not stages[name].error
+        preview = c.get(f"/api/arm2/questionnaires/{d['id']}/files/{stages[name].id}/preview")
+        assert preview.status_code == 200 and preview.content == attachments[name]
+        if extension in ('bin', 'docx', 'xlsx', 'pptx'):
+            assert preview.headers['content-disposition'].startswith('attachment')
+        if extension == 'bin':
+            assert stages[name].media_type == 'application/octet-stream'
+    assert 'Вложенный ZIP' in stages['nested.zip'].error
+    assert c.get(f"/api/arm2/questionnaires/{d['id']}/files/{stages['nested.zip'].id}/preview").status_code == 422
+    from app.config import settings
+    with monkeypatch.context() as guard:
+        guard.setenv('MAX_IMAGE_PIXELS', '4')
+        settings.cache_clear()
+        invalid = upload(c, transport(workbook({'B12': 'Image security'}), {'oversize.png': png()}), True)
+        stage_row = db.scalar(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == invalid['id']))
+        assert stage_row.error and stage_row.extension is None  # Never downgrade a rejected image to opaque.
+    settings.cache_clear()
+
+
+def test_issue78_literal_attachment_ambiguity_requires_one_explicit_file_choice(b5):
+    c, db, *_ = b5
+    doc_kind(c)
+    data = transport(workbook({'B5': 'ООО', 'B12': 'Ambiguous source'}, [
+        {'C': 'НОВАЯ', 'I': 'A567BC86', 'J': 'Declared row', 'P': 'abc.pdf'}]),
+        {'one/abc.pdf': pdf('one'), 'two/abc.pdf': pdf('two')})
+    d = choose(c, upload(c, data, True), cp_target='new')
+    declaration = next(doc for doc in d['comparison']['documents'] if doc['key'] == 'v:5:sts')
+    assert declaration['error'] and not declaration['selected'] and not declaration.get('upload_id')
+    physical = [doc['upload_id'] for doc in d['comparison']['documents'] if doc.get('upload_id')]
+    assert len(physical) == len(set(physical)) == 2
+    token = next(s.id for s in db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == d['id'])) if s.name == 'two/abc.pdf')
+    d = choose(c, d, documents={'v:5:sts': {'upload_id': token, 'accept': True}})
+    declaration = next(doc for doc in d['comparison']['documents'] if doc['key'] == 'v:5:sts')
+    assert declaration['upload_id'] == token and not declaration['error']
+    saved, _ = apply(c, d)
+    document = db.scalar(select(Document))
+    vehicle = db.scalar(select(Vehicle).where(Vehicle.owner_cp_id == saved['cp_id']))
+    assert document.parent_id == vehicle.id and document.name == 'СТС'
+    assert db.scalar(select(DocumentFile)).sha256 == hashlib.sha256(pdf('two')).hexdigest()
+
+
+def test_issue78_repeated_file_declaration_has_one_physical_item_and_no_silent_binding(b5):
+    c, db, *_ = b5
+    doc_kind(c)
+    d = choose(c, upload(c, transport(workbook({'B5': 'ООО', 'B12': 'Repeated attachment'}, [
+        {'C': 'НОВАЯ', 'I': 'A678BC86', 'P': 'abc.pdf'},
+        {'C': 'НОВАЯ', 'I': 'A679BC86', 'P': 'abc.pdf'}]), {'abc.pdf': pdf('only original')}), True), cp_target='new')
+    plans = d['comparison']['documents']
+    assert len([doc for doc in plans if doc.get('upload_id')]) == 1
+    assert all(doc['error'] for doc in plans) and not any(doc['selected'] for doc in plans)
+    d = choose(c, d, documents={'v:6:sts': {'accept': True}})
+    selected_doc = next(doc for doc in d['comparison']['documents'] if doc['selected'])
+    assert selected_doc['parent_key'] == 'v:6' and not selected_doc['error']
+    saved, _ = apply(c, d)
+    vehicle = db.scalar(select(Vehicle).where(Vehicle.plate_number == 'А679ВС86'))
+    assert vehicle.owner_cp_id == saved['cp_id'] and db.scalar(select(Document)).parent_id == vehicle.id
+
+
+def test_ole_document_with_internal_zip_is_opaque_and_open_draft_is_repaired(b5):
+    from app.arm2 import document_file_storage as storage
+    c, db, _, parents, *_ = b5
+    doc_kind(c, 'Карточка предприятия', 'CP')
+    stream = io.BytesIO()
+    stream.write(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1' + b'\0' * 504)
+    with zipfile.ZipFile(stream, 'a') as z:
+        z.writestr('[Content_Types].xml', '<Types/>')
+        z.writestr('customXml/item.xml', '<synthetic/>')
+    original = stream.getvalue()
+    assert zipfile.is_zipfile(io.BytesIO(original))
+    d = upload(c, transport(workbook({'B28': 'company.doc'}), {'company.doc': original}), True)
+    stage_row = db.scalar(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == d['id']))
+    assert (stage_row.media_type, stage_row.extension, stage_row.error) == ('application/octet-stream', 'bin', None)
+    # Simulate the previous release's private ledger; reopen repairs this exact
+    # false classification without reupload, domain writes or original changes.
+    stage_row.media_type = stage_row.extension = None
+    stage_row.error = 'Вложенный ZIP нельзя принять как документ; приложите отдельный файл'
+    db.commit()
+    before = snapshot(db)
+    d = reopen(c, d)
+    assert snapshot(db) == before
+    db.refresh(stage_row)
+    assert stage_row.extension == 'bin' and stage_row.error is None
+    assert storage.private_path(stage_row.id).read_bytes() == original
+    d = choose(c, d, cp_target=parents['cp'], documents={'company': {'accept': True}})
+    saved, _ = apply(c, d)
+    document = db.scalar(select(Document))
+    f = db.scalar(select(DocumentFile))
+    assert document.parent_id == parents['cp'] and f.original_upload_name == 'company.doc'
+    url = f'/api/arm2/cp/{parents["cp"]}/documents/{document.id}/revisions/{document.current_revision_id}/files/{f.id}'
+    response = c.get(url + '/download')
+    assert response.content == original and hashlib.sha256(response.content).hexdigest() == f.sha256
+    assert '.bin' in response.headers['content-disposition']  # The opaque fixture is not a valid Word document.
+    assert c.get(url + '/preview').headers['content-disposition'].startswith('attachment')
+    assert len(saved['objects']) == 1
+
+
+def binary_word_fixture():
+    from struct import pack_into
+
+    end, free = 0xFFFFFFFE, 0xFFFFFFFF
+    header = bytearray(512)
+    header[:8] = bytes.fromhex('D0CF11E0A1B11AE1')
+    pack_into('<5H', header, 24, 0x003E, 3, 0xFFFE, 9, 6)
+    pack_into('<9I', header, 40, 0, 1, 1, 0, 4096, end, 0, end, 0)
+    pack_into('<109I', header, 76, 0, *([free] * 108))
+    fat = bytearray(512)
+    chain = [0xFFFFFFFD, end, *range(3, 10), end, *range(11, 18), end]
+    pack_into('<128I', fat, 0, *chain, *([free] * (128 - len(chain))))
+    directory = bytearray(512)
+
+    def entry(index, name, kind, *, left=free, child=free, start=end, size=0):
+        offset = index * 128
+        encoded = (name + '\0').encode('utf-16-le')
+        directory[offset:offset + len(encoded)] = encoded
+        pack_into('<HBB3I', directory, offset + 64, len(encoded), kind, 1, left, free, child)
+        pack_into('<IQ', directory, offset + 116, start, size)
+
+    entry(0, 'Root Entry', 5, child=1)
+    entry(1, 'WordDocument', 2, left=2, start=2, size=4096)
+    entry(2, '0Table', 2, start=10, size=4096)
+    word = bytearray(4096)
+    pack_into('<2H', word, 0, 0xA5EC, 0x00C1)
+    return bytes(header + fat + directory + word + bytes(4096))
+
+
+def test_verified_word_is_downloadable_and_named_zip_roundtrips_without_duplicate(b5):
+    c, db, _, parents, *_ = b5
+    doc_kind(c, 'Карточка предприятия', 'CP')
+    original = binary_word_fixture()
+    draft = upload(c, transport(workbook({'B28': 'company.doc'}), {'company.doc': original}), True)
+    draft = choose(c, draft, cp_target=parents['cp'], documents={'company': {'accept': True}})
+    apply(c, draft)
+    document = db.scalar(select(Document))
+    file = db.scalar(select(DocumentFile))
+    assert file.extension == 'bin' and file.stored_name.endswith('.bin')
+    root = f'/api/arm2/cp/{parents["cp"]}/documents/{document.id}/revisions/{document.current_revision_id}/files/{file.id}'
+    for action in ('download', 'preview'):
+        reply = c.get(root + '/' + action)
+        assert reply.status_code == 200 and reply.content == original
+        assert reply.headers['content-disposition'].startswith('attachment')
+        assert (file.id + '.doc') in reply.headers['content-disposition']
+        assert reply.headers['content-type'] == 'application/octet-stream'
+
+    endpoint = '/api/arm2/questionnaires/exports/' + parents['cp']
+    xlsx1 = check(c.post(endpoint, json={'format': 'xlsx'}))
+    xlsx2 = check(c.post(endpoint, json={'format': 'xlsx'}))
+    assert re.fullmatch(r'Анкета CP — \d{4}-\d\d-\d\d_\d\d-\d\d-\d\d-\d{6}\.xlsx', xlsx1['filename'])
+    assert xlsx1['filename'] != xlsx2['filename']
+    zipped = check(c.post(endpoint, json={'format': 'zip'}))
+    assert zipped['filename'].startswith('Анкета CP с документами — ') and zipped['filename'].endswith('.zip')
+    data = base64.b64decode(zipped['data'])
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        attachment = next(name for name in archive.namelist() if name.startswith('files/'))
+        assert attachment.endswith(file.id + '.doc') and archive.read(attachment) == original
+    before = snapshot(db)
+    draft = choose(c, upload(c, data, True), cp_target=parents['cp'])
+    assert any(candidate.get('equal') and candidate.get('document_id') == document.id for candidate in draft['comparison']['documents'])
+    assert apply(c, draft)[0]['no_op'] and snapshot(db) == before
+
+
+@pytest.mark.parametrize('source_id', ['', 'VEH-999999'])
+def test_catalogue_mode_does_not_prevent_new_vehicle_or_matching_by_plate(b5, source_id):
+    c, db, _, parents, *_ = b5
+    rows = [{'C': 'ИЗ СПРАВОЧНИКА', 'B': source_id, 'E': 'A789BC86', 'F': 'Catalogue truck', 'G': 'Model',
+             'I': 'B999BC86', 'J': 'Wrong columns'}]
+    d = choose(c, upload(c, workbook(rows=rows)), cp_target=parents['cp'])
+    row = d['comparison']['vehicles'][0]
+    assert row['id'] is None and not row['errors'] and row['plate_number'] == 'А789ВС86'
+    assert d['choices']['vehicles']['v:5']['include']
+    assert row['fields']['name']['proposed'] == 'Catalogue truck'
+    saved, _ = apply(c, d)
+    vehicle = db.scalar(select(Vehicle).where(Vehicle.plate_number == 'А789ВС86'))
+    assert (vehicle.name, vehicle.model, vehicle.owner_cp_id, vehicle.version) == ('Catalogue truck', 'Model', parents['cp'], 1)
+    assert len(saved['event_ids']) == 1
+    before = snapshot(db)
+    second = choose(c, upload(c, workbook(rows=rows)), cp_target=parents['cp'])
+    assert second['comparison']['vehicles'][0]['id'] == vehicle.id
+    assert not second['choices'].get('vehicles', {}).get('v:5', {}).get('include')
+    result, _ = apply(c, second)
+    assert result['no_op'] and snapshot(db) == before
+
+
+def test_extensionless_references_bind_once_per_row_and_reset_obsolete_file_approval(b5):
+    import copy
+    c, db, _, parents, *_ = b5
+    doc_kind(c)
+    doc_kind(c, 'Тарировка')
+    originals = {'стс 333.pdf': pdf('truck sts'), 'тарировка 333.pdf': pdf('truck calibration'),
+                 'стс 0972.pdf': pdf('loader sts'), 'notes.txt': b'genuinely unbound'}
+    rows = [{'C': 'ИЗ СПРАВОЧНИКА', 'E': 'A789BC86', 'F': 'Truck', 'N': 'тарировка 333', 'P': 'стс 333'},
+            {'C': 'ИЗ СПРАВОЧНИКА', 'E': '1234AB86', 'F': 'Loader', 'P': 'стс 0972'}]
+    d = choose(c, upload(c, transport(workbook(rows=rows), originals), True), cp_target=parents['cp'])
+    documents = d['comparison']['documents']
+    assert [doc['name'] for doc in documents if doc['parent_key'] == 'v:5'] == ['стс 333.pdf', 'тарировка 333.pdf']
+    assert [doc['name'] for doc in documents if doc['parent_key'] == 'v:6'] == ['стс 0972.pdf']
+    assert [doc['name'] for doc in documents if doc['role'] == 'Непривязанный файл'] == ['notes.txt']
+    assert len({doc['upload_id'] for doc in documents}) == len(documents) == 4
+    assert sum(doc['selected'] for doc in documents) == 3
+    assert not any(doc['error'] for doc in documents if doc['parent_key'])
+    # An old manual workaround pointed calibration at the STS upload. The newly
+    # unambiguous declaration wins, but old approval MUST be invalidated first.
+    saved = db.get(QuestionnaireDraft, d['id'])
+    old_preview = copy.deepcopy(saved.preview)
+    wrong = next(doc for doc in old_preview['documents'] if doc['key'] == 'v:5:sts')
+    calibration = next(doc for doc in old_preview['documents'] if doc['key'] == 'v:5:calibration')
+    calibration.update(upload_id=wrong['upload_id'], sha256=wrong['sha256'], name=wrong['name'])
+    saved.preview = old_preview
+    decisions = copy.deepcopy(saved.choices)
+    decisions['documents']['v:5:calibration']['upload_id'] = wrong['upload_id']
+    saved.choices = decisions
+    db.commit()
+    before = snapshot(db)
+    d = reopen(c, d)
+    assert d['approval_reset'] and snapshot(db) == before
+    plans = {doc['key']: doc for doc in d['comparison']['documents']}
+    assert plans['v:5:calibration']['name'] == 'тарировка 333.pdf'
+    assert not plans['v:5:calibration']['selected'] and plans['v:5:sts']['selected']
+    assert len([doc for doc in plans.values() if doc['role'] == 'Непривязанный файл']) == 1
+    d = choose(c, d, documents={**d['choices']['documents'], 'v:5:calibration': {
+        **d['choices']['documents']['v:5:calibration'], 'accept': True}})
+    receipt, _ = apply(c, d)
+    vehicles = {v.name: v for v in db.scalars(select(Vehicle).where(Vehicle.owner_cp_id == parents['cp']))}
+    assert set(vehicles) == {'Truck', 'Loader'}
+    for doc in db.scalars(select(Document)):
+        f = db.scalar(select(DocumentFile).where(DocumentFile.document_id == doc.id))
+        assert doc.parent_id == vehicles['Loader' if '0972' in f.original_upload_name else 'Truck'].id
+        url = f'/api/arm2/veh/{doc.parent_id}/documents/{doc.id}/revisions/{doc.current_revision_id}/files/{f.id}/download'
+        assert c.get(url).content == originals[f.original_upload_name]
+    assert sum(o['kind'] == 'DOCUMENT' for o in receipt['objects']) == 3
+
+
+@pytest.mark.parametrize('reference_name,names,matched', [
+    ('abc', ['abc.pdf', 'abc.doc'], None),
+    ('abc', ['one/abc.pdf', 'two/abc.pdf'], None),
+    ('one/abc', ['one/abc.pdf', 'two/abc.pdf'], 'one/abc.pdf'),
+    ('abc.pdf', ['abc.pdf', 'abc.pdf.doc'], 'abc.pdf'),
+    ('abc.doc', ['abc.pdf'], None),
+])
+def test_extensionless_match_is_exact_unique_and_preserves_complete_filename(b5, reference_name, names, matched):
+    c, db, _, parents, *_ = b5
+    doc_kind(c)
+    source = transport(workbook(rows=[{'C': 'НОВАЯ', 'I': 'A890BC86', 'P': reference_name}]),
+                       {name: pdf('original '+name) for name in names})
+    d = choose(c, upload(c, source, True), cp_target=parents['cp'])
+    plan = next(doc for doc in d['comparison']['documents'] if doc['key'] == 'v:5:sts')
+    if matched:
+        assert plan['name'] == matched and plan['selected'] and not plan['error']
+    else:
+        assert plan['error'] and not plan['selected'] and not plan.get('upload_id')
+    physical = [doc['upload_id'] for doc in d['comparison']['documents'] if doc.get('upload_id')]
+    assert len(physical) == len(set(physical)) == len(names)
+
+
+@pytest.mark.parametrize('plate,reference_name,names,matched', [
+    ('A890BC86', 'СТС HOWO А890ВС86', ['СТС ХОВО A 890 BC 86.pdf'], 'СТС ХОВО A 890 BC 86.pdf'),
+    ('A890BC86', 'СТС HOWO А890ВС86', ['СТС ХОВО A 890 BC 86.pdf', 'другой/СТС HOWO А 890 ВС 86.jpg'], None),
+    ('A890BC86', 'СТС HOWO А890ВС86.pdf', ['СТС ХОВО A 890 BC 86.jpg'], None),
+    ('A891BC86', 'СТС HOWO А890ВС86', ['СТС ХОВО A 890 BC 86.pdf'], None),
+    ('A890BC86', 'СТС HOWO А890ВС86', ['Тарировка ХОВО A 890 BC 86.pdf'], None),
+])
+def test_vehicle_filename_fallback_requires_unique_equivalent_name_and_row_plate(b5, plate, reference_name, names, matched):
+    c, _, _, parents, *_ = b5
+    doc_kind(c)
+    source = transport(workbook(rows=[{'I': plate, 'P': reference_name}]), {name: pdf('original '+name) for name in names})
+    draft = choose(c, upload(c, source, True), cp_target=parents['cp'])
+    plan = next(doc for doc in draft['comparison']['documents'] if doc['key'] == 'v:5:sts')
+    if matched:
+        assert plan['name'] == matched and plan['selected'] and not plan['error']
+    else:
+        assert plan['error'] and not plan['selected'] and not plan.get('upload_id')

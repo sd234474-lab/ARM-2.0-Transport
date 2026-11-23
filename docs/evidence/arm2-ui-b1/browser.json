@@ -1,0 +1,17 @@
+{
+  "ui_login": true,
+  "search_beyond100": true,
+  "owner_filters_cp_org": true,
+  "party_search_beyond100": true,
+  "ui_create_reopen": true,
+  "created_vehicle": "VEH-000133",
+  "version_conflict_real": true,
+  "history_read": true,
+  "representative_round_trip_cp_org": true,
+  "representative_create": true,
+  "primary_signer": true,
+  "new_rep": "CPREP-000005",
+  "restricted_view_no_related_names": true,
+  "narrow_no_page_overflow": true,
+  "browser_errors": []
+}

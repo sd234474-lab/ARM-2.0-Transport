@@ -1,0 +1,19 @@
+{
+  "result": "PASS",
+  "source": "isolated native auth/ARM2 + actual Workspace + Edge",
+  "baseSha": "42f5723a54f5a617d4be5ad82d788182419ec513",
+  "vehicle": "VEH-000106",
+  "type": "TYPE-000004",
+  "restoredSession": "1327a787-e64e-42e3-a215-f4c0dd44177c",
+  "committedResults": 2,
+  "protocolPreserved": true,
+  "temporaryWorkspaceDeleted": true,
+  "foreignCleanupPreservedVehicle": true,
+  "rejectionDownload": "rejections.xlsx",
+  "realRestarts": [
+    "PostgreSQL",
+    "API",
+    "Vite",
+    "browser"
+  ]
+}

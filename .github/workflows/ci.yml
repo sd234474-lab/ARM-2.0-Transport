@@ -2,7 +2,8 @@ name: CI
 on: [push, pull_request]
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    # Pin the test runner: ubuntu-latest can move beyond the PostgreSQL 16 client repository.
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgis/postgis:16-3.5
@@ -25,7 +26,8 @@ jobs:
         with:
           version: '0.8.22'
       - run: uv sync --project backend --frozen --python 3.12
-      - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-rus
+      # ARM2 restore evidence must use the same client major as the PostgreSQL 16 service.
+      - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-rus postgresql-client-16
       - run: uv run --project backend ruff check backend
       - run: uv run --project backend python backend/app/ocr_models.py "$OCR_MODEL_DIR"
       - run: uv run --project backend pytest backend/tests --cov=app --cov-report=term-missing

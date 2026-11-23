@@ -1,0 +1,338 @@
+{
+  "classification": "AUTHOR-RUN, synthetic QA; not UAT or independent acceptance",
+  "I06": "PASS",
+  "I08": "PASS",
+  "head": "0068",
+  "chain": [
+    "0064",
+    "0065 B3",
+    "0066 B3",
+    "0067 TYPE",
+    "0068 B4"
+  ],
+  "databases": [
+    "arm2_int_d2224768201841c9850c89bcfb503133_clean_test",
+    "arm2_int_7e0c41bac7344c589c759633b6d53f89_b3_test",
+    "arm2_int_62f6ef5be43a464394333f5599aafe18_upgrade_test",
+    "arm2_int_48c74195b108435ca1391d969aed1174_restore_test"
+  ],
+  "file_manifest": {
+    "24b81fdc9170f7a2b4ea2bd9c8101b9b96a7f06aded520f5c0d7725d6fe3f8ff": "a0d9ce58ef6138f58034bbbccce26c6f9a15b71e50ab586cabd27f11ff40366d",
+    "dd5b89b3b38b62500fdf5ff02d0c9288b897a58d40ff49597cf1e6387649357c": "163c0bdb6954cae429e6a31fc85962d676bc66978a9e3553a8336af2ddf04da8"
+  },
+  "file_backup_restored": true,
+  "db_snapshot_equal": true,
+  "backend_postgres_frontend_restarted": true,
+  "reopened_api_equal": true,
+  "duplicate_receipt_equal": true,
+  "protected_downgrade": true,
+  "native_ui_verified": true,
+  "validated_foreign_keys": 97,
+  "clean_legacy_type": {
+    "id": "TYPE-700001",
+    "name": "Legacy integration",
+    "requires_sts": null,
+    "requires_calibration": false,
+    "requires_wialon": false,
+    "status": "REVIEW",
+    "version": 5,
+    "plate_category": null
+  },
+  "type_migration_event": {
+    "event_id": 1,
+    "object_type": "TYPE",
+    "object_id": "TYPE-700001",
+    "operation": "UPDATED",
+    "occurred_at": "2026-11-18T09:22:09.35078+05:00",
+    "actor_kind": "SYSTEM",
+    "actor_id": "migration-0067",
+    "source": "arm2-migration",
+    "correlation_id": "migration-0067",
+    "version_before": 4,
+    "version_after": 5,
+    "changes": {
+      "status": {
+        "after": "REVIEW",
+        "before": "CONFIRMED"
+      },
+      "version": {
+        "after": 5,
+        "before": 4
+      }
+    },
+    "related_objects": []
+  },
+  "snapshot_sha256": "e6b9539ef4c18e6087d73baec0dd7c1cc654d3b7b17691f4774ff24ceec2e746",
+  "observed": {
+    "vehicle": {
+      "id": "VEH-000001",
+      "name": "Integration QA",
+      "plate_number": "А123ВС86",
+      "type_id": "TYPE-000001",
+      "accounting_state": "Действующая",
+      "model": "QA imported",
+      "wialon_unit_id": null,
+      "owner_cp_id": null,
+      "owner_org_id": "ORG-000001",
+      "version": 4
+    },
+    "bundle": {
+      "document_id": "DOCUMENT-000001",
+      "document_version": 3,
+      "current_revision_id": "DOCUMENT-REV-000002",
+      "display_state": "Доступен",
+      "revisions": [
+        {
+          "id": "DOCUMENT-REV-000002",
+          "number": 2,
+          "document_id": "DOCUMENT-000001",
+          "parent_type": "VEH",
+          "parent_id": "VEH-000001",
+          "author_id": 1,
+          "occurred_at": "2026-11-18T09:22:12.527210+05:00",
+          "source": "arm2-api-manual",
+          "files": [
+            {
+              "id": "FILE-000001",
+              "original_upload_name": "original-0.pdf",
+              "stored_name": "Integration document-FILE-000001.pdf",
+              "size": 24,
+              "sha256": "163c0bdb6954cae429e6a31fc85962d676bc66978a9e3553a8336af2ddf04da8",
+              "media_type": "application/pdf",
+              "extension": "pdf",
+              "position": 0,
+              "correction": null
+            }
+          ]
+        },
+        {
+          "id": "DOCUMENT-REV-000001",
+          "number": 1,
+          "document_id": "DOCUMENT-000001",
+          "parent_type": "VEH",
+          "parent_id": "VEH-000001",
+          "author_id": 1,
+          "occurred_at": "2026-11-18T09:22:12.460437+05:00",
+          "source": "arm2-api-manual",
+          "files": [
+            {
+              "id": "FILE-000001",
+              "original_upload_name": "original-0.pdf",
+              "stored_name": "Integration document-FILE-000001.pdf",
+              "size": 24,
+              "sha256": "163c0bdb6954cae429e6a31fc85962d676bc66978a9e3553a8336af2ddf04da8",
+              "media_type": "application/pdf",
+              "extension": "pdf",
+              "position": 0,
+              "correction": null
+            },
+            {
+              "id": "FILE-000002",
+              "original_upload_name": "original-1.pdf",
+              "stored_name": "Integration document-FILE-000002.pdf",
+              "size": 25,
+              "sha256": "a0d9ce58ef6138f58034bbbccce26c6f9a15b71e50ab586cabd27f11ff40366d",
+              "media_type": "application/pdf",
+              "extension": "pdf",
+              "position": 1,
+              "correction": null
+            }
+          ]
+        }
+      ],
+      "max_files": 32,
+      "max_file_bytes": 52428800
+    },
+    "vehicle_history": [
+      {
+        "event_id": 11,
+        "object_type": "VEH",
+        "object_id": "VEH-000001",
+        "operation": "UPDATED",
+        "occurred_at": "2026-11-18T09:22:15.827072+05:00",
+        "actor_kind": "HUMAN",
+        "actor_id": "1",
+        "source": "arm2-table",
+        "version_before": 3,
+        "version_after": 4
+      },
+      {
+        "event_id": 10,
+        "object_type": "VEH",
+        "object_id": "VEH-000001",
+        "operation": "UPDATED",
+        "occurred_at": "2026-11-18T09:22:15.756488+05:00",
+        "actor_kind": "HUMAN",
+        "actor_id": "1",
+        "source": "arm2-api-operational-owner",
+        "version_before": 2,
+        "version_after": 3
+      },
+      {
+        "event_id": 9,
+        "object_type": "VEH",
+        "object_id": "VEH-000001",
+        "operation": "UPDATED",
+        "occurred_at": "2026-11-18T09:22:15.744419+05:00",
+        "actor_kind": "HUMAN",
+        "actor_id": "1",
+        "source": "arm2-api-operational-owner",
+        "version_before": 1,
+        "version_after": 2
+      },
+      {
+        "event_id": 1,
+        "object_type": "VEH",
+        "object_id": "VEH-000001",
+        "operation": "CREATED",
+        "occurred_at": "2026-11-18T09:22:12.275259+05:00",
+        "actor_kind": "HUMAN",
+        "actor_id": "1",
+        "source": "arm2-api",
+        "version_before": null,
+        "version_after": 1
+      }
+    ],
+    "document_history": [
+      {
+        "event_id": 7,
+        "object_type": "DOCUMENT",
+        "object_id": "DOCUMENT-000001",
+        "operation": "UPDATED",
+        "occurred_at": "2026-11-18T09:22:12.527210+05:00",
+        "actor_kind": "HUMAN",
+        "actor_id": "1",
+        "source": "arm2-api-manual",
+        "version_before": 2,
+        "version_after": 3
+      },
+      {
+        "event_id": 6,
+        "object_type": "DOCUMENT",
+        "object_id": "DOCUMENT-000001",
+        "operation": "UPDATED",
+        "occurred_at": "2026-11-18T09:22:12.460437+05:00",
+        "actor_kind": "HUMAN",
+        "actor_id": "1",
+        "source": "arm2-api-manual",
+        "version_before": 1,
+        "version_after": 2
+      },
+      {
+        "event_id": 5,
+        "object_type": "DOCUMENT",
+        "object_id": "DOCUMENT-000001",
+        "operation": "CREATED",
+        "occurred_at": "2026-11-18T09:22:12.308316+05:00",
+        "actor_kind": "HUMAN",
+        "actor_id": "1",
+        "source": "arm2-api",
+        "version_before": null,
+        "version_after": 1
+      }
+    ],
+    "type": {
+      "plate_category": "Автомобильный",
+      "id": "TYPE-000001",
+      "name": "Confirmed QA",
+      "requires_sts": true,
+      "requires_calibration": false,
+      "requires_wialon": false,
+      "status": "CONFIRMED",
+      "version": 1
+    },
+    "workspace": {
+      "id": "d7ed27b5-260f-4b5d-b075-b7a074b58ecb",
+      "source": "integration.tsv",
+      "revision": 1,
+      "headers": [
+        "id",
+        "Госномер",
+        "TYPE — ID",
+        "Модель"
+      ],
+      "rows": [
+        [
+          "VEH-000001",
+          "А123ВС86",
+          "TYPE-000001",
+          "QA imported"
+        ]
+      ],
+      "mapping": [
+        "id",
+        "plate_number",
+        "type_id",
+        "model"
+      ],
+      "excluded": [],
+      "clears": {},
+      "decisions": {},
+      "confirmations": {},
+      "warning": "Сторонняя таблица: исходного снимка нет. Принимайте только явно выбранные отличия",
+      "failures": null,
+      "plans": [
+        {
+          "key": "VEH-000001",
+          "sources": [
+            2
+          ],
+          "errors": [],
+          "fields": {},
+          "vehicle_id": "VEH-000001",
+          "version": 4,
+          "matched": {
+            "name": "Integration QA",
+            "plate_number": "А123ВС86"
+          },
+          "similar": [],
+          "has_snapshot": false,
+          "action": "SKIP"
+        }
+      ],
+      "results": [
+        {
+          "command_id": "3812eb22-3c50-4a08-a783-49cd8e0c461a",
+          "row_key": "VEH-000001",
+          "vehicle_id": "VEH-000001",
+          "event_id": 11,
+          "version_after": 4,
+          "fields": [
+            "model",
+            "type_id"
+          ],
+          "at": "2026-11-18T09:22:15.827072+05:00",
+          "status": "SAVED"
+        }
+      ],
+      "blocked": false,
+      "approval_reset": false
+    },
+    "protocols": [
+      {
+        "id": "d7ed27b5-260f-4b5d-b075-b7a074b58ecb",
+        "source": "integration.tsv",
+        "author": 1,
+        "results": [
+          {
+            "command_id": "3812eb22-3c50-4a08-a783-49cd8e0c461a",
+            "row_key": "VEH-000001",
+            "vehicle_id": "VEH-000001",
+            "event_id": 11,
+            "version_after": 4,
+            "fields": [
+              "model",
+              "type_id"
+            ],
+            "at": "2026-11-18T09:22:15.827072+05:00",
+            "status": "SAVED"
+          }
+        ]
+      }
+    ]
+  },
+  "dump_sha256": {
+    "b3-0066.dump": "0b843e6189475a11bcaf47e8adb8809d4c6e9fe8bbd3bd97ebe73c0dbc69baed",
+    "integration.dump": "f6c59ab7fc1accc66a0800ecd81bec4b37e14966ee2642f0e25d734e0994285a"
+  }
+}

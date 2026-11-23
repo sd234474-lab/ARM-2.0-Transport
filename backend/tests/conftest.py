@@ -27,6 +27,8 @@ def database_url():
     url = os.getenv("TEST_DATABASE_URL")
     if not url:
         pytest.skip("TEST_DATABASE_URL required for PostgreSQL/PostGIS integration tests")
+    if make_url(url).database == "contractor_max_test":
+        raise RuntimeError("Protected ARM1 prototype; use an isolated disposable database")
     if not make_url(url).database.endswith("_test"):
         raise RuntimeError("Use a disposable database whose name ends with _test")
     from alembic.config import Config
@@ -49,6 +51,83 @@ def database_url():
     else:
         os.environ["DATABASE_URL"] = previous
     settings.cache_clear()
+
+
+@pytest.fixture
+def isolated_arm2_database_url():
+    from pathlib import Path
+    from re import fullmatch
+    from uuid import uuid4
+
+    from alembic.config import Config
+
+    from alembic import command
+
+    source = os.getenv("TEST_DATABASE_URL")
+    if not source:
+        pytest.skip("TEST_DATABASE_URL required for PostgreSQL/PostGIS integration tests")
+    source_url = make_url(source)
+    if source_url.database == "contractor_max_test":
+        raise RuntimeError("Protected ARM1 prototype; use an isolated disposable database")
+    if not source_url.database or not source_url.database.endswith("_test"):
+        raise RuntimeError("Use a disposable database whose name ends with _test")
+
+    database_name = f"arm2_{uuid4().hex}_test"
+    isolated_url = source_url.set(database=database_name)
+    admin_url = source_url.set(database="postgres")
+    database_created = False
+    try:
+        admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+        try:
+            with admin_engine.connect() as connection:
+                exists = connection.scalar(
+                    text("SELECT 1 FROM pg_database WHERE datname = :name"),
+                    {"name": database_name},
+                )
+                if exists is not None:
+                    raise RuntimeError(
+                        f"Disposable database already exists: {database_name}"
+                    )
+                connection.exec_driver_sql(f'CREATE DATABASE "{database_name}"')
+                database_created = True
+        finally:
+            admin_engine.dispose()
+
+        previous = os.environ.get("DATABASE_URL")
+        os.environ["DATABASE_URL"] = isolated_url.render_as_string(hide_password=False)
+        settings.cache_clear()
+        try:
+            config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
+            command.upgrade(config, "head")
+        finally:
+            if previous is None:
+                os.environ.pop("DATABASE_URL", None)
+            else:
+                os.environ["DATABASE_URL"] = previous
+            settings.cache_clear()
+        yield isolated_url.render_as_string(hide_password=False)
+    finally:
+        if database_created:
+            if (
+                database_name == source_url.database
+                or fullmatch(r"arm2_[0-9a-f]{32}_test", database_name) is None
+            ):
+                raise RuntimeError(
+                    f"Refusing to drop unexpected database: {database_name}"
+                )
+            cleanup_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+            try:
+                with cleanup_engine.connect() as connection:
+                    exists = connection.scalar(
+                        text("SELECT 1 FROM pg_database WHERE datname = :name"),
+                        {"name": database_name},
+                    )
+                    if exists is not None:
+                        connection.exec_driver_sql(
+                            f'DROP DATABASE "{database_name}" WITH (FORCE)'
+                        )
+            finally:
+                cleanup_engine.dispose()
 
 
 @pytest.fixture

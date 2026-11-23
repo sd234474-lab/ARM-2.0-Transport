@@ -1,0 +1,44 @@
+.arm2-questionnaire fieldset { min-width:0; margin:.75rem 0; padding:.75rem; border:1px solid var(--line,#dbe4df); border-radius:10px; }
+.arm2-questionnaire fieldset > section { border-top:1px solid var(--line,#dbe4df); padding:.5rem 0; margin-top:.5rem; }
+.arm2-questionnaire label { display:block; margin:.5rem 0; }
+.arm2-questionnaire input[type=checkbox] { width:auto; margin-right:.5rem; }
+.arm2-questionnaire input:not([type=checkbox]), .arm2-questionnaire select { max-width:100%; }
+.arm2-questionnaire p, .arm2-questionnaire li { overflow-wrap:anywhere; }
+.arm2-questionnaire [role=alert] { border-left:3px solid #b25230; padding:.5rem .75rem; }
+.arm2-questionnaire canvas, .arm2-questionnaire img { max-width:100%; height:auto; }
+.arm2-questionnaire .arm2-table td, .arm2-questionnaire .arm2-table th { padding:.3rem .5rem; vertical-align:middle; }
+.arm2-questionnaire .arm2-table label { display:inline-flex; align-items:center; gap:.3rem; margin:0; }
+.arm2-questionnaire .arm2-table select { min-height:2rem; padding:.2rem .4rem; }
+.arm2-questionnaire .arm2-table small { display:block; max-width:32rem; }
+.arm2-questionnaire .arm2-questionnaire-document { padding:.5rem; margin:.4rem 0; background:var(--panel,#f6faf8); border:1px solid var(--line,#dbe4df); border-radius:6px; }
+.arm2-questionnaire .arm2-questionnaire-document details { margin:.25rem 0; }
+.arm2-questionnaire header label { margin:0; }
+.arm2-questionnaire-line { display:flex; flex-wrap:wrap; gap:6px 12px; align-items:center; margin:6px 0; }
+.arm2-questionnaire-line h2, .arm2-questionnaire-line h3 { margin:0; }
+.arm2-questionnaire-line h2 { margin-inline-end:auto; }
+.arm2-questionnaire-line label { display:inline-flex; align-items:center; gap:6px; margin:0; }
+.arm2-questionnaire-line input, .arm2-questionnaire-line select { width:auto; min-width:0; }
+.arm2-questionnaire-line .arm2-picker { flex:1 1 16rem; max-width:25rem; }
+.arm2-questionnaire-line .arm2-picker label { display:flex; align-items:stretch; }
+.arm2-questionnaire-line :is(button, select, input:not([type=checkbox])),
+.arm2-questionnaire-document-line :is(button, select) { min-height:34px; padding:5px 8px; }
+.arm2-questionnaire-fields { margin:8px 0; }
+.arm2-questionnaire-fields table { min-width:570px; }
+.arm2-questionnaire-edit { display:flex; flex-wrap:wrap; align-items:center; gap:5px; }
+.arm2-questionnaire-edit input { flex:1 1 11rem; min-width:0; width:auto; }
+.arm2-questionnaire-edit :is(input, button), .arm2-questionnaire .arm2-edit-again { min-height:30px; padding:4px 7px; }
+.arm2-questionnaire .arm2-edit-again { margin-inline-start:6px; }
+.arm2-questionnaire-document-line { display:grid; grid-template-columns:minmax(9rem,1.25fr) auto minmax(9rem,1fr) minmax(9rem,1fr) auto; gap:8px; align-items:end; }
+.arm2-questionnaire-document-line strong { align-self:center; min-width:0; }
+.arm2-questionnaire-document-line strong span { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; font-weight:400; }
+.arm2-questionnaire-document-line label { margin:0; min-width:0; }
+.arm2-questionnaire-document-line select { display:block; width:100%; }
+.arm2-questionnaire-document-line .arm2-questionnaire-accept[aria-pressed=true] {
+  background:var(--arm2-catalog-tint,#edf4ec); border-color:var(--arm2-catalog-accent,#245e4e); font-weight:650;
+}
+@media(max-width:920px) { .arm2-questionnaire-document-line { display:flex; flex-wrap:wrap; align-items:center; } .arm2-questionnaire-document-line strong { flex:1 1 11rem; } }
+.arm2-questionnaire-preview { margin: 16px auto; padding: 0 16px; max-width: 1100px; font-family: system-ui, sans-serif; }
+.arm2-questionnaire .arm2-storage-dialog[open] { position:fixed; inset:0; margin:auto; width:min(640px,90vw); max-height:85vh; overflow:auto; z-index:1000; padding:1.25rem; border:1px solid var(--line,#dbe4df); border-radius:10px; background:var(--panel,#fff); color:inherit; }
+.arm2-questionnaire .arm2-storage-dialog::backdrop { background:rgb(0 0 0 / 45%); }
+.arm2-questionnaire-operation { background:var(--arm2-catalog-tint); border:1px solid var(--border,#8886); margin:10px 0; padding:10px 12px; border-radius:8px; }
+.arm2-questionnaire-operation p { margin:4px 0 0; }

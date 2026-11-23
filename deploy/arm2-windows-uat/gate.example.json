@@ -1,0 +1,11 @@
+{
+  "OwnerDecision": "",
+  "InventoryEvidence": "",
+  "BackupRestoreEvidence": "",
+  "Arm1BaselineEvidence": "",
+  "ProtectedRoots": [],
+  "InventoryReviewed": false,
+  "NoOverlapConfirmed": false,
+  "BackupRestoreVerified": false,
+  "Arm1BaselinePassed": false
+}

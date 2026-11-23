@@ -1,0 +1,60 @@
+{
+  "classification": "AUTHOR RUN; synthetic disposable PostgreSQL and byte-backed FILE; not Ubuntu UAT",
+  "base_sha": "9284a38a53cc5236f1428efee23abf8d35f3ca0c",
+  "migration": "0071 after 0070; existing migrations unchanged",
+  "backend": {
+    "focused_issue78_and_0071": "13 PASS",
+    "existing_identity_type_owner_archive_conflict_reopen_checks": "11 PASS",
+    "ruff": "PASS"
+  },
+  "frontend": {
+    "questionnaire_and_model_tests": "35 PASS",
+    "typescript_and_production_build": "PASS",
+    "separate_lint": "NOT RUN: package has no frontend lint script",
+    "native_edge_smoke": "PASS",
+    "pdf_worker": "PASS: real pdf.js worker, two-page PDF, rendered pixels, exact CSP copied from nginx.conf",
+    "server": "Local production-build HTTP proxy and existing integration Server/FileProvider; actual nginx/Ubuntu not exercised"
+  },
+  "scenarios": {
+    "S1": {
+      "result": "PASS",
+      "input": "V2: one new CP, one signer, two new vehicles, four arbitrary-named attachments; all valid values proposed after explicit Create; one email excluded",
+      "persisted": {"CP": 1, "CPREP": 1, "VEH": 2, "DOCUMENT": 4, "FILE": 4},
+      "bindings": [
+        {"file": "card.doc", "parent": "new CP", "kind": "Карточка предприятия", "extension": "bin"},
+        {"file": "qqq.doc", "parent": "vehicle row 5", "kind": "Тарировка", "extension": "bin"},
+        {"file": "scan_1.docx", "parent": "vehicle row 5", "kind": "СТС", "extension": "docx"},
+        {"file": "abc.pdf", "parent": "vehicle row 6", "kind": "СТС", "extension": "pdf"}
+      ],
+      "readback": "SQL CP/REP/VEH values, owner/type/model, all original downloads and SHA; old cached fallback column not used; no duplicate command events"
+    },
+    "S2": {
+      "result": "PASS",
+      "persisted": "Same CP/VEH identities; selected phone and explicitly confirmed owner change; one document revision replaced, old bytes retained; same command replay is a no-op",
+      "guards": "Unconfirmed identity -> 409 without writes; confirmed identity but unconfirmed owner -> 409; both confirmed but unavailable provider -> 503 without domain writes; successful retry persists once"
+    },
+    "S3": {
+      "result": "PASS",
+      "input": "One valid machine/PDF, one machine without number and with missing attachment, one separate nested ZIP",
+      "persisted": {"CP": 1, "VEH": 1, "DOCUMENT": 1, "FILE": 1},
+      "excluded": "Invalid vehicle and missing attachment stay visible; nested ZIP rejected and never unpacked",
+      "cleanup": "Cancel leaves no business objects and removes staged originals; successful apply removes staging while accepted bytes remain"
+    }
+  },
+  "additional_checks": [
+    "Clean 0070 -> 0071, existing FILE rows unchanged; bin insert accepted; unsupported extension rejected; downgrade refuses existing opaque originals",
+    "PDF/PNG/DOCX/XLSX/PPTX retain B3 classification; opaque and OOXML staging use attachment disposition; oversized image is not downgraded to opaque",
+    "Explicit vehicle modes; unknown/empty modes do not infer columns",
+    "An ordinary XLSX attachment is not mistaken for a second questionnaire",
+    "Ambiguous literal names require a physical-file decision; repeated declaration exposes one physical item and no automatic parent guess",
+    "Frontend identity detail, renderer failure/download fallback, compact grouping, zero-vehicle warning and safe error messages"
+  ],
+  "limitations": [
+    "Real October questionnaires not copied or tested; owner performs next-release Ubuntu UAT",
+    "No real Yandex token/provider used; disposable providers persist and verify actual bytes",
+    "Full backend regression and external CI not awaited",
+    "Existing deployment preflight/reset revision allowlists remain scoped to their previous revisions; they were not changed or executed in Issue78"
+  ],
+  "ubuntu_modified": false,
+  "merge_or_deploy_or_live_reset": false
+}

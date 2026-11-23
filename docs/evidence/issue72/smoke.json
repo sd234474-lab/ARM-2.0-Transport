@@ -1,0 +1,535 @@
+{
+  "classification": "AUTHOR synthetic disposable local smoke; not UAT/acceptance",
+  "base_sha": "7ce6e7d99b193ab9d35cf29db73c28dd8f30c43d",
+  "migration": "0070",
+  "smoke": {
+    "I01": {
+      "result": "PASS",
+      "evidence": "Native CP type+name/FIO creation and derived names"
+    },
+    "I02": {
+      "result": "PASS",
+      "evidence": "Native type/OPF transition, visible clear choices, one SAVE, unchanged name/ID/bank, HIST"
+    },
+    "I03": {
+      "result": "PASS",
+      "evidence": "V4 ZIP CP/REP/VEH/DOC apply; originals/hash/history readback; V2/V3 in focused tests"
+    },
+    "I04": {
+      "result": "PASS",
+      "evidence": "Native active upload dedup, V4 roundtrip no-op; cancel in focused tests"
+    },
+    "I05": {
+      "result": "PASS",
+      "evidence": "Active default, ALL reload, 2 SQL counters, empty search and mobile navigation"
+    },
+    "I06": {
+      "result": "PASS",
+      "evidence": "Offline reset twice on populated disposable DB/FILE, preserved admin login, fresh native V4 import"
+    }
+  },
+  "browser": {
+    "result": "PASS",
+    "native_cp_create": true,
+    "manual_cancel_without_write": true,
+    "explicit_transition_clears": true,
+    "preserved_id_name_bank": true,
+    "lazy_history": true,
+    "active_default": true,
+    "all_after_reload": true,
+    "two_counts_and_empty": true,
+    "mobile_equal_tile_widths": [
+      272,
+      272,
+      272,
+      272,
+      272,
+      272,
+      272
+    ],
+    "native_v4_upload_dedup": true,
+    "pdf_two_pages": true,
+    "receipt": {
+      "command_id": "db93e146-81ce-449f-b246-3f6e9d339914",
+      "draft_id": "787c106b-abed-4fb4-bf38-78e37156937a",
+      "cp_id": "CP-000001",
+      "filled_date": null,
+      "uploaded_at": "2026-11-20T06:12:05.908173+00:00",
+      "accepted_at": "2026-11-20T06:12:08.420041+00:00",
+      "objects": [
+        {
+          "kind": "CP",
+          "id": "CP-000001",
+          "version": 3
+        },
+        {
+          "kind": "CPREP",
+          "id": "CPREP-000001",
+          "version": 2
+        },
+        {
+          "kind": "VEH",
+          "id": "VEH-000001",
+          "version": 2
+        },
+        {
+          "kind": "DOCUMENT",
+          "document_id": "DOCUMENT-000001",
+          "version": 3,
+          "revision_id": "DOCUMENT-REV-000002",
+          "no_op": false
+        }
+      ],
+      "event_ids": [
+        15,
+        16,
+        17,
+        18
+      ],
+      "no_op": false,
+      "correlation_id": "db93e146-81ce-449f-b246-3f6e9d339914",
+      "changes": [
+        {
+          "kind": "CP",
+          "id": "CP-000001",
+          "operation": "UPDATED",
+          "fields": {
+            "phone": {
+              "before": "Before",
+              "after": "After questionnaire"
+            },
+            "settlement_account": {
+              "before": "00000000000000000001",
+              "after": "00000000000000000002"
+            },
+            "version": {
+              "before": 2,
+              "after": 3
+            }
+          },
+          "url": "/arm2/cp/CP-000001"
+        },
+        {
+          "kind": "CPREP",
+          "id": "CPREP-000001",
+          "operation": "UPDATED",
+          "fields": {
+            "version": {
+              "after": 2,
+              "before": 1
+            },
+            "position": {
+              "after": "After questionnaire",
+              "before": "Before"
+            }
+          },
+          "url": "/arm2/cp/CP-000001/representatives/CPREP-000001"
+        },
+        {
+          "kind": "VEH",
+          "id": "VEH-000001",
+          "operation": "UPDATED",
+          "fields": {
+            "model": {
+              "after": "After questionnaire",
+              "before": "Before"
+            },
+            "version": {
+              "after": 2,
+              "before": 1
+            }
+          },
+          "url": "/arm2/veh/VEH-000001"
+        },
+        {
+          "kind": "DOCUMENT",
+          "id": "DOCUMENT-000001",
+          "operation": "UPDATED",
+          "fields": {
+            "version": {
+              "after": 3,
+              "before": 2
+            },
+            "current_revision_id": {
+              "after": "DOCUMENT-REV-000002",
+              "before": "DOCUMENT-REV-000001"
+            }
+          },
+          "url": "/arm2/cp/CP-000001/documents/DOCUMENT-000001"
+        }
+      ]
+    },
+    "roundtrip_noop": {
+      "command_id": "b26c9bac-d2a9-499f-a26f-0d3c7053d575",
+      "draft_id": "3f5ba7d9-c50c-47ad-94be-8b699b8baf25",
+      "cp_id": "CP-000001",
+      "filled_date": null,
+      "uploaded_at": "2026-11-20T06:12:10.518106+00:00",
+      "accepted_at": "2026-11-20T06:12:11.143895+00:00",
+      "objects": [],
+      "event_ids": [],
+      "no_op": true,
+      "correlation_id": "b26c9bac-d2a9-499f-a26f-0d3c7053d575",
+      "changes": []
+    },
+    "page_errors": [],
+    "observed": [
+      {
+        "path": "/api/arm2/counterparties",
+        "method": "POST",
+        "status": 201
+      },
+      {
+        "path": "/api/arm2/counterparties/CP-000002",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/counterparties/CP-000002",
+        "method": "PUT",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/counterparties/CP-000002",
+        "method": "PUT",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/history/CP/CP-000002",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/history/events/14",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/vehicles/search",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/vehicles/search",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/vehicles/search",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/receipts",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/receipts",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires",
+        "method": "POST",
+        "status": 201
+      },
+      {
+        "path": "/api/arm2/questionnaires",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/receipts",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/787c106b-abed-4fb4-bf38-78e37156937a",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires",
+        "method": "POST",
+        "status": 201
+      },
+      {
+        "path": "/api/arm2/questionnaires",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/receipts",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/787c106b-abed-4fb4-bf38-78e37156937a",
+        "method": "PUT",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/counterparties/CP-000001",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/787c106b-abed-4fb4-bf38-78e37156937a",
+        "method": "PUT",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/787c106b-abed-4fb4-bf38-78e37156937a",
+        "method": "PUT",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/787c106b-abed-4fb4-bf38-78e37156937a",
+        "method": "PUT",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/787c106b-abed-4fb4-bf38-78e37156937a",
+        "method": "PUT",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/787c106b-abed-4fb4-bf38-78e37156937a",
+        "method": "PUT",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/787c106b-abed-4fb4-bf38-78e37156937a",
+        "method": "PUT",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/787c106b-abed-4fb4-bf38-78e37156937a",
+        "method": "PUT",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/787c106b-abed-4fb4-bf38-78e37156937a",
+        "method": "PUT",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/787c106b-abed-4fb4-bf38-78e37156937a/files/473bfcacca3d28009c0229de932de59a69bf19ea0b24921795c6de5af2ac888b/preview",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/787c106b-abed-4fb4-bf38-78e37156937a",
+        "method": "PUT",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/787c106b-abed-4fb4-bf38-78e37156937a/apply",
+        "method": "POST",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/receipts",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/counterparties/CP-000001",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/exports/CP-000001",
+        "method": "POST",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/receipts",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/receipts",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires",
+        "method": "POST",
+        "status": 201
+      },
+      {
+        "path": "/api/arm2/questionnaires",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/3f5ba7d9-c50c-47ad-94be-8b699b8baf25",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/receipts",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/3f5ba7d9-c50c-47ad-94be-8b699b8baf25",
+        "method": "PUT",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/counterparties/CP-000001",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/3f5ba7d9-c50c-47ad-94be-8b699b8baf25/apply",
+        "method": "POST",
+        "status": 200
+      }
+    ]
+  },
+  "fresh_import": {
+    "result": "PASS",
+    "bootstrap_login_preserved": true,
+    "empty_draft_list": true,
+    "fresh_v4_created": true,
+    "cp_id": "CP-000003",
+    "page_errors": [],
+    "observed": [
+      {
+        "path": "/api/arm2/questionnaires",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/receipts",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/receipts",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires",
+        "method": "POST",
+        "status": 201
+      },
+      {
+        "path": "/api/arm2/questionnaires",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/receipts",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/93f370a8-d54b-40c7-aab4-4a349e58bf4d",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/93f370a8-d54b-40c7-aab4-4a349e58bf4d",
+        "method": "PUT",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/93f370a8-d54b-40c7-aab4-4a349e58bf4d",
+        "method": "PUT",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/93f370a8-d54b-40c7-aab4-4a349e58bf4d",
+        "method": "PUT",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/93f370a8-d54b-40c7-aab4-4a349e58bf4d",
+        "method": "PUT",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires/93f370a8-d54b-40c7-aab4-4a349e58bf4d/apply",
+        "method": "POST",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/questionnaires",
+        "method": "GET",
+        "status": 200
+      },
+      {
+        "path": "/api/arm2/counterparties/CP-000003",
+        "method": "GET",
+        "status": 200
+      }
+    ]
+  },
+  "file_hashes": [
+    "3555760cdd72214ad2d81677b14f68319f85a87d2f68a455a1b61eeb5789f508",
+    "8143fb057ad888f8617faab9159f8a0df308202177974833989fe3a1627dbc63"
+  ],
+  "atomic_history_events": 4,
+  "reset_counts": {
+    "arm2_bulk_cleanup": 0,
+    "arm2_bulk_receipts": 0,
+    "arm2_bulk_sessions": 0,
+    "arm2_counterparties": 0,
+    "arm2_document_file_acceptances": 0,
+    "arm2_document_file_corrections": 0,
+    "arm2_document_file_stages": 0,
+    "arm2_document_files": 0,
+    "arm2_document_kinds": 0,
+    "arm2_document_revision_contexts": 0,
+    "arm2_document_revision_files": 0,
+    "arm2_document_revisions": 0,
+    "arm2_documents": 0,
+    "arm2_history_events": 0,
+    "arm2_organizations": 0,
+    "arm2_questionnaire_drafts": 0,
+    "arm2_questionnaire_exports": 0,
+    "arm2_questionnaire_receipts": 0,
+    "arm2_questionnaire_uploads": 0,
+    "arm2_vehicle_types": 0,
+    "arm2_vehicles": 0,
+    "nsi_counterparty_representatives": 0,
+    "nsi_organization_representatives": 0
+  },
+  "live_stand_modified": false
+}
