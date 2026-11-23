@@ -44,6 +44,9 @@ def test_document_kind_search_permission_and_static_route(client, users, db):
         response = client.get(PATH + "/search")
         if permissions == ["arm2_doc_kind_view"]:
             assert response.status_code == 200
-            assert response.json() == {"items": [], "total": 0, "matched": 0, "limit": 100, "offset": 0}
+            assert response.json() == {
+                "items": [], "total": 0, "matched": 0, "limit": 100, "offset": 0,
+                "facets": {"all_parents": 0, "CP": 0, "ORG": 0, "VEH": 0},
+            }
         else:
             assert response.status_code == 403

@@ -237,7 +237,8 @@ def test_i06_offline_reset_identity_recovery_bootstrap_and_new_v4(b5, monkeypatc
         assert {p.name for p in fake.path.iterdir()} == {MARKER}
     assert db.execute(select(User.id, User.login, User.password_hash, User.role, User.permissions)).all() == users
     db.rollback()
-    command.upgrade(config, '0072')
+    # Restore the current application schema before exercising the B5 workflow.
+    command.upgrade(config, 'head')
     assert c.post('/api/auth/login', json={'login': 'document-admin', 'password': 'document-test-password'}).status_code == 200
     c.headers['X-CSRF-Token'] = c.cookies['csrf']
     d = choose(c, upload(c, v4()), cp_target='new', cp_fields=['name', 'type', 'legal_form'])
