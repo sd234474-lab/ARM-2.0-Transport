@@ -29,6 +29,23 @@ CP_FIELDS = (*PARTY_FIELDS[:-1], 'type', 'last_name', 'first_name', 'middle_name
 REP_FIELDS = ('name', 'position', 'authority_basis', 'phone', 'email', 'state')
 VEH_FIELDS = ('name', 'model', 'type_id', 'accounting_state', 'owner')
 VEH_EDIT_FIELDS = ('name', 'model', 'accounting_state')
+_PLATE_LETTERS = 'авекмнорстухabekmhopctyx'
+_FILENAME_PLATE = re.compile(
+    rf'(?<![^\W_])(?:[{_PLATE_LETTERS}]\s*[0-9]{{3}}\s*[{_PLATE_LETTERS}]{{2}}\s*[0-9]{{2,3}}'
+    rf'|[0-9]{{4}}\s*[{_PLATE_LETTERS}]{{2}}\s*[0-9]{{2}})(?![^\W_])'
+)
+_HOWO_TOKEN = re.compile(r'(?<![^\W_])(?:howo|хово)(?![^\W_])')
+
+
+def vehicle_filename_key(name):
+    """Compare complete vehicle filenames with a single independently checked plate."""
+    plates = list(_FILENAME_PLATE.finditer(name))
+    if len(plates) != 1:
+        return None
+    match = plates[0]
+    plate = normalize_plate_number(re.sub(r'\s+', '', match[0]))
+    normalized = name[:match.start()] + plate.casefold() + name[match.end():]
+    return plate, _HOWO_TOKEN.sub('howo', normalized)
 
 
 def authorized(db, principal, *permissions):
@@ -291,7 +308,7 @@ def build(db, principal, draft):
             seen[plate] = plan
     attachments = list(db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == draft.id)
                                  .order_by(QuestionnaireUpload.name, QuestionnaireUpload.id)))
-    by_name, by_stem = {}, {}
+    by_name, by_stem, by_vehicle_name, by_vehicle_stem = {}, {}, {}, {}
     def reference(name):
         return unicodedata.normalize('NFC', name.replace('\\', '/').strip()).casefold()
     for attachment in attachments:
@@ -311,24 +328,40 @@ def build(db, principal, draft):
                     pass
         for name in {reference(n) for v in variants for n in (v, v.rsplit('/', 1)[-1])}:
             by_name.setdefault(name, []).append(attachment)
+            vehicle_key = vehicle_filename_key(name)
+            if vehicle_key:
+                by_vehicle_name.setdefault(vehicle_key, []).append(attachment)
             stem, extension = posixpath.splitext(name)
             if extension:
                 by_stem.setdefault(stem, []).append(attachment)
+                vehicle_stem = vehicle_filename_key(stem)
+                if vehicle_stem:
+                    by_vehicle_stem.setdefault(vehicle_stem, []).append(attachment)
     declarations = [('company', 'CP', 'Карточка предприятия', payload.get('company_file'))]
     for row in payload.get('vehicles', []):
         declarations.extend([(row['key'] + ':sts', row['key'], 'СТС', row.get('sts_file')),
                              (row['key'] + ':calibration', row['key'], 'Тарировка', row.get('calibration_file'))])
     documents, bound = [], set()
     automatic, automatic_claims = {}, {}
-    for key, _, _, name in declarations:
+    fallback = set()
+    plate_by_row = {row['key']: row['plate_number'] for row in rows}
+    for key, parent_key, _, name in declarations:
         if not name:
             continue
         ref = reference(name)
         matches = by_name.get(ref, [])
         if not matches:
             # Exact whole cell equals the physical name minus ONE extension.
-            # No punctuation stripping, similarity score, parent/kind inference.
             matches = by_stem.get(ref, [])
+        if not matches and plate_by_row.get(parent_key):
+            # Only formatting of the known row plate and the explicit HOWO/ХОВО alias may differ.
+            vehicle_key = vehicle_filename_key(ref)
+            if vehicle_key and vehicle_key[0] == plate_by_row[parent_key]:
+                matches = by_vehicle_name.get(vehicle_key, [])
+                if not matches and not posixpath.splitext(ref)[1]:
+                    matches = by_vehicle_stem.get(vehicle_key, [])
+                if matches:
+                    fallback.add(key)
         automatic[key] = list({a.id: a for a in matches}.values())
         if len(automatic[key]) == 1:
             automatic_claims.setdefault(automatic[key][0].id, []).append(key)
@@ -339,7 +372,7 @@ def build(db, principal, draft):
         # workaround for the missing-extension bug. view()/apply() invalidate
         # the old approval when the physical upload/SHA changes; never auto-save.
         unique = len(matches) == 1 and len(automatic_claims[matches[0].id]) == 1
-        resolved[key] = matches if unique or not override else [a for a in attachments if a.id == override]
+        resolved[key] = matches if (unique and key not in fallback) or not override else [a for a in attachments if a.id == override]
     claimed = {}
     for key, matches in resolved.items():
         if len(matches) == 1:
@@ -367,7 +400,7 @@ def build(db, principal, draft):
         else:
             documents.append({'key': key, 'name': name, 'parent_key': parent_key, 'role': role,
                               'selected': bool(choices.get('documents', {}).get(key, {}).get('accept')),
-                              'error': 'Файл отсутствует' if not matches else 'Имя неоднозначно; выберите файл в непривязанных',
+                              'error': 'В ZIP не найдено вложение с таким именем' if not matches else 'Имя неоднозначно; выберите файл вручную',
                               'attachment_options': [{'id': a.id, 'name': a.name} for a in attachments]})
     for attachment in attachments:
         if attachment.id not in bound:

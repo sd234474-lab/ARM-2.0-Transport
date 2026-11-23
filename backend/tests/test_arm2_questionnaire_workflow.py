@@ -1242,3 +1242,22 @@ def test_extensionless_match_is_exact_unique_and_preserves_complete_filename(b5,
         assert plan['error'] and not plan['selected'] and not plan.get('upload_id')
     physical = [doc['upload_id'] for doc in d['comparison']['documents'] if doc.get('upload_id')]
     assert len(physical) == len(set(physical)) == len(names)
+
+
+@pytest.mark.parametrize('plate,reference_name,names,matched', [
+    ('A890BC86', 'СТС HOWO А890ВС86', ['СТС ХОВО A 890 BC 86.pdf'], 'СТС ХОВО A 890 BC 86.pdf'),
+    ('A890BC86', 'СТС HOWO А890ВС86', ['СТС ХОВО A 890 BC 86.pdf', 'другой/СТС HOWO А 890 ВС 86.jpg'], None),
+    ('A890BC86', 'СТС HOWO А890ВС86.pdf', ['СТС ХОВО A 890 BC 86.jpg'], None),
+    ('A891BC86', 'СТС HOWO А890ВС86', ['СТС ХОВО A 890 BC 86.pdf'], None),
+    ('A890BC86', 'СТС HOWO А890ВС86', ['Тарировка ХОВО A 890 BC 86.pdf'], None),
+])
+def test_vehicle_filename_fallback_requires_unique_equivalent_name_and_row_plate(b5, plate, reference_name, names, matched):
+    c, _, _, parents, *_ = b5
+    doc_kind(c)
+    source = transport(workbook(rows=[{'I': plate, 'P': reference_name}]), {name: pdf('original '+name) for name in names})
+    draft = choose(c, upload(c, source, True), cp_target=parents['cp'])
+    plan = next(doc for doc in draft['comparison']['documents'] if doc['key'] == 'v:5:sts')
+    if matched:
+        assert plan['name'] == matched and plan['selected'] and not plan['error']
+    else:
+        assert plan['error'] and not plan['selected'] and not plan.get('upload_id')
