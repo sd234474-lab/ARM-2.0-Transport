@@ -38,8 +38,8 @@ export function PartyDocuments({kind, can}: {kind: 'CP' | 'ORG'; can: Can}) {
   </section>;
 }
 
-function DocumentFiles({path, original, editable, blocked, draft, setDraft, refreshed, onDenied}: {
-  path: string; original: DocumentRecord; editable: boolean; blocked: boolean; draft?: FileDraft;
+function DocumentFiles({path, original, editable, blocked, calibration, draft, setDraft, refreshed, onDenied}: {
+  path: string; original: DocumentRecord; editable: boolean; blocked: boolean; calibration: boolean; draft?: FileDraft;
   setDraft: (value: FileDraft | undefined | ((current: FileDraft | undefined) => FileDraft | undefined)) => void; refreshed: () => Promise<void>;
   onDenied: () => void;
 }) {
@@ -145,8 +145,13 @@ function DocumentFiles({path, original, editable, blocked, draft, setDraft, refr
   return <section className="arm2-files" aria-label="Файлы и редакции"><div className="arm2-document-file-heading"><h3>Файлы</h3><button type="button" className="arm2-document-link" disabled={busy} onClick={result.reload}>Проверить доступность</button></div>
     <ErrorMessage error={result.error} retry={result.reload}/>{result.loading && <p role="status">Загружаем состав документа…</p>}<ErrorMessage error={error}/>{status && <p role="status">{status}</p>}
     {blocked && <p>Сначала сохраните изменения сведений документа.</p>}{!allowed && <p>Файлы доступны только для просмотра.</p>}
+    {!draft && result.data && <>
+      {current?.source === 'arm2-api-correct' && <p>Редакция создана исправлением ошибочной загрузки.</p>}
+      {current?.files.length ? fileRows(current.files, current.id) : <p>Комплект не содержит файлов.</p>}
+    </>}
+    {calibration && <CalibrationConfirmation key={original.id+':'+original.version} vehicleId={original.parent_id}
+      documentId={original.id} bundle={result.data} editable={allowed} blocked={blocked || !!draft || busy || result.loading}/>}
     {result.data && <>{result.data.display_state !== original.display_state && <p className="arm2-file-availability" role="status">Состояние комплекта: {result.data.display_state}</p>}
-      {!draft && <>{current?.source === 'arm2-api-correct' && <p>Редакция создана исправлением ошибочной загрузки.</p>}{current && fileRows(current.files, current.id)}{!current?.files.length && <p>Комплект не содержит файлов.</p>}{allowed && <button type="button" disabled={blocked || busy || result.loading} onClick={begin}>{current ? 'Изменить файлы' : '+ Добавить файл'}</button>}</>}
       {draft && <div aria-label="Черновик состава"><h4>{draft.correction ? 'Исправить ошибочную загрузку' : current ? 'Изменение состава' : 'Добавление файлов'}</h4><p>{draft.correction ? 'Ошибочный файл: '+current?.files.find(row=>row.id===draft.correction?.fileId)?.original_upload_name : 'Добавляйте файлы по одному. Откройте кандидаты для проверки; принятие публикует весь комплект одним действием.'}</p>
         {draft.correction && allowed && <div className="arm2-actions"><button type="button" disabled={busy} onClick={()=>{replacing.current=draft.correction!.position;input.current?.click();}}>Заменить верным файлом</button><button type="button" disabled={busy} onClick={()=>setDraft({...draft,key:crypto.randomUUID(),candidates:current!.files.filter(row=>row.id!==draft.correction!.fileId).map(row=>({key:row.id,current:row})),correction:{...draft.correction!,action:'exclude'}})}>Исключить без замены</button></div>}
         <input ref={input} type="file" hidden accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.docx,.xlsx,.pptx" aria-label="Выбор одного файла" disabled={!allowed || busy} onChange={event => {const file = event.target.files?.[0]; if (file) selectFile(file); event.target.value = '';}}/>
@@ -157,7 +162,10 @@ function DocumentFiles({path, original, editable, blocked, draft, setDraft, refr
       </div>}
       {error instanceof ApiError && error.status === 409 && <div className="arm2-actions"><button type="button" onClick={compare}>Сравнить состав с сервером</button><button type="button" onClick={reload}>Перезагрузить состав</button></div>}
       {comparison && <section aria-label="Состав на сервере"><h4>Состав на сервере — версия {comparison.document_version}; ваш черновик сохранён</h4>{comparison.revisions.find(row => row.id === comparison.current_revision_id)?.files.map(file => <p key={file.id}>{file.original_upload_name}</p>)}</section>}
-      <button type="button" className="arm2-document-link arm2-revision-link" aria-expanded={fileHistory} onClick={()=>setFileHistory(value=>!value)}>{fileHistory?'Закрыть предыдущие редакции':'Предыдущие редакции'}</button>
+      <div className="arm2-document-file-footer">
+        {!draft && allowed && <button type="button" disabled={blocked || busy || result.loading} onClick={begin}>{current ? 'Изменить файлы' : '+ Добавить файл'}</button>}
+        <button type="button" className="arm2-document-link" aria-expanded={fileHistory} onClick={()=>setFileHistory(value=>!value)}>{fileHistory?'Закрыть предыдущие редакции':'Предыдущие редакции'}</button>
+      </div>
       {fileHistory && result.data.revisions.filter(row => row.id !== result.data?.current_revision_id).map(revision => <details key={revision.id}><summary>Предыдущая редакция {revision.number} · {new Date(revision.occurred_at).toLocaleString('ru-RU')} · Автор {revision.author_id}</summary><p>{revision.id} · {revision.source === 'arm2-api-correct' ? 'Исправление ошибочной загрузки' : revision.source} · Родитель при создании: {revision.parent_id}</p>{fileRows(revision.files,revision.id)}</details>)}
     </>}
 
@@ -268,6 +276,7 @@ function DocumentForm({initial, parent, ...scope}: Scope & {initial?: DocumentRe
   const changed = JSON.stringify(draft) !== JSON.stringify(draftOf(original));
   const guard = useDraftGuard(changed || busy || !!fileDraft || !!operationDraft, () => parkedDrafts.set(key, {original, draft, denied, error, files: fileDraft,operation:operationDraft}), () => parkedDrafts.delete(key));
   const canEdit = edit(scope) && !denied;
+  const calibration = scope.parentType === 'VEH' && original?.kind_name.trim().toLocaleLowerCase('ru') === 'тарировка';
   const change = (value: Partial<Draft>) => {guard.current = true; setDraft(current => ({...current, ...value})); setStatus(''); setValidation('');};
   const readFresh = async (reload: boolean) => {
     if (!original || (reload && !window.confirm('Перезагрузить карточку и заменить несохранённые изменения данными сервера?'))) return;
@@ -295,7 +304,7 @@ function DocumentForm({initial, parent, ...scope}: Scope & {initial?: DocumentRe
     finally {saving.current = false; if (alive.current) setBusy(false);}
   };
   const saveAction = canEdit && <button type="submit" form="arm2-document-form" className="arm2-document-save" disabled={busy || !!fileDraft || !!operationDraft}>{busy ? 'Сохраняем…' : error instanceof ApiError && error.status >= 500 ? 'Повторить сохранение' : 'Сохранить'}</button>;
-  return <article className="arm2-document"><Link to={back}>{changed || fileDraft ? 'Отмена / к документам родителя' : '← К документам родителя'}</Link>
+  return <article className={calibration ? 'arm2-document arm2-calibration-document' : 'arm2-document'}><Link to={back}>{changed || fileDraft ? 'Отмена / к документам родителя' : '← К документам родителя'}</Link>
     <header className="arm2-document-heading"><h2>{original ? 'Документ: ' + original.name : 'Добавить документ'}</h2>{original && <span className="arm2-document-state">{original.display_state}</span>}</header>
     <div className="arm2-document-summary"><span>Родитель: <Link to={back}>{parent.name}</Link> · {scope.parentType}</span>{original && <span>{original.archive_state}</span>}</div>
     {!original && <p className="arm2-note">Сначала сохраните карточку, затем добавьте файлы.</p>}{!canEdit && <p role="status">Только просмотр — нет права редактирования</p>}
@@ -309,8 +318,7 @@ function DocumentForm({initial, parent, ...scope}: Scope & {initial?: DocumentRe
     </fieldset></form>
     {!original && <div className="arm2-actions arm2-document-toolbar">{saveAction}</div>}{status && <p role="status">{status}</p>}
     {original && <DocumentOperations saveAction={saveAction} scope={scope} record={original} draft={operationDraft} setDraft={setOperationDraft} allowed={canEdit} blocked={changed||busy||!!fileDraft} denied={()=>setDenied(true)} compare={()=>void readFresh(false)} reload={()=>void readFresh(true)} completed={record=>{guard.current=false;setOperationDraft(undefined);setOriginal(record);setDraft(draftOf(record));setStatus('Операция сохранена сервером — версия '+record.version);if(record.parent_id!==scope.parentId)navigate(endpoint(record.parent_type,record.parent_id)+'/'+record.id,{replace:true});}}/>}
-    {original && scope.parentType==='VEH' && original.kind_name.trim().toLocaleLowerCase('ru')==='тарировка' && <CalibrationConfirmation key={original.id+':'+original.version} vehicleId={scope.parentId} document={original} editable={canEdit} blocked={changed||busy||!!fileDraft||!!operationDraft}/>}
-    {original && <DocumentFiles path={path + '/' + encodeURIComponent(original.id)} original={original} editable={canEdit} blocked={changed || busy || !!operationDraft} draft={fileDraft} setDraft={setFileDraft} onDenied={()=>setDenied(true)} refreshed={async () => {
+    {original && <DocumentFiles path={path + '/' + encodeURIComponent(original.id)} original={original} editable={canEdit} blocked={changed || busy || !!operationDraft} calibration={calibration} draft={fileDraft} setDraft={setFileDraft} onDenied={()=>setDenied(true)} refreshed={async () => {
       const record = await api<DocumentRecord>(path + '/' + encodeURIComponent(original.id));
       if (!alive.current) return;
       guard.current = false; setOriginal(record); setDraft(draftOf(record)); setFileDraft(undefined); setStatus('');

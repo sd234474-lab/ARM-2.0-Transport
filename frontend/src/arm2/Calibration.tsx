@@ -1,8 +1,7 @@
 import {useEffect, useRef, useState} from 'react';
 import {Link} from 'react-router-dom';
 import {api, ApiError} from '../api';
-import type {DocumentRecord, FileBundle} from './api';
-import {openFilePreview} from './filePreviewWindow';
+import type {FileBundle} from './api';
 import {ErrorMessage, useAlive, useLoad} from './shared';
 import {useDraftCache, useDraftGuard} from './useDraftGuard';
 
@@ -26,36 +25,57 @@ export function CalibrationSummary({vehicleId}: {vehicleId: string}) {
   </>}</section>;
 }
 
-export function CalibrationConfirmation({vehicleId, document, editable, blocked}: {vehicleId: string; document: DocumentRecord; editable: boolean; blocked: boolean}) {
-  const path = `/arm2/veh/${vehicleId}/documents/${document.id}`;
-  const parked = useDraftCache<{volume: string; checked: boolean; key: string}>();
+export function CalibrationConfirmation({vehicleId, documentId, bundle, editable, blocked}: {
+  vehicleId: string; documentId: string; bundle?: FileBundle; editable: boolean; blocked: boolean;
+}) {
+  const path = `/arm2/veh/${vehicleId}/documents/${documentId}`;
+  const parked = useDraftCache<{volume: string; checkedRevision?: string; key: string}>();
   useEffect(() => {parked.delete(path);}, [parked, path]);
-  const state = useLoad(async signal => ({ready: await api<CalibrationState>(`/arm2/veh/${vehicleId}/calibration`, 'GET', undefined, signal),
-    bundle: await api<FileBundle>(path + '/files?history=false', 'GET', undefined, signal)}), [path, document.version]);
-  const [volume, setVolume] = useState(parked.get(path)?.volume ?? ''), [checked, setChecked] = useState(parked.get(path)?.checked ?? false);
+  const state = useLoad(signal => api<CalibrationState>(`/arm2/veh/${vehicleId}/calibration`, 'GET', undefined, signal), [path, bundle?.document_version]);
+  const [volume, setVolume] = useState(parked.get(path)?.volume ?? '');
+  const [checkedRevision, setCheckedRevision] = useState(parked.get(path)?.checkedRevision);
   const [key, setKey] = useState(parked.get(path)?.key ?? crypto.randomUUID());
   const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(), [message, setMessage] = useState('');
   const inFlight = useRef(false), alive = useAlive();
-  const guard = useDraftGuard(!!volume || checked || busy, () => parked.set(path, {volume, checked, key}), () => parked.delete(path));
-  const current = state.data?.bundle.revisions.find(r => r.id === state.data?.bundle.current_revision_id);
+  const guard = useDraftGuard(!!volume || !!checkedRevision || busy, () => parked.set(path, {volume, checkedRevision, key}), () => parked.delete(path));
+  const current = bundle?.revisions.find(revision => revision.id === bundle.current_revision_id);
+  const checked = !!current && checkedRevision === current.id;
+  const clear = () => {
+    guard.current = false;
+    parked.delete(path);
+    setVolume('');
+    setCheckedRevision(undefined);
+    setKey(crypto.randomUUID());
+    setError(undefined);
+  };
   const change = (value: string) => {setVolume(value); setKey(crypto.randomUUID()); setMessage('');};
   const submit = async () => {
-    if (!editable || blocked || !checked || !current || !state.data || inFlight.current) return;
+    if (!editable || blocked || !checked || !current?.files.length || !bundle || !state.data || inFlight.current) return;
     if (!Number.isFinite(Number(volume)) || Number(volume) <= 0) {setError(new ApiError(422, 'Введите положительный объём')); return;}
     inFlight.current = true; setBusy(true); setError(undefined);
     try {
       const result = await api<{no_op: boolean}>(`/arm2/veh/${vehicleId}/calibration/confirm`, 'POST', {command_id: key,
-        vehicle_version: state.data.ready.vehicle_version, document_id: document.id, document_version: state.data.bundle.document_version,
-        revision_id: current.id, plate_number: state.data.ready.plate_number, volume_m3: Number(volume)});
-      if (alive.current) {guard.current = false; parked.delete(path); setVolume(''); setChecked(false); setKey(crypto.randomUUID()); setMessage(result.no_op ? 'Тарировка уже подтверждена — изменений нет' : 'Тарировка подтверждена'); state.reload();}
+        vehicle_version: state.data.vehicle_version, document_id: documentId, document_version: bundle.document_version,
+        revision_id: current.id, plate_number: state.data.plate_number, volume_m3: Number(volume)});
+      if (alive.current) {clear(); setMessage(result.no_op ? 'Тарировка уже подтверждена — изменений нет' : 'Тарировка подтверждена'); state.reload();}
     } catch (error) {if (alive.current) setError(error);}
     finally {inFlight.current = false; if (alive.current) setBusy(false);}
   };
-  return <section aria-label="Подтверждение объёма"><h3>Подтвердить объём по оригиналу</h3><ErrorMessage error={state.error} retry={state.reload}/><ErrorMessage error={error}/>
-    <p>Проверьте оригинал, госномер и объём. Новая редакция сама по себе не подтверждает объём и не меняет решение заказчика.</p>
-    <div className="arm2-actions">{current?.files.map(file => <button type="button" key={file.id} onClick={() => openFilePreview(`${path}/revisions/${current.id}/files/${file.id}/preview`, (file.download_name ?? file.stored_name))}>Открыть {file.original_upload_name}</button>)}</div>
-    {state.data && <p>Госномер: {state.data.ready.plate_number} · Подтверждённый объём: {state.data.ready.volume_m3 ?? '—'} м³</p>}
-    <fieldset disabled={!editable || blocked || busy || !current?.files.length}><div className="arm2-actions"><label>Объём кузова, м³<input type="number" min="0" step="any" value={volume} onChange={e => change(e.target.value)}/></label><label><input type="checkbox" checked={checked} onChange={e => {setChecked(e.target.checked); setKey(crypto.randomUUID());}}/>Сверил оригинал и госномер</label><button type="button" disabled={!checked || !volume} onClick={() => void submit()}>{busy ? 'Подтверждаем…' : 'Подтвердить тарировку'}</button><button type="button" onClick={() => {guard.current = false; parked.delete(path); setVolume(''); setChecked(false); setError(undefined);}}>Отмена</button></div></fieldset>
+  if (!current?.files.length) return null;
+  return <section className="arm2-calibration-confirmation" aria-label="Подтверждение объёма">
+    <ErrorMessage error={state.error} retry={state.reload}/><ErrorMessage error={error}/>
+    <div className="arm2-calibration-line">
+      {state.data && <div className="arm2-calibration-context">
+        <strong>{state.data.volume_m3 == null ? 'Объём не подтверждён' : `Подтверждено: ${state.data.volume_m3} м³`}</strong>
+        <span>Госномер: {state.data.plate_number}</span>
+      </div>}
+      {editable && <fieldset className="arm2-calibration-controls" disabled={blocked || busy || !state.data}>
+        <label>Объём кузова, м³<input type="number" min="0" step="any" value={volume} onChange={e => change(e.target.value)}/></label>
+        <label className="arm2-calibration-check"><input type="checkbox" checked={checked} onChange={e => {setCheckedRevision(e.target.checked ? current.id : undefined); setKey(crypto.randomUUID());}}/>Сверил файл и госномер</label>
+        <button type="button" disabled={!checked || !volume} onClick={() => void submit()}>{busy ? 'Подтверждаем…' : 'Подтвердить объём'}</button>
+        {(volume || checkedRevision) && <button type="button" onClick={clear}>Отмена</button>}
+      </fieldset>}
+    </div>
     {message && <p role="status">{message}</p>}
   </section>;
 }

@@ -150,7 +150,24 @@
 .arm2-document .arm2-file-more button { margin-top:6px; }
 .arm2-document .arm2-file-technical { flex-basis:100%; margin:0; }
 .arm2-document .arm2-file-technical small { display:block; margin-top:6px; }
-.arm2-document .arm2-revision-link { margin-left:14px; }
+.arm2-document-file-footer { display:flex; align-items:center; flex-wrap:wrap; gap:6px 14px; }
+.arm2-calibration-document .arm2-document-fields textarea { resize:vertical; }
+.arm2-calibration-document .arm2-document-fields textarea:focus { min-height:38px; }
+.arm2-document .arm2-calibration-confirmation { margin:0 0 10px; padding:8px 12px; border-radius:7px; background:var(--arm2-catalog-tint); }
+.arm2-calibration-line,.arm2-document .arm2-calibration-controls { display:flex; flex-wrap:wrap; align-items:end; gap:8px 14px; }
+.arm2-calibration-context { flex:1 1 155px; align-self:center; display:grid; gap:2px; }
+.arm2-calibration-context span,.arm2-calibration-controls label { font-size:.875rem; }
+.arm2-document .arm2-calibration-controls { margin:0; }
+.arm2-document .arm2-calibration-controls label { display:grid; gap:4px; margin:0; }
+.arm2-document .arm2-calibration-controls input[type=number] { width:7.5rem; min-height:36px; box-sizing:border-box; padding:6px 8px; }
+.arm2-document .arm2-calibration-controls .arm2-calibration-check { display:flex; align-items:center; gap:6px; min-height:36px; }
+.arm2-document .arm2-calibration-check input[type=checkbox] { width:1rem; height:1rem; min-height:0; min-width:0; margin:0; padding:0; }
+.arm2-document .arm2-calibration-controls button { min-height:36px; padding:6px 10px; }
+.arm2-calibration-confirmation p[role=status] { margin:6px 0 0; }
+@media(min-width:761px) {
+  .arm2-document.arm2-calibration-document .arm2-document-fields { grid-template-columns:minmax(0,1fr) minmax(0,.8fr) minmax(0,1.5fr); align-items:start; }
+  .arm2-calibration-document .arm2-document-description { grid-column:auto; }
+}
 .arm2-document-technical { padding:10px 0; border-top:1px solid var(--border,#8886); }
 .arm2-document-technical p { margin:6px 0; font-size:.875rem; overflow-wrap:anywhere; }
 .arm2-document .arm2-history-control { margin:0; padding:8px 0; border-top:1px solid var(--border,#8886); }

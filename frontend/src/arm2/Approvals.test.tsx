@@ -6,6 +6,7 @@ import {afterEach, beforeEach, expect, it, vi} from 'vitest';
 import {api, ApiError} from '../api';
 import {ApprovalRoute, NewApproval} from './Approvals';
 import {CalibrationConfirmation, CalibrationSummary} from './Calibration';
+import type {FileBundle} from './api';
 import {openFilePreview} from './filePreviewWindow';
 
 vi.mock('../api', async original => ({...await original<typeof import('../api')>(), api: vi.fn()}));
@@ -98,24 +99,41 @@ it('saves explicit per-machine decisions with one bounded original and reopens t
   expect(host.querySelector('iframe')).toBeNull();
 });
 
-it('shows volume as read-only and confirms only after the operator checks an explicit current original', async () => {
-  const document = {id: 'DOCUMENT-000001', version: 2, name: 'Тарировка', kind_name: 'Тарировка', kind_ref: 'DOC-KIND-000001',
-    parent_type: 'VEH' as const, parent_id: ready.vehicle_id, description: null, archive_state: 'Неархивный' as const, display_state: 'Доступен' as const};
+it('shows volume as read-only and confirms only after the operator checks the current original', async () => {
+  const revision: FileBundle['revisions'][number] = {
+    id: ready.revision_id, number: 1, document_id: ready.document_id,
+    parent_type: 'VEH', parent_id: ready.vehicle_id, author_id: 1, occurred_at: ready.confirmed_at, source: 'arm2-api-manual',
+    files: [{id: 'FILE-000001', position: 0, original_upload_name: 'Справка.pdf', stored_name: 'Тарировка-FILE-000001.pdf',
+      extension: 'pdf', media_type: 'application/pdf', sha256: 'a'.repeat(64), size: 100}],
+  };
+  const bundle: FileBundle = {
+    document_id: ready.document_id, document_version: 2, current_revision_id: revision.id,
+    display_state: 'Доступен', revisions: [revision], max_files: 32, max_file_bytes: 1000,
+  };
   vi.mocked(api).mockImplementation(async (path, method) => {
     if (method === 'POST') return {no_op: false};
-    if (path.includes('/files?')) return {current_revision_id: ready.revision_id, document_version: 2, revisions: [{id: ready.revision_id, files: [{id: 'FILE-000001', original_upload_name: 'Справка.pdf', stored_name: 'Тарировка-FILE-000001.pdf'}]}]};
+    expect(path).toBe('/arm2/veh/VEH-000001/calibration');
     return ready;
   });
-  await mount(<><CalibrationSummary vehicleId={ready.vehicle_id}/><CalibrationConfirmation vehicleId={ready.vehicle_id} document={document} editable blocked={false}/></>);
+  const render = (files: FileBundle) => mount(<><CalibrationSummary vehicleId={ready.vehicle_id}/>
+    <CalibrationConfirmation vehicleId={ready.vehicle_id} documentId={ready.document_id} bundle={files} editable blocked={false}/></>);
+  await render({...bundle, current_revision_id: null, revisions: []});
   expect(host.textContent).toContain('25 м³'); expect(host.textContent).toContain('Полный допуск');
-  await click('Открыть Справка.pdf');
-  expect(openFilePreview).toHaveBeenCalledWith('/arm2/veh/VEH-000001/documents/DOCUMENT-000001/revisions/DOCUMENT-REV-000001/files/FILE-000001/preview', 'Тарировка-FILE-000001.pdf');
-  const button = [...host.querySelectorAll('button')].find(b => b.textContent === 'Подтвердить тарировку')!;
+  expect(host.querySelector('[aria-label="Подтверждение объёма"]')).toBeNull();
+  await render(bundle);
+  const button = [...host.querySelectorAll('button')].find(b => b.textContent === 'Подтвердить объём')!;
   expect(button.disabled).toBe(true);
   await change(host.querySelector<HTMLInputElement>('input[type=number]')!, '27');
   await act(async () => {host.querySelector<HTMLInputElement>('input[type=checkbox]')!.click(); await tick();});
-  await click('Подтвердить тарировку');
+  expect(button.disabled).toBe(false);
+  const nextRevision = {...revision, id: 'DOCUMENT-REV-000002', number: 2};
+  await render({...bundle, document_version: 3, current_revision_id: nextRevision.id, revisions: [nextRevision, revision]});
+  expect(button.disabled).toBe(true);
+  expect(host.querySelector<HTMLInputElement>('input[type=checkbox]')?.checked).toBe(false);
+  expect(host.querySelector<HTMLInputElement>('input[type=number]')?.value).toBe('27');
+  await act(async () => {host.querySelector<HTMLInputElement>('input[type=checkbox]')!.click(); await tick();});
+  await click('Подтвердить объём');
   expect(vi.mocked(api).mock.calls.find(call => call[1] === 'POST')?.[2]).toMatchObject({volume_m3: 27, plate_number: 'Е679РН186',
-    vehicle_version: 2, document_id: document.id, document_version: 2, revision_id: ready.revision_id});
+    vehicle_version: 2, document_id: ready.document_id, document_version: 3, revision_id: nextRevision.id});
   expect(host.textContent).toContain('Тарировка подтверждена');
 });
