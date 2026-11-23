@@ -1,10 +1,10 @@
-"""V3 presentation of existing CP/REP/VEH data; no domain writes or formula evaluation."""
+"""V4 questionnaire for contractor review and return to ARM2."""
 import io
 import zipfile
 from xml.etree import ElementTree as ET
 
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.workbook.defined_name import DefinedName
 from openpyxl.worksheet.datavalidation import DataValidation
 
@@ -13,9 +13,12 @@ from app.arm2.questionnaire_parse import (
     CP_CELLS,
     EXPORT_VERSION,
     MANIFEST,
+    MANIFEST_CHUNK_SIZE,
+    MAX_MANIFEST_ROWS,
     PASSPORT,
     REP_COLUMNS,
     REPRESENTATIVES,
+    VEHICLE_SELECTOR_HEADER,
     VEHICLES,
     seal,
 )
@@ -33,15 +36,46 @@ PASSPORT_LABELS = {
     27: 'Карточка предприятия приложена?', 28: 'Имя файла карточки предприятия',
     29: 'Подтверждение достоверности', 30: 'Комментарий',
 }
-VEH_HEADERS = ['№', 'VEH-ID (выбор АРМ)', 'Статус строки', 'TYPE-ID (из АРМ)', 'Госномер (из АРМ)',
+VEH_HEADERS = ['№', VEHICLE_SELECTOR_HEADER, 'Статус строки', 'Тип техники (из АРМ)', 'Госномер (из АРМ)',
     'Короткое имя (из АРМ)', 'Модель (из АРМ)', 'Тип новой техники / предложение',
-    'Госномер новой / предложение', 'Имя новой / предложение', 'Модель новой / предложение',
+    'Госномер новой техники', 'Короткое имя / предложение', 'Модель / предложение',
     'Объём, м³ (только предложение)', 'Справка о тарировке приложена?', 'Имя файла справки',
     'СТС приложено?', 'Имя файла СТС', 'Диагностика номера (подсказка)', 'Контроль комплекта (подсказка)',
     'CP-ID (справочно)', 'Ошибка в старой карточке?', 'Описание расхождения', 'Legacy V3 ID (только справка)']
 REP_HEADERS = ['№', 'REP-ID (из АРМ)', 'Имя / ФИО', 'Должность / функция', 'Телефон', 'Электронная почта',
     'Основание полномочий', 'Состояние контакта', 'Текущий доступ к АРМ (справочно)',
     'Пользователь АРМ (справочно)', 'Основной подписант (справочно)', 'Комментарий контрагента']
+
+CONTRACTOR_INSTRUCTIONS = (
+    ('Как пользоваться анкетой', 'Сохраните последнюю анкету, полученную от администратора. '
+     'При изменениях откройте её, заполните только изменившиеся поля и верните файл администратору. '
+     'Укажите дату заполнения в паспорте.'),
+    ('Паспорт контрагента', 'Проверьте реквизиты стороны договора. Она может отличаться от собственника в СТС. '
+     'При необходимости исправьте адреса, '
+     'телефон, почту и банковские реквизиты. Вводите БИК и счета как текст, со всеми нулями. '
+     'Для ИП/ФЛ заполните ФИО. Полное и краткое наименования рассчитываются из него.'),
+    ('Представители и подписант', 'Один человек — одна строка на листе «Представители». '
+     'В строке можно уточнить ФИО, должность, контакты и основание полномочий. '
+     'Если меняется основной подписант, укажите это в комментарии. Сведения о доступе приведены для справки.'),
+    ('Техника из справочника', 'В столбце B выберите машину по госномеру. В C укажите «ИЗ СПРАВОЧНИКА». '
+     'Тип, госномер, короткое имя и модель заполняются в D–G. Эти ячейки предназначены для просмотра.'),
+    ('Уточнение техники', 'Если поменялись тип, короткое имя или модель, укажите новое значение в H, J или K '
+     'соответственно. Если неверен госномер или есть другое расхождение, отметьте его в T и опишите в U.'),
+    ('Новая техника', 'Используйте свободную строку. Оставьте B пустым, в C выберите «НОВАЯ» и заполните H–K. '
+     'Тип выбирается по названию. Госномер вводите без пробелов, кириллицей. Примеры: 8500УХ86 и К227СА186.'),
+    ('Выбывшая техника', 'Оставьте выбранный госномер в B и поставьте «ВЫБЫЛО» в C. '
+     'Это предложение снять связь машины с контрагентом; удаление строки из анкеты эту связь сохраняет.'),
+    ('Документы на технику', 'При первой подаче сведений о машине приложите свидетельство о регистрации. '
+     'Для самосвала укажите объём в м³ по справке о тарировке и приложите справку. '
+     'В M–P отметьте наличие файлов и впишите их имена с расширениями. При изменении документа приложите новый файл.'),
+    ('Карточка предприятия', 'Прикрепите карточку предприятия и укажите имя файла в паспорте. '
+     'Отметьте подтверждение достоверности сведений перед отправкой.'),
+    ('Что отправить', 'Отправьте XLSX, если изменились только сведения. Если есть вложения, отправьте один ZIP '
+     'с анкетой XLSX и отдельными документами, например PDF или JPG. Файлы указывайте под теми же именами, что в ZIP.'),
+    ('Проверка перед отправкой', 'Проверьте госномера, названия файлов и заполнение изменённых полей. '
+     'Жёлтые ячейки предназначены для ввода, голубые содержат справочные данные и формулы. '
+     'Изменения вступят в силу после сверки администратором.'),
+)
 
 
 def text(sheet, coordinate, value):
@@ -61,18 +95,22 @@ def build_workbook(cp, representatives, linked_users, vehicles, owned, types, ma
     book = Workbook()
     book.remove(book.active)
     instructions = book.create_sheet('Инструкция')
-    for row, value in enumerate([
-        'АРМ 2.0 — анкета контрагента',
-        'Пустые значения и отсутствующие строки/вложения не удаляют данные АРМ.',
-        'Изменения сохраняет оператор после сверки. Выбор архивной машины не возвращает её в работу автоматически.',
-        'ИЗ СПРАВОЧНИКА: выберите VEH-ID; НОВАЯ: заполните H–K; ВЫБЫЛО: предложение снять связь с CP, не архивировать.',
-        'Подписант паспорта и строка представителей — одна запись. Расхождения двух представлений решает оператор.',
-        'Доступ и пользователь АРМ — только справочная информация. Анкета не создаёт и не изменяет права.',
-        'БИК и счета вводите текстом, сохраняя нули. Числовые счета Excel требуют уточнения.',
-        'Документы: отдельные PDF/JPG/JPEG/PNG. Имя файла не заменяет просмотр и проверку привязки.',
-        'Объём — предложение для сверки по справке, не подтверждение тарировки или согласование заказчика.',
-    ], 1):
-        text(instructions, f'A{row}', value)
+    text(instructions, 'A1', 'Анкета контрагента и техники')
+    instructions.merge_cells('A1:B1')
+    instructions['A1'].font = Font(bold=True, size=14, color='FFFFFF')
+    instructions['A1'].fill = PatternFill('solid', fgColor='24527A')
+    instructions.row_dimensions[1].height = 25
+    instructions.column_dimensions['A'].width = 31
+    instructions.column_dimensions['B'].width = 98
+    for row, (heading, content) in enumerate(CONTRACTOR_INSTRUCTIONS, 3):
+        text(instructions, f'A{row}', heading)
+        text(instructions, f'B{row}', content)
+        instructions[f'A{row}'].font = Font(bold=True, color='24527A')
+        instructions.row_dimensions[row].height = 58
+        for cell in instructions[row]:
+            cell.alignment = Alignment(wrap_text=True, vertical='center')
+            if row % 2:
+                cell.fill = PatternFill('solid', fgColor='E7EEF5')
     passport = book.create_sheet(PASSPORT)
     for row, label in PASSPORT_LABELS.items():
         text(passport, f'A{row}', label)
@@ -141,22 +179,23 @@ def build_workbook(cp, representatives, linked_users, vehicles, owned, types, ma
     book.defined_names.add(DefinedName('ARM2_EMPTY_OPF', attr_text="'Справочники'!$J$3"))
     for col, label in enumerate(['VEH-ID', 'Госномер', 'TYPE-ID', 'Тип', 'Имя', 'Модель', 'Учётное состояние'], 1):
         text(catalog, catalog.cell(1, col).coordinate, label)
-    for row, vehicle in enumerate(vehicles, 2):
+    for row, vehicle in enumerate(sorted(vehicles, key=lambda v: v.plate_number), 2):
         typ = types.get(vehicle.type_id)
         values = [vehicle.id, vehicle.plate_number, typ.id if typ else '', typ.name if typ else '',
                   vehicle.name, vehicle.model, vehicle.accounting_state]
         for col, value in enumerate(values, 1):
             text(catalog, catalog.cell(row, col).coordinate, value)
     catalog.sheet_state = 'veryHidden'
-    book.defined_names.add(DefinedName('ARM2_VEH_IDS', attr_text=f"'Справочники'!$A$2:$A${max(2,len(vehicles)+1)}"))
+    book.defined_names.add(DefinedName('ARM2_VEH_PLATES', attr_text=f"'Справочники'!$B$2:$B${max(2,len(vehicles)+1)}"))
     type_sheet = book.create_sheet('_ARM2_TYPES')
-    for row, typ in enumerate([t for t in types.values() if t.status == 'CONFIRMED'], 2):
+    confirmed_types = sorted((typ for typ in types.values() if typ.status == 'CONFIRMED'), key=lambda typ: typ.name.casefold())
+    for row, typ in enumerate(confirmed_types, 2):
         text(type_sheet, f'A{row}', typ.id)
         text(type_sheet, f'B{row}', typ.name)
     type_sheet.sheet_state = 'veryHidden'
-    book.defined_names.add(DefinedName('ARM2_TYPE_IDS', attr_text=f"'_ARM2_TYPES'!$A$2:$A${max(2,type_sheet.max_row)}"))
-    validation(sheet, 'B5:B1004', 'ARM2_VEH_IDS')
-    validation(sheet, 'H5:H1004', 'ARM2_TYPE_IDS')
+    book.defined_names.add(DefinedName('ARM2_TYPE_NAMES', attr_text=f"'_ARM2_TYPES'!$B$2:$B${max(2,type_sheet.max_row)}"))
+    validation(sheet, 'B5:B1004', 'ARM2_VEH_PLATES')
+    validation(sheet, 'H5:H1004', 'ARM2_TYPE_NAMES')
     validation(sheet, 'C5:C1004', '"ИЗ СПРАВОЧНИКА,НОВАЯ,ВЫБЫЛО"')
     for col in ('M', 'O'):
         validation(sheet, f'{col}5:{col}1004', '"ДА,НЕТ"')
@@ -166,17 +205,18 @@ def build_workbook(cp, representatives, linked_users, vehicles, owned, types, ma
         typ = types.get(current.type_id) if current else None
         text(sheet, f'A{row}', row - 4)
         if current:
-            text(sheet, f'B{row}', current.id)
+            text(sheet, f'B{row}', current.plate_number)
             text(sheet, f'C{row}', 'ИЗ СПРАВОЧНИКА')
             for item in mapping:
                 if item['parent_id'] == current.id and kinds.get(item['document_id']) in ('СТС', 'Тарировка'):
                     is_sts = kinds[item['document_id']] == 'СТС'
                     text(sheet, f'{"P" if is_sts else "N"}{row}', item['name'])
                     text(sheet, f'{"O" if is_sts else "M"}{row}', 'ДА')
-        for col, index, cached in [('D', 3, typ.id if typ else ''), ('E', 2, current.plate_number if current else ''),
-                ('F', 5, current.name if current else ''), ('G', 6, current.model if current else '')]:
-            formula(sheet, f'{col}{row}', f'=IF(OR(C{row}="ИЗ СПРАВОЧНИКА",C{row}="ВЫБЫЛО"),'
-                f'IFERROR(VLOOKUP($B{row},\'Справочники\'!$A$2:$G${max(2,len(vehicles)+1)},{index},FALSE),""),"")', cached)
+        for col, index, cached in [('D', 3, typ.name if typ else ''), ('E', 1, current.plate_number if current else ''),
+                ('F', 4, current.name if current else ''), ('G', 5, current.model if current else '')]:
+            lookup = f"VLOOKUP($B{row},'Справочники'!$B$2:$G${max(2,len(vehicles)+1)},{index},FALSE)"
+            formula(sheet, f'{col}{row}', f'=IF(AND($B{row}<>"",OR(C{row}="ИЗ СПРАВОЧНИКА",C{row}="ВЫБЫЛО")),'
+                f'IFERROR(IF({lookup}=0,"",{lookup}),""),"")', cached)
         formula(sheet, f'Q{row}', f'=IF(C{row}="","",IF(IF(C{row}="НОВАЯ",I{row},E{row})="","НЕТ ГОСНОМЕРА","ПРОВЕРЯЕТСЯ В АРМ"))',
                 'ПРОВЕРЯЕТСЯ В АРМ' if current else '')
         formula(sheet, f'R{row}', f'=IF(C{row}="","",IF(C{row}="ВЫБЫЛО","СНЯТИЕ СВЯЗИ — РЕШЕНИЕ ОПЕРАТОРА","СВЕРКА ДОКУМЕНТОВ В АРМ"))',
@@ -187,10 +227,18 @@ def build_workbook(cp, representatives, linked_users, vehicles, owned, types, ma
         text(passport, 'B27', 'ДА')
         text(passport, 'B28', cp_files[0]['name'])
     service = book.create_sheet(MANIFEST)
-    signed = seal(manifest)
-    for offset in range(0, len(signed), 20000):
-        text(service, f'A{offset//20000+1}', signed[offset:offset+20000])
+    signed = seal({**manifest, 'vehicle_selector': 'plate',
+                   'vehicle_refs': {vehicle.plate_number: vehicle.id for vehicle in vehicles},
+                   'type_refs': {typ.name: typ.id for typ in confirmed_types}})
+    if len(signed) > MAX_MANIFEST_ROWS * MANIFEST_CHUNK_SIZE:
+        raise ValueError('Каталог техники не помещается в защищённую выгрузку; строки не пропущены')
+    for offset in range(0, len(signed), MANIFEST_CHUNK_SIZE):
+        text(service, f'A{offset//MANIFEST_CHUNK_SIZE+1}', signed[offset:offset+MANIFEST_CHUNK_SIZE])
     service.sheet_state = 'veryHidden'
+    for column in ('S', 'V'):
+        sheet.column_dimensions[column].hidden = True
+    edge = Side(style='thin', color='C3CFD9')
+    cell_border = Border(left=edge, right=edge, top=edge, bottom=edge)
     for ws in (passport, rep_sheet, sheet):
         ws.freeze_panes = 'C5' if ws is not passport else 'B5'
         ws.column_dimensions['A'].width = 43 if ws is passport else 6
@@ -199,11 +247,16 @@ def build_workbook(cp, representatives, linked_users, vehicles, owned, types, ma
             ws.column_dimensions[ws.cell(4, col).column_letter].width = 25
         if ws is not passport:
             ws.auto_filter.ref = f'A4:{ws.cell(ws.max_row, ws.max_column).coordinate}'
+            ws.row_dimensions[4].height = 34
         for row in ws:
             for cell in row:
+                if (ws is passport and cell.row >= 3) or (ws is not passport and cell.row >= 4):
+                    cell.border = cell_border
                 if ws is not passport and cell.row == 4:
                     cell.font, cell.fill = Font(bold=True, color='FFFFFF'), PatternFill('solid', fgColor='24527A')
-                elif cell.data_type == 'f' or (ws is rep_sheet and cell.column in (2, 9, 10, 11)):
+                    cell.alignment = Alignment(wrap_text=True, vertical='center')
+                elif (cell.data_type == 'f' or (ws is rep_sheet and cell.column in (2, 9, 10, 11))
+                      or (ws is sheet and cell.column in (4, 5, 6, 7))):
                     cell.fill = PatternFill('solid', fgColor='E7EEF5')
                 else:
                     cell.fill = PatternFill('solid', fgColor='FFF8DC')

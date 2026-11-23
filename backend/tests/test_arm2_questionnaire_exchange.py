@@ -198,16 +198,18 @@ def test_v3_export_full_contacts_signer_projections_ids_access_formulas_and_vali
     assert cached[PASSPORT]['B24'].value == '001234567' and cached[PASSPORT]['B25'].value == '00000000000000000001'
     assert book[PASSPORT]['B25'].number_format == '@'
     assert book['Справочники'].sheet_state == 'veryHidden'
-    assert cached[VEHICLES]['B5'].value == parents['veh']
+    plate = current(c, parents['veh'])['plate_number']
+    assert cached[VEHICLES]['B5'].value == plate
     assert cached[VEHICLES]['C5'].value == 'ИЗ СПРАВОЧНИКА'
-    assert cached[VEHICLES]['E5'].value == current(c, parents['veh'])['plate_number']
+    assert cached[VEHICLES]['E5'].value == plate
     assert cached[VEHICLES]['S5'].value == parents['cp']
     validations = {str(v.sqref): v.formula1 for v in book[VEHICLES].data_validations.dataValidation}
     assert validations['C5:C1004'] == '"ИЗ СПРАВОЧНИКА,НОВАЯ,ВЫБЫЛО"'
-    assert validations['B5:B1004'] == 'ARM2_VEH_IDS' and validations['H5:H1004'] == 'ARM2_TYPE_IDS'
-    assert book.defined_names['ARM2_VEH_IDS'].attr_text.startswith("'Справочники'!")
+    assert validations['B5:B1004'] == 'ARM2_VEH_PLATES' and validations['H5:H1004'] == 'ARM2_TYPE_NAMES'
+    assert book.defined_names['ARM2_VEH_PLATES'].attr_text.startswith("'Справочники'!$B$")
     parsed, _ = parse(data, 'v3.xlsx')
     assert len(parsed['representatives']) == 3 and len(parsed['vehicles']) == 1
+    assert parsed['vehicles'][0]['id'] == parents['veh']
     assert parsed['representative_meta'][0]['conflicts'] == {}
     assert all(set(rep) <= {'name', 'position', 'authority_basis', 'phone', 'email', 'state'} for rep in parsed['representatives'])
     before = snapshot(db)

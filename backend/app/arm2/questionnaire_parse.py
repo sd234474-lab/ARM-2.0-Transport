@@ -1,4 +1,4 @@
-"""Bounded V2/V3 transport reader. Formulae/caches are hints, never commands."""
+"""Bounded XLSX/ZIP transport reader. Formulae/caches are hints, never commands."""
 import base64
 import hashlib
 import hmac
@@ -25,7 +25,10 @@ MAX_ENTRIES = 256
 MAX_VEHICLES = 1000
 PASSPORT = 'Паспорт контрагента'
 VEHICLES = 'Техника'
+VEHICLE_SELECTOR_HEADER = 'Госномер — выбор из списка'
 MANIFEST = '_ARM2_QUESTIONNAIRE'
+MAX_MANIFEST_ROWS = 256
+MANIFEST_CHUNK_SIZE = 20_000
 REPRESENTATIVES = 'Представители'
 EXPORT_VERSION = 'ARM_IMPORT_V4'
 SUPPORTED_VERSIONS = {'ARM_IMPORT_V2', 'ARM_IMPORT_V3', EXPORT_VERSION}
@@ -200,7 +203,7 @@ def _parse(data, filename):
             raise ValueError('В анкете больше 1000 строк техники')
         # Streaming each sheet once avoids quadratic reparsing of 1000 formula rows.
         grids, cached_grids = {}, {}
-        sheets = [(passport, 3, 30, 2, 2), (vehicles, 5, max(5, vehicles.max_row), 2, 22)]
+        sheets = [(passport, 3, 30, 2, 2), (vehicles, 4, max(5, vehicles.max_row), 2, 22)]
         if REPRESENTATIVES in book.sheetnames:
             reps = book[REPRESENTATIVES]
             if reps.max_row > 1004:
@@ -264,6 +267,18 @@ def _parse(data, filename):
                   'representatives': [signer] if signer['name'] else [], 'vehicles': [], 'warnings': warnings,
                   'company_file': cell(passport, 'B28'), 'company_declared': cell(passport, 'B27'),
                   'confirmation_hint': cell(passport, 'B29'), 'comment': cell(passport, 'B30'), 'manifest': None}
+        if MANIFEST in book.sheetnames:
+            if book[MANIFEST].max_row > MAX_MANIFEST_ROWS or book[MANIFEST].max_column != 1:
+                raise ValueError('Недопустимый размер служебного манифеста')
+            chunks = [str(row[0]) for row in book[MANIFEST].iter_rows(values_only=True) if row and row[0]]
+            result['manifest'] = unseal(''.join(chunks))
+            if not result['manifest']:
+                warnings.append('Служебный манифест не подтверждён; обратная привязка требует выбора оператора')
+        manifest = result['manifest'] or {}
+        plate_selector = version == EXPORT_VERSION and (
+            manifest.get('vehicle_selector') == 'plate' or cell(vehicles, 'B4') == VEHICLE_SELECTOR_HEADER)
+        vehicle_refs = manifest.get('vehicle_refs', {}) if plate_selector else {}
+        type_refs = manifest.get('type_refs', {}) if plate_selector else {}
         if vehicles.max_row > MAX_VEHICLES + 4:
             raise ValueError('В анкете больше 1000 строк техники')
         for row in range(5, min(vehicles.max_row, MAX_VEHICLES + 4) + 1):
@@ -275,7 +290,17 @@ def _parse(data, filename):
             mode = values['C'].strip().upper()
             columns = ('I', 'H', 'J', 'K') if mode == 'НОВАЯ' else ('E', 'D', 'F', 'G')
             plate, typ, name, model = (values[c] for c in columns) if mode in {'НОВАЯ', 'ИЗ СПРАВОЧНИКА', 'ВЫБЫЛО'} else ('', '', '', '')
-            result['vehicles'].append({'key': f'v:{row}', 'row': row, 'id': identifier[0] if identifier else '',
+            vehicle_id = identifier[0] if identifier else ''
+            if plate_selector:
+                vehicle_id = ''
+                if mode in {'ИЗ СПРАВОЧНИКА', 'ВЫБЫЛО'}:
+                    # The visible selection is paired only with a verified export ID.
+                    # D–G can retain cached values from a previous selection.
+                    plate = selector
+                    vehicle_id = vehicle_refs.get(selector, '')
+                    typ, name, model = (values['H'], values['J'], values['K']) if mode == 'ИЗ СПРАВОЧНИКА' else ('', '', '')
+                typ = type_refs.get(typ, typ)
+            result['vehicles'].append({'key': f'v:{row}', 'row': row, 'id': vehicle_id,
                 'plate_number': plate, 'type_hint': typ,
                 'name': name, 'model': model, 'state_hint': mode,
                 'status_error': ('Выберите режим строки: ИЗ СПРАВОЧНИКА, НОВАЯ или ВЫБЫЛО'
@@ -284,13 +309,6 @@ def _parse(data, filename):
                 'sts_declared': values['O'], 'sts_file': values['P'], 'owner_hint': values['S'],
                 'diagnostic_hint': ' · '.join(v for v in (values['Q'], values['R'], values['T'], values['U']) if v),
                 'legacy_hint': values['V']})
-        if MANIFEST in book.sheetnames:
-            if book[MANIFEST].max_row > 256 or book[MANIFEST].max_column != 1:
-                raise ValueError('Недопустимый размер служебного манифеста')
-            chunks = [str(row[0]) for row in book[MANIFEST].iter_rows(values_only=True) if row and row[0]]
-            result['manifest'] = unseal(''.join(chunks))
-            if not result['manifest']:
-                warnings.append('Служебный манифест не подтверждён; обратная привязка требует выбора оператора')
         if version in {'ARM_IMPORT_V3', EXPORT_VERSION}:
             if REPRESENTATIVES in book.sheetnames:
                 representative_rows(book[REPRESENTATIVES], cell, signer, result)
@@ -300,6 +318,8 @@ def _parse(data, filename):
         else:
             result['representative_meta'] = [{'id': None, 'row': None, 'signer_hint': True, 'conflicts': {}}
                                              for _ in result['representatives']]
+        if plate_selector and result['manifest']:
+            result['manifest'] = {key: value for key, value in manifest.items() if key not in ('vehicle_refs', 'type_refs')}
         return result, blobs
     finally:
         book.close()
