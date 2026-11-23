@@ -5,7 +5,7 @@ import {apiUrl} from '../workspace';
 import type {DocumentFile} from './api';
 import type {CalibrationState} from './Calibration';
 import {openFilePreview} from './filePreviewWindow';
-import {ErrorMessage, History, Pagination, useAlive, useLoad} from './shared';
+import {CatalogHeader, ErrorMessage, History, Pagination, useAlive, useLoad} from './shared';
 import {useDraftCache, useDraftGuard} from './useDraftGuard';
 
 interface Decision {id: string; vehicle_id: string; plate_number: string; volume_m3: number; state: string; version: number; response_file_id: string | null; decided_at: string | null; decided_by: number | null}
@@ -15,7 +15,7 @@ const stateName = (value: string) => ({PENDING: 'Ожидает ответа', A
 export default function Approvals({editable}: {editable: boolean}) {
   const [offset, setOffset] = useState(0);
   const result = useLoad(signal => api<Approval[]>(endpoint + '?offset=' + offset, 'GET', undefined, signal), [offset]);
-  return <section><header className="arm2-actions"><h2>Согласование с заказчиком</h2>{editable && <Link to="/arm2/approvals/new">Новое письмо</Link>}</header><ErrorMessage error={result.error} retry={result.reload}/>{result.data && <><ul>{result.data.map(row => <li key={row.id}><Link to={'/arm2/approvals/' + row.id}>{row.id} · {row.contract_number_1} / {row.contract_number_2}</Link> · {new Date(row.created_at).toLocaleString('ru-RU')} · Машин: {row.decisions.length}</li>)}</ul>{!result.data.length && <p>Заявок на этой странице нет</p>}<Pagination offset={offset} count={result.data.length} change={setOffset}/></>}</section>;
+  return <section><CatalogHeader title="Согласование с заказчиком">{editable && <Link className="arm2-create" to="/arm2/approvals/new">Новое письмо</Link>}</CatalogHeader><ErrorMessage error={result.error} retry={result.reload}/>{result.data && <><ul>{result.data.map(row => <li key={row.id}><Link to={'/arm2/approvals/' + row.id}>{row.id} · {row.contract_number_1} / {row.contract_number_2}</Link> · {new Date(row.created_at).toLocaleString('ru-RU')} · Машин: {row.decisions.length}</li>)}</ul>{!result.data.length && <p>Заявок на этой странице нет</p>}<Pagination offset={offset} count={result.data.length} change={setOffset}/></>}</section>;
 }
 
 interface LetterDraft {first: string; second: string; selection: CalibrationState[]; key: string}

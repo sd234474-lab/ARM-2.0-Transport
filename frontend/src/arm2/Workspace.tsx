@@ -19,7 +19,7 @@ import Representatives from './Representatives';
 import {PartyFields,person,legal,rawParty} from './PartyFields';
 import { OwnerPicker, TypePicker } from './Selectors';
 import { emptyRecord, isParty, labels, missingRequirements, payload, repFields, requirementLabel, requirements } from './model';
-import { display, ErrorMessage, Field, History, Pagination, SaveForm, Tabs, Unavailable, useAlive, useLoad } from './shared';
+import { CatalogHeader, display, ErrorMessage, Field, History, Pagination, SaveForm, Tabs, Unavailable, useAlive, useLoad } from './shared';
 
 export type Can = (permission: string) => boolean;
 const kinds: Kind[] = ['VEH', 'TYPE', 'ORG', 'CP'];
@@ -53,7 +53,7 @@ function TypeCatalog({kind, can}: {kind: Kind; can: Can}) {
   const query = new URLSearchParams({q: search, limit: '100', offset: String(offset), ...(status ? {status} : {})}).toString();
   const result = useLoad(signal => searchPage(catalogs.TYPE.path, new URLSearchParams(query), signal), [query]);
   const counts = result.data?.facets;
-  return <><header className="arm2-actions"><h2>{catalogs[kind].label}</h2>{can('arm2_type_edit') && <Link className="arm2-create" to={link(kind, 'new')}>+ Новая запись</Link>}</header>
+  return <><CatalogHeader title={catalogs[kind].label}>{can('arm2_type_edit') && <Link className="arm2-create" to={link(kind, 'new')}>+ Новая запись</Link>}</CatalogHeader>
     <CatalogFilters items={[
       {label:'Все типы', count:counts?.all_statuses, active:!status, select:() => change('status', '')},
       {label:'Описание заполнено', count:counts?.confirmed, active:status==='CONFIRMED', select:() => change('status', 'CONFIRMED')},

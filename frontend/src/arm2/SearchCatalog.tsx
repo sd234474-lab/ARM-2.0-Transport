@@ -7,7 +7,7 @@ import { catalogs, pageSize, searchPage } from './api';
 import type { Kind, RecordData } from './api';
 import type { Can } from './Workspace';
 import { OwnerPicker, TypePicker } from './Selectors';
-import { display, ErrorMessage, useLoad } from './shared';
+import { CatalogHeader, display, ErrorMessage, useLoad } from './shared';
 import { VehicleExport } from './BulkVehicles';
 
 export function plateLabel(value: unknown): string {
@@ -54,9 +54,14 @@ export default function SearchCatalog({kind, can, owner, refresh=0, action}: {ki
       option('Юридические лица', 'party_type', 'Юридическое лицо', counts?.legal)] : []),
     toggle('Без ИНН', 'inn', 'missing', counts?.no_inn),
   ];
-  return <section className="arm2-search-catalog"><header className="arm2-actions"><h2>{owner ? 'Техника' : catalogs[kind].label}</h2>{!owner && can(catalogs[kind].permission + '_edit') && <Link className="arm2-create" to={`/arm2/${kind.toLowerCase()}/new`}>+ Новая запись</Link>}</header>
+  return <section className="arm2-search-catalog">
+    {owner ? <header className="arm2-actions"><h2>Техника</h2></header> : <CatalogHeader title={catalogs[kind].label}>
+      {kind === 'VEH' && <VehicleExport query={key}/>}
+      {kind === 'VEH' && can('arm2_veh_edit') && <Link to="/arm2/veh/bulk">Загрузить таблицу</Link>}
+      {can(catalogs[kind].permission + '_edit') && <Link className="arm2-create" to={`/arm2/${kind.toLowerCase()}/new`}>+ Новая запись</Link>}
+    </CatalogHeader>}
     {!owner && <CatalogFilters items={quickFilters}/>}
-    {kind === 'VEH' && <div className="arm2-actions"><VehicleExport query={key}/>{!owner && can('arm2_veh_edit') && <Link to="/arm2/veh/bulk">Загрузить таблицу</Link>}</div>}
+    {kind === 'VEH' && owner && <div className="arm2-actions"><VehicleExport query={key}/></div>}
     <div className="arm2-grid arm2-filters"><label className="arm2-field">{kind === 'VEH' ? 'Поиск по рабочему имени / госномеру' : 'Поиск по имени / полному наименованию / ИНН'}<input type="search" value={get('q')} onChange={e => change({q: e.target.value})}/></label>
       {kind === 'VEH' ? <><TypePicker label="Фильтр: тип техники" selected={get('type_id')} filter can={can} editable change={value => change({type_id: String(value || '')})}/>{!owner && <OwnerPicker label="Фильтр: операционный владелец" cp={get('owner_kind') === 'CP' ? get('owner_id') : null} org={get('owner_kind') === 'ORG' ? get('owner_id') : null} none unowned={get('owner_kind') === 'NONE'} can={can} editable change={(cp, org, empty) => change({owner_kind: empty ? 'NONE' : cp ? 'CP' : org ? 'ORG' : '', owner_id: cp || org || ''})}/>}<label className="arm2-field">Учётное состояние<select value={get('state')} onChange={e => change({state: e.target.value})}><option value="ALL">Все</option><option>Действующая</option><option>Архивная</option></select></label></> : <><label className="arm2-field">ОПФ (точное значение)<input value={get('legal_form')} onChange={e => change({legal_form: e.target.value})}/></label></>}
       <label className="arm2-field">Сортировка<select value={get('sort') || 'name'} onChange={e => change({sort: e.target.value})}>{sorting.map(([value, name]) => <option value={value} key={value}>{name}</option>)}</select></label><label className="arm2-field">Порядок<select value={get('direction') || 'asc'} onChange={e => change({direction: e.target.value})}><option value="asc">По возрастанию</option><option value="desc">По убыванию</option></select></label>

@@ -34,6 +34,18 @@
 .arm2-catalog-table td { vertical-align:middle; padding-block:13px; }
 .arm2-catalog-table tbody tr:last-child td { border-bottom:0; }
 .arm2-catalog-row { cursor:pointer; }
+.arm2-catalog-header { display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; margin:16px 0; }
+.arm2-catalog-header h2 { margin:0; }
+.arm2-catalog-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:8px; margin-inline-start:auto; }
+.arm2-catalog-actions > :is(a, button) {
+  display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box;
+  min-height:44px; padding:9px 15px; border:1px solid transparent; border-radius:7px;
+  font:inherit; line-height:1.25; text-decoration:none; white-space:nowrap;
+}
+.arm2-catalog-actions > :is(a, button):not(.arm2-create) { background:var(--surface,#fff); border-color:var(--border,#8886); color:inherit; }
+.arm2-catalog-actions > :is(a, button):not(.arm2-create):not(:disabled):hover { background:var(--arm2-catalog-tint); }
+.arm2-catalog-actions > .arm2-create { font-weight:650; }
+.arm2-catalog-actions > .error { flex-basis:100%; order:1; }
 .arm2-catalog-row:hover, .arm2-catalog-row:focus-within { background:var(--arm2-catalog-tint); }
 .arm2-catalog-row a, .arm2-catalog-emphasis { font-weight:650; }
 .arm2-catalog-filters { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }

@@ -9,7 +9,7 @@ import { apiUrl } from '../workspace';
 import {openFilePreview} from './filePreviewWindow';
 import type { DocumentKind, DocumentParent, DocumentRecord, RecordData, DocumentFile, EventDetail, FileBundle, FileStage } from './api';
 import type { Can } from './Workspace';
-import { ErrorMessage, History, Pagination, useAlive, useLoad } from './shared';
+import { CatalogHeader, ErrorMessage, History, Pagination, useAlive, useLoad } from './shared';
 import { CatalogRow } from './CatalogRow';
 import { CatalogFilters } from './CatalogFilters';
 import { PartyPicker } from './Selectors';
@@ -30,7 +30,9 @@ export function PartyDocuments({kind, can}: {kind: 'CP' | 'ORG'; can: Can}) {
   const id = params.get(key) || '';
   if (!view({parentType: kind, can})) return <p>Нет прав на просмотр документов {kind === 'CP' ? 'контрагентов' : 'организаций'}</p>;
   return <section className="arm2-search-catalog">
-    <h2>Документы {kind === 'CP' ? 'контрагентов' : 'организаций'}</h2>
+    <CatalogHeader title={kind === 'CP' ? 'Документы контрагентов' : 'Документы организаций'}>
+      {id && edit({parentType: kind, can}) && <Link className="arm2-create" to={endpoint(kind, id) + '/new'}>Добавить документ</Link>}
+    </CatalogHeader>
     <PartyPicker kind={kind} selected={id} change={value => setParams(value ? {[key]: value} : {}, {replace: true})}/>
     {id && <DocumentList key={id} parentType={kind} parentId={id} can={can} catalog/>}
   </section>;
@@ -170,7 +172,7 @@ function DocumentList({catalog = false, ...scope}: Scope & {catalog?: boolean}) 
   const counts = useLoad(signal => catalog ? api<Record<string, number>>(path + '/counts', 'GET', undefined, signal) : Promise.resolve(undefined), [catalog, path]);
   const changeArchive = (value: string) => {setArchive(value); setOffset(0);};
   const Row = catalog ? CatalogRow : 'tr';
-  return <section aria-label="Документы родителя"><header className="arm2-actions">{!catalog && <h3>Документы</h3>}{edit(scope) && <Link to={path + '/new'}>Добавить документ</Link>}</header>
+  return <section aria-label="Документы родителя">{!catalog && <header className="arm2-actions"><h3>Документы</h3>{edit(scope) && <Link to={path + '/new'}>Добавить документ</Link>}</header>}
     {catalog ? <><CatalogFilters items={[
       ['all', 'Все документы'], ['non_archived', 'Неархивные'], ['archived', 'Архивные'],
     ].map(([value,label]) => ({label, count:counts.data?.[value], active:archive===value, select:() => changeArchive(value)}))}/>

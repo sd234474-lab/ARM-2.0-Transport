@@ -5,6 +5,13 @@ import { detail, pageSize } from './api';
 import type { EventDetail, EventSummary, ObjectType, RecordData, Scalar } from './api';
 import { errorText, labels } from './model';
 
+export function CatalogHeader({title, children}: {title: string; children?: ReactNode}) {
+  return <header className="arm2-catalog-header">
+    <h2>{title}</h2>
+    {children && <div className="arm2-catalog-actions">{children}</div>}
+  </header>;
+}
+
 export function useAlive() {
   const alive = useRef(true);
   useEffect(() => {alive.current = true; return () => {alive.current = false;};}, []);

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../api';
 import type { DocumentKind, DocumentParent } from './api';
-import { ErrorMessage, History, useAlive, useLoad } from './shared';
+import { CatalogHeader, ErrorMessage, History, useAlive, useLoad } from './shared';
 
 const base = '/arm2/document-kinds';
 const parents: DocumentParent[] = ['CP', 'ORG', 'VEH'];
@@ -45,7 +45,7 @@ function KindList({editable}: {editable: boolean}) {
     setParams(updated, {replace});
   };
   const counts = result.data?.facets;
-  return <><header className="arm2-actions"><h2>Типы документов</h2>{editable && <Link className="arm2-create" to={base + '/new'} state={{from: location.pathname + location.search}}>+ Новая запись</Link>}</header>
+  return <><CatalogHeader title="Типы документов">{editable && <Link className="arm2-create" to={base + '/new'} state={{from: location.pathname + location.search}}>+ Новая запись</Link>}</CatalogHeader>
     <CatalogFilters items={[
       {label:'Все типы документов',count:counts?.all_parents,active:!parent,select:() => setParams({q}, {replace:true})},
       ...parents.map(key => ({label:`Для ${ {CP:'контрагентов', ORG:'организаций', VEH:'техники'}[key] }`,
