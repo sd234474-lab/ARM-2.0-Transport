@@ -18,16 +18,33 @@ function download(data:string, media:string, filename:string) {
   const anchor=document.createElement('a');anchor.href=url;anchor.download=filename;anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 export function QuestionnaireExport({cpId}:{cpId:string}) {
-  const [busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[missing,setMissing]=useState<{name:string;file_id:string;document_id:string}[]>([]),[reason,setReason]=useState('');
+  const [busy,setBusy]=useState<'xlsx'|'zip'>(),[error,setError]=useState<unknown>(),[missing,setMissing]=useState<{name:string;file_id:string;document_id:string}[]>([]),[reason,setReason]=useState('');
+  const [ready,setReady]=useState('');
   const exporting=async(format:'xlsx'|'zip',incomplete=false)=>{
-    setBusy(true);setError(undefined);
+    if(busy)return;
+    setBusy(format);setError(undefined);setReady('');
     try {
       const result=await api<{data?:string;media_type:string;filename:string;confirmation_required?:boolean;missing?:typeof missing}>(`/arm2/questionnaires/exports/${encodeURIComponent(cpId)}`,'POST',{format,...(incomplete?{incomplete_reason:reason}:{})});
       if(result.confirmation_required)setMissing(result.missing||[]);
-      else if(result.data){download(result.data,result.media_type,result.filename);setMissing([]);}
-    }catch(e){setError(e);}finally{setBusy(false);}
+      else if(result.data){download(result.data,result.media_type,result.filename);setMissing([]);setReady(format==='zip'?'ZIP подготовлен и передан браузеру для скачивания.':'Анкета XLSX передана браузеру для скачивания.');}
+    }catch(e){setError(e);}finally{setBusy(undefined);}
   };
-  return <section aria-label="Выгрузка анкеты"><h3>Анкета контрагента</h3><Link to="/arm2/questionnaires">Загрузить и сверить анкету</Link><div className="arm2-actions"><button disabled={busy} onClick={()=>void exporting('xlsx')}>Выгрузить анкету XLSX</button><button disabled={busy} onClick={()=>void exporting('zip')}>Выгрузить ZIP с текущими документами</button></div><ErrorMessage error={error}/>{error instanceof ApiError&&typeof error.detail==='string'&&<p role="alert">{error.detail}</p>}{missing.length>0&&<div role="alert"><p>Эти текущие оригиналы недоступны. Исправьте доступность либо явно подтвердите неполную выгрузку.</p><ul>{missing.map(f=><li key={f.file_id}>{f.document_id} · {f.file_id} · {f.name}</li>)}</ul><label>Причина неполной выгрузки<input value={reason} maxLength={500} onChange={e=>setReason(e.target.value)}/></label><button disabled={busy||!reason.trim()} onClick={()=>void exporting('zip',true)}>Явно выдать неполный ZIP</button></div>}</section>;
+  return <section aria-label="Выгрузка анкеты">
+    <h3>Анкета контрагента</h3>
+    <Link to="/arm2/questionnaires">Загрузить и сверить анкету</Link>
+    <div className="arm2-actions">
+      <button disabled={!!busy} onClick={()=>void exporting('xlsx')}>Выгрузить анкету XLSX</button>
+      <button disabled={!!busy} onClick={()=>void exporting('zip')}>Выгрузить ZIP с текущими документами</button>
+    </div>
+    <div role="status">{(busy||ready)&&<p>{busy==='zip'?'Собираем ZIP и проверяем оригиналы на Яндекс.Диске…':busy==='xlsx'?'Подготавливаем анкету XLSX…':ready}</p>}</div>
+    <ErrorMessage error={error}/>{error instanceof ApiError&&typeof error.detail==='string'&&<p role="alert">{error.detail}</p>}
+    {!busy&&missing.length>0&&<div role="alert">
+      <p>Полный ZIP не сформирован. АРМ не смог получить указанные оригиналы. Можно повторить выгрузку или отдельно подтвердить выдачу ZIP без этих файлов.</p>
+      <ul>{missing.map(f=><li key={f.file_id}>{f.name} · {f.document_id}</li>)}</ul>
+      <label>Причина неполной выгрузки<input value={reason} maxLength={500} onChange={e=>setReason(e.target.value)}/></label>
+      <button disabled={!reason.trim()} onClick={()=>void exporting('zip',true)}>Явно выдать неполный ZIP</button>
+    </div>}
+  </section>;
 }
 
 function SignerSources({value,change}:{value:NonNullable<QuestionnaireDraft['comparison']>['representatives'][number];change:(sources:Record<string,'passport'|'list'>)=>void}) {

@@ -358,17 +358,21 @@ it('T25/T28 reopen shows separate completion/upload dates and accepted receipt d
 });
 
 it('T27 incomplete ZIP is never downloaded silently and requires a typed reason',async()=>{
+  let respond:(value:unknown)=>void=()=>{};
   vi.mocked(api).mockImplementation(async(_p,_m,body)=>{
     if((body as {incomplete_reason?:string}).incomplete_reason)return {data:'eA==',filename:'questionnaire.zip',media_type:'application/zip'};
-    return {confirmation_required:true,missing:[{name:'missing.pdf',file_id:'FILE-000001',document_id:'DOCUMENT-000001'}]};
+    return await new Promise(resolve=>{respond=resolve;});
   });
   vi.stubGlobal('URL',Object.assign(URL,{createObjectURL:vi.fn(()=> 'blob:synthetic'),revokeObjectURL:vi.fn()}));
   vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{});
   await mount('/',<QuestionnaireExport cpId="CP-000001"/>);await click('Выгрузить ZIP с текущими документами');
+  expect(host.querySelector('[role=status]')?.textContent).toContain('Собираем ZIP');
+  await act(async()=>{respond({confirmation_required:true,missing:[{name:'missing.pdf',file_id:'FILE-000001',document_id:'DOCUMENT-000001'}]});await tick();});
   expect(host.textContent).toContain('missing.pdf');
   const button=[...host.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent==='Явно выдать неполный ZIP')!;
   expect(button.disabled).toBe(true);
   await act(async()=>{const input=host.querySelector('input')!;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(input,'Acknowledged by operator');input.dispatchEvent(new Event('input',{bubbles:true}));await tick();});
   await click('Явно выдать неполный ZIP');
   expect(vi.mocked(api).mock.calls.at(-1)![2]).toEqual({format:'zip',incomplete_reason:'Acknowledged by operator'});
+  expect(host.querySelector('[role=status]')?.textContent).toContain('ZIP подготовлен');
 });

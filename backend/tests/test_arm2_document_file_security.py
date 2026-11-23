@@ -243,3 +243,48 @@ def test_existing_yandex_adapter_download_checks_bytes_and_keeps_oauth_on_api(mo
         disk.download_document("disk:/private/id", target, digest, len(data))
         assert target.read_bytes() == data
     assert observed[-1] == ("storage.yandex.net", None)
+    assert len(observed) == 3  # A corrupt original is rejected after a single read.
+
+
+@pytest.mark.parametrize("failures", [1, 3])
+def test_yandex_original_retries_transient_metadata_without_skipping_integrity(monkeypatch, tmp_path, failures):
+    import hashlib
+
+    import httpx
+
+    from app import integrations
+
+    disk = integrations.YandexDisk()
+    source = pdf("bounded-retry")
+    digest = hashlib.sha256(source).hexdigest()
+    attempts = []
+    transfers = []
+
+    def metadata(_resource, *, timeout=1.5):
+        attempts.append(timeout)
+        if len(attempts) <= failures:
+            raise httpx.ReadTimeout("private URL or credentials")
+        return {"type": "file", "sha256": digest, "size": len(source)}
+
+    request = httpx.Request("GET", "https://cloud-api.yandex.net/v1/disk/resources/download")
+    response = httpx.Response(200, request=request, json={"href": "https://storage.yandex.net/signed"})
+
+    def download(_href, path, _hosts):
+        transfers.append(path)
+        path.write_bytes(source)
+
+    monkeypatch.setattr(disk, "document_metadata", metadata)
+    monkeypatch.setattr(disk, "request", lambda *_args, **_kwargs: response)
+    monkeypatch.setattr(integrations, "safe_url", lambda url, _hosts: url)
+    monkeypatch.setattr(integrations, "download_file", download)
+    monkeypatch.setattr(integrations.time, "sleep", lambda _delay: None)
+    target = tmp_path / "original"
+    if failures == 1:
+        disk.download_document("disk:/private/original", target, digest, len(source))
+        assert attempts == [1.5, 4] and transfers == [target]
+        assert target.read_bytes() == source
+    else:
+        with pytest.raises(integrations.DownloadRejected, match="^DOCUMENT_ORIGINAL_UNAVAILABLE$"):
+            disk.download_document("disk:/private/original", target, digest, len(source))
+        assert attempts == [1.5, 4, 4] and not transfers
+        assert not target.exists()

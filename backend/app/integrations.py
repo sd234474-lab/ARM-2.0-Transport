@@ -204,29 +204,39 @@ class YandexDisk:
         """Private DOCUMENT read: verified original; provider URL never leaves server."""
         import hashlib
 
-        try:
-            meta = self.document_metadata(resource)
-            if not meta or meta.get("type") != "file" or meta.get("sha256") != digest or meta.get("size") != size:
-                raise DownloadRejected("DOCUMENT_ORIGINAL_UNAVAILABLE")
-            response = self.request("GET", "/resources/download", params={"path": resource})
-            response.raise_for_status()
-            href = safe_url(response.json()["href"], ("yandex.net", "yandex.ru", "yandex.com"))
-            # Existing downloader validates redirects/hosts, bounds bytes and sends no OAuth.
-            download_file(href, target, ("yandex.net", "yandex.ru", "yandex.com"))
-            result = hashlib.sha256()
-            with target.open("rb") as source:
-                while chunk := source.read(64 * 1024):
-                    result.update(chunk)
-            if target.stat().st_size != size or result.hexdigest() != digest:
-                raise DownloadRejected("DOCUMENT_ORIGINAL_INTEGRITY_FAILURE")
-        except Exception:
-            target.unlink(missing_ok=True)
-            # HTTP exceptions may contain signed URLs. Never propagate their text.
-            raise DownloadRejected("DOCUMENT_ORIGINAL_UNAVAILABLE") from None
+        retry_until = time.monotonic() + 12
+        delays = (0.3, 0.8)
+        for attempt in range(len(delays) + 1):
+            try:
+                meta = self.document_metadata(resource) if attempt == 0 else self.document_metadata(resource, timeout=4)
+                if not meta or meta.get("type") != "file" or meta.get("sha256") != digest or meta.get("size") != size:
+                    raise DownloadRejected("DOCUMENT_ORIGINAL_UNAVAILABLE")
+                response = self.request("GET", "/resources/download", params={"path": resource})
+                response.raise_for_status()
+                hosts = ("yandex.net", "yandex.ru", "yandex.com")
+                href = safe_url(response.json()["href"], hosts)
+                # Existing downloader validates redirects/hosts, bounds bytes and sends no OAuth.
+                download_file(href, target, hosts)
+                result = hashlib.sha256()
+                with target.open("rb") as source:
+                    while chunk := source.read(64 * 1024):
+                        result.update(chunk)
+                if target.stat().st_size != size or result.hexdigest() != digest:
+                    raise DownloadRejected("DOCUMENT_ORIGINAL_INTEGRITY_FAILURE")
+                return
+            except Exception as error:
+                target.unlink(missing_ok=True)
+                transient = isinstance(error, (httpx.TimeoutException, httpx.ReadError, httpx.RemoteProtocolError))
+                if isinstance(error, httpx.HTTPStatusError):
+                    transient = error.response.status_code in (408, 500, 502, 503, 504)
+                if not transient or attempt == len(delays) or time.monotonic() + delays[attempt] >= retry_until:
+                    # HTTP exceptions may contain signed URLs. Never propagate their text.
+                    raise DownloadRejected("DOCUMENT_ORIGINAL_UNAVAILABLE") from None
+                time.sleep(delays[attempt])
 
-    def document_metadata(self, resource: str):
+    def document_metadata(self, resource: str, *, timeout=1.5):
         """Bound the document read preflight without altering photo upload/move policy."""
-        response = self.request("GET", "/resources", params={"path": resource, "fields": "type,sha256,size"}, timeout=1.5)
+        response = self.request("GET", "/resources", params={"path": resource, "fields": "type,sha256,size"}, timeout=timeout)
         if response.status_code == 404:
             return None
         response.raise_for_status()
