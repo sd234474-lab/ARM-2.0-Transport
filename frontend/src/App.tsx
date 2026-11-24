@@ -45,6 +45,7 @@ import { AppealNotice, useAppealNotifications } from './appeals/notifications';
 const PhotoRoutes = lazy(() => import('./photo-routes/PhotoRoutes'));
 const OwnerAppeals = lazy(() => import('./appeals/OwnerAppeals'));
 const DailyReports = lazy(() => import('./daily-reports/DailyReports'));
+const Arm2Home = lazy(() => import('./Arm2Home'));
 
 const dailyLinks = ['/', '/appeals', '/messages', '/photos', '/review', '/days', '/daily-reports'];
 const workspaceMenuOrder = [...dailyLinks, ...defaultSidebarOrder.filter(path => !dailyLinks.includes(path))];
@@ -88,6 +89,7 @@ export default function App() {
     {to:'/messages', label:'Чаты', Icon:MessageSquare, allowed:true},
     {to:'/chats', label:'Чаты MAX', Icon:MessageSquare, allowed:hasPermission(user,'chats_manage')},
     {to:'/work-types', label:'Виды работ', Icon:Layers, allowed:admin},
+    {to:'/arm2', label:'ARM 2.0', Icon:Layers, allowed:admin},
     {to:'/users', label:'Сотрудники', Icon:Users, allowed:admin},
     {to:'/audit', label:'Журнал действий', Icon:ShieldCheck, allowed:hasPermission(user,'audit_view')},
     {to:'/jobs', label:'Обработка', Icon:RefreshCw, allowed:hasPermission(user,'jobs_manage')},
@@ -139,6 +141,7 @@ export default function App() {
           <Route path="/messages" element={<OperatorChats includeInspectors={admin && !!meta.organization}/>}/>
           <Route path="/chats" element={protectedPage('chats_manage',<Administration key="chats" page="chats"/>)}/>
           <Route path="/work-types" element={admin?<WorkTypes/>:denied}/>
+          <Route path="/arm2" element={admin?<Suspense fallback={<p className="loading">Открываем ARM 2.0…</p>}><Arm2Home/></Suspense>:denied}/>
           <Route path="/users" element={admin?<Administration key="users" page="users"/>:denied}/>
           <Route path="/audit" element={protectedPage('audit_view',<Administration key="audit" page="audit"/>)}/>
           <Route path="/jobs" element={protectedPage('jobs_manage',<Administration key="jobs" page="jobs"/>)}/>

@@ -2,6 +2,14 @@ from sqlalchemy import create_engine, pool
 
 from alembic import context
 from app import models  # noqa: F401
+from app.arm2 import (
+    counterparty_models,  # noqa: F401
+    history_models,  # noqa: F401
+    organization_models,  # noqa: F401
+    representative_models,  # noqa: F401
+    vehicle_models,  # noqa: F401
+    vehicle_type_models,  # noqa: F401
+)
 from app.config import settings
 from app.db import Base
 

@@ -23,6 +23,7 @@ from app.appeals import organization_router as appeals_organization_router
 from app.appeals import owner_router as appeals_owner_router
 from app.appeals import public_router as appeals_public_router
 from app.appeals_public import AppealBodyLimit
+from app.arm2.routes import router as arm2_router
 from app.auth import (
     AdminUser,
     AuditReader,
@@ -156,6 +157,7 @@ app.include_router(disk_accounts_router)
 app.include_router(photo_promotion_router)
 app.include_router(integration_keys_router)
 app.include_router(integration_router)
+app.include_router(arm2_router)
 app.add_middleware(IntegrationAccess)
 app.add_middleware(SecurityTelemetry)
 app.add_middleware(OrganizationsMiddleware)
