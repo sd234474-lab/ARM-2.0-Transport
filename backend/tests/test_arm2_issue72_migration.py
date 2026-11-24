@@ -17,7 +17,7 @@ def test_0070_one_head_clean_schema_and_no_inferred_type(isolated_arm2_database_
     monkeypatch.setenv('DATABASE_URL', isolated_arm2_database_url)
     settings.cache_clear()
     scripts = ScriptDirectory.from_config(config())
-    assert scripts.get_heads() == ['0074']
+    assert scripts.get_heads() == ['0075']
     assert scripts.get_revision('0070').down_revision == '0069'
     sql = create_engine(isolated_arm2_database_url)
     with sql.connect() as db:
