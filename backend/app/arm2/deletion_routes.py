@@ -12,7 +12,7 @@ from app.arm2 import deletion_service as service
 from app.arm2.deletion_models import DeletionBatch
 from app.arm2.http_errors import CONTROLLED_ERRORS, controlled_error, rollback
 from app.arm2.http_limits import bounded_route
-from app.arm2.object_save import ObjectVersionConflictError
+from app.arm2.object_save import ObjectAuthorizationError, ObjectVersionConflictError
 from app.arm2.operation_models import BackgroundOperation
 from app.auth import CurrentUser, Db
 
@@ -89,11 +89,11 @@ def execute(batch_id: UUID, body: Confirmation, db: Db, user: CurrentUser):
 @router.get("/batches")
 def journal(db: Db, user: CurrentUser, offset: Annotated[int, Query(ge=0)] = 0):
     def operation():
-        service.authorize(db, user)
+        current = service.authorize(db, user)
         rows = db.scalars(select(DeletionBatch).where(
-            DeletionBatch.actor_id == user.id, DeletionBatch.executed_at.is_not(None)
+            DeletionBatch.actor_id == current.id, DeletionBatch.executed_at.is_not(None)
         ).order_by(DeletionBatch.executed_at.desc(), DeletionBatch.id).offset(offset).limit(101)).all()
-        return {"items": [service.receipt(db, row, user) for row in rows[:100]], "has_more": len(rows) > 100}
+        return {"items": [service.receipt(db, row, current) for row in rows[:100]], "has_more": len(rows) > 100}
 
     return transaction(db, operation)
 
@@ -101,16 +101,18 @@ def journal(db: Db, user: CurrentUser, offset: Annotated[int, Query(ge=0)] = 0):
 @router.post("/batches/{batch_id}/retry")
 def retry_files(batch_id: UUID, db: Db, user: CurrentUser):
     def operation():
-        service.authorize(db, user, execute=True, lock=True)
-        batch = service.stored_batch(db, user, str(batch_id), lock=True)
+        current = service.authorize(db, user, execute=True, lock=True)
+        batch = service.stored_batch(db, current, str(batch_id), lock=True)
         if not batch.executed_at:
             raise ObjectVersionConflictError("Удаление ещё не выполнено")
+        if not service.batch_access_allowed(batch, current, edit=True):
+            raise ObjectAuthorizationError("Нет актуальных прав на повтор очистки файлов набора")
         db.execute(update(BackgroundOperation).where(
             BackgroundOperation.kind == service.CLEANUP,
             BackgroundOperation.payload["batch_id"].astext == batch.id,
             BackgroundOperation.state == "FAILED",
         ).values(state="QUEUED", failure=None, not_before=None))
-        return service.receipt(db, batch, user)
+        return service.receipt(db, batch, current)
 
     return transaction(db, operation)
 
@@ -118,6 +120,6 @@ def retry_files(batch_id: UUID, db: Db, user: CurrentUser):
 @router.get("/batches/{batch_id}")
 def batch(batch_id: UUID, db: Db, user: CurrentUser):
     def operation():
-        service.authorize(db, user)
-        return service.receipt(db, service.stored_batch(db, user, str(batch_id)), user)
+        current = service.authorize(db, user)
+        return service.receipt(db, service.stored_batch(db, current, str(batch_id)), current)
     return transaction(db, operation)

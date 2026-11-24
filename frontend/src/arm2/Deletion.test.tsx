@@ -3,7 +3,8 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { api } from '../api';
+import { api, ApiError } from '../api';
+import PermissionEditor from '../PermissionEditor';
 import Deletion, { DeletionMark, DeletionPermissions } from './Deletion';
 
 vi.mock('../api', async original => ({...await original<typeof import('../api')>(), api: vi.fn()}));
@@ -89,4 +90,43 @@ it('displays the blocking card and requires confirmation before deleting a check
   await click(button('Подтвердить удаление'));
   expect(vi.mocked(api)).toHaveBeenCalledWith(base + '/batches/test-set/execute', 'POST', {confirmed:true});
   expect(host.textContent).toContain('Записи удалены. Очистка файлов продолжается');
+});
+
+it('uses the batch-level retry capability and refreshes it after a permissions denial', async () => {
+  let allowed = false;
+  const receipt = {id: 'test-set', state: 'FILES_BLOCKED', objects: [marked],
+    cleanup: [{object_id: 'FILE-000123', state: 'FAILED'}], executed_at: '2026-11-24T04:00:00Z'};
+  vi.mocked(api).mockImplementation(async (path, method) => {
+    if (path === base + '/marks?offset=0') return {items: [], has_more: false};
+    if (path === base + '/batches?offset=0') return {items: [receipt], has_more: false};
+    if (path.endsWith('/retry') && method === 'POST') {
+      allowed = false;
+      throw new ApiError(403, 'Нет актуальных прав');
+    }
+    if (path.endsWith('/test-set')) return {...receipt, can_retry: allowed};
+    throw new Error(path);
+  });
+  await render(<Deletion/>, ['arm2_delete_mark', 'arm2_delete_execute']);
+  await click(button('· 1'));
+  expect(button('Повторить сверку файлов')).toBeUndefined();
+  allowed = true;
+  await click(button('Обновить состояние'));
+  await click(button('Повторить сверку файлов'));
+  expect(button('Повторить сверку файлов')).toBeUndefined();
+});
+
+it('shows separate deletion permissions under the ARM2 group and keeps the prerequisite', async () => {
+  const catalog = [
+    {code: 'arm2_delete_mark', name: 'Пометка объектов на удаление', group: 'АРМ 2.0',
+      requires: [], default_operator: false},
+    {code: 'arm2_delete_execute', name: 'Удаление помеченных объектов', group: 'АРМ 2.0',
+      requires: ['arm2_delete_mark'], default_operator: false},
+  ];
+  const change = vi.fn();
+  await render(<PermissionEditor catalog={catalog} value={[]} onChange={change} administrator={false}/>, []);
+  expect(host.querySelector('legend')?.textContent).toBe('АРМ 2.0');
+  const labels = [...host.querySelectorAll('fieldset label')];
+  expect(labels.map(label => label.textContent)).toEqual(catalog.map(item => item.name));
+  await click(labels[1].querySelector('input')!);
+  expect(change).toHaveBeenCalledWith(expect.arrayContaining(['arm2_delete_mark', 'arm2_delete_execute']));
 });

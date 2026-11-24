@@ -4,45 +4,28 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import delete, select, text, tuple_, update
 
 from app.arm2 import deletion_relations as relations
 from app.arm2.approval_models import ApprovalAttempt, ApprovalDecision, ApprovalRequest
 from app.arm2.approval_store import access as approval_access
 from app.arm2.bulk_models import BulkSession
 from app.arm2.deletion_models import DeletionBatch, DeletionMark
-from app.arm2.document_file_models import (
-    DocumentFile,
-    DocumentFileCorrection,
-    DocumentRevision,
-    DocumentRevisionContext,
-    FileAcceptance,
-    FileStage,
-    RevisionFile,
-)
+from app.arm2.document_file_models import DocumentFile, FileAcceptance, FileStage
 from app.arm2.document_file_storage import STAGE_SECONDS
-from app.arm2.document_models import Document
 from app.arm2.document_store import PARENTS, parent_access
 from app.arm2.file_read_guard import ensure_no_download
 from app.arm2.history_models import HistoryEvent
 from app.arm2.history_store import append_history_event
-from app.arm2.object_registry import OBJECT_REGISTRY
+from app.arm2.object_registry import OBJECT_REGISTRY, ObjectRegistryError
 from app.arm2.object_save import ObjectAuthorizationError, ObjectNotFoundError, ObjectVersionConflictError
 from app.arm2.operation_models import BackgroundOperation
 from app.arm2.questionnaire_models import QuestionnaireDraft
-from app.arm2.vehicle_models import Vehicle
 from app.models import User
 from app.permissions import Permission, has_permission
 
 CLEANUP = "DELETION_CLEANUP"
 PREVIEW_TIMEOUT = timedelta(minutes=20)
-WRITE_ORDER = (
-    ApprovalDecision, DocumentFileCorrection, RevisionFile, DocumentRevisionContext,
-    FileAcceptance, FileStage, DocumentRevision, DocumentFile, ApprovalRequest, Document,
-    Vehicle, relations.OBJECTS["CPREP"].model, relations.OBJECTS["ORGREP"].model,
-    relations.OBJECTS["CP"].model, relations.OBJECTS["ORG"].model,
-    relations.OBJECTS["DOC-KIND"].model, relations.OBJECTS["TYPE"].model,
-)
 
 
 def identity(kind, identifier):
@@ -79,22 +62,40 @@ def scope(kind, row):
     return {}
 
 
-def required_permissions(kind, saved_scope):
-    edit = OBJECT_REGISTRY.require(kind).edit_permission
-    needed = {Permission(edit.value.replace("_edit", "_view"))}
-    if kind in {"APPROVAL", "APPROVAL-ITEM"}:
-        needed.add(Permission.ARM2_DOCUMENT_VIEW)
-    if kind == "DOCUMENT":
-        needed.add(PARENTS[saved_scope["parent_type"]][1])
-    return needed
+def required_permissions(kind, saved_scope, *, edit=False):
+    try:
+        OBJECT_REGISTRY.deletion_definition(kind)
+        edit_permission = OBJECT_REGISTRY.require(kind).edit_permission
+        needed = {Permission(edit_permission.value.removesuffix("_edit") + "_view")}
+        if edit:
+            needed.add(edit_permission)
+        if kind == "DOCUMENT" or kind in {"CPREP", "ORGREP"}:
+            if not isinstance(saved_scope, dict) or set(saved_scope) != {"parent_type", "parent_id"}:
+                raise ValueError("Invalid parent scope")
+            parent_type, parent_id = saved_scope["parent_type"], saved_scope["parent_id"]
+            if kind != "DOCUMENT" and parent_type != kind.removesuffix("REP"):
+                raise ValueError("Invalid representative scope")
+            OBJECT_REGISTRY.require(parent_type).validate_id(parent_id)
+            if kind == "DOCUMENT":
+                _, view_parent, edit_parent = PARENTS[parent_type]
+                needed.add(view_parent)
+                if edit:
+                    needed.add(edit_parent)
+        elif kind in {"APPROVAL", "APPROVAL-ITEM"}:
+            if saved_scope != {"type": "VEH"}:
+                raise ValueError("Invalid approval scope")
+            needed.add(Permission.ARM2_DOCUMENT_VIEW)
+            if edit:
+                needed.add(Permission.ARM2_DOCUMENT_EDIT)
+        elif saved_scope != {}:
+            raise ValueError("Unexpected object scope")
+        return needed
+    except (AttributeError, KeyError, TypeError, ValueError):
+        raise ObjectAuthorizationError("Область доступа объекта удаления не подтверждена") from None
 
 
 def object_access(db, user, kind, row, *, edit=False):
-    needed = required_permissions(kind, scope(kind, row))
-    if edit:
-        needed.add(OBJECT_REGISTRY.require(kind).edit_permission)
-        if kind in {"APPROVAL", "APPROVAL-ITEM"}:
-            needed.add(Permission.ARM2_DOCUMENT_EDIT)
+    needed = required_permissions(kind, scope(kind, row), edit=edit)
     if any(not has_permission(user, item) for item in needed):
         raise ObjectAuthorizationError("Нет прав на объект удаления")
     if kind == "DOCUMENT":
@@ -181,10 +182,10 @@ def dependency(db, user, row, target, field, selected):
                 reason = "Идёт работа с файлами. Завершите её или дождитесь окончания срока черновика"
             artifact = relations.artifact_id(row)
             return {**entry, "object_type": row.__tablename__, "object_id": artifact,
-                    "name": f"{relations.ARTIFACT_NAMES[model]} · {artifact}",
+                    "name": f"{relations.ARTIFACTS[model].name} · {artifact}",
                     "reason": reason, "blocking": reason != "Принадлежит выбранному объекту"}
         row = lookup(db, *key)
-    if row.__tablename__ in relations.SOURCE_TYPES:
+    if OBJECT_REGISTRY.deletion_type_for(type(row)) is not None:
         kind, identifier = relations.object_key(row)
         try:
             object_access(db, user, kind, row)
@@ -213,7 +214,7 @@ def dependency(db, user, row, target, field, selected):
     raise ObjectVersionConflictError("Неизвестная связь объекта. Удаление заблокировано")
 
 
-def preflight(db, user, keys):
+def preflight(db, user, keys, models):
     keys = sorted(keys)
     if len(keys) != len(set(keys)):
         raise ValueError("В наборе повторяются объекты")
@@ -232,7 +233,7 @@ def preflight(db, user, keys):
 
     artifacts = list(relations.artifact_rows(db, rows))
     targets = [*rows, *artifacts]
-    sources = [*relations.incoming_foreign_keys(db, targets), *relations.incoming_logical(db, targets)]
+    sources = [*relations.incoming_foreign_keys(db, targets, models), *relations.incoming_logical(db, targets)]
     for row in rows:
         if isinstance(row, ApprovalDecision):
             sources.append((lookup(db, "APPROVAL", row.request_id), row, "request_id"))
@@ -256,8 +257,9 @@ def preflight(db, user, keys):
 
 
 def preview(db, user, keys):
-    relations.lock_writes(db)
-    snapshot, _, _ = preflight(db, user, keys)
+    models = relations.registered_models(relations.deletion_policies())
+    relations.lock_writes(db, models)
+    snapshot, _, _ = preflight(db, user, keys, models)
     batch = DeletionBatch(id=str(uuid4()), actor_id=user.id, snapshot=snapshot)
     db.add(batch)
     return {"id": batch.id, **snapshot, "can_execute": has_permission(user, Permission.ARM2_DELETE_EXECUTE)
@@ -302,48 +304,74 @@ def _cleanup_jobs(db, user, batch, artifacts):
         ))
 
 
-def _remove(db, rows, artifacts):
-    # Break only internal RESTRICT cycles for records that will be removed in this transaction.
-    # Approval letter/package references are already deferred by schema 0072.
-    for row in rows:
-        if isinstance(row, Document):
-            db.execute(update(Document).where(Document.id == row.id).values(current_revision_id=None))
-        if isinstance(row, Vehicle) and row.calibration_document_id:
-            db.execute(update(Vehicle).where(Vehicle.id == row.id).values(
-                calibration_m3=None, calibration_confirmed_by=None, calibration_confirmed_at=None,
-                calibration_document_id=None, calibration_revision_id=None, calibration_plate_number=None,
-            ))
-        if isinstance(row, (relations.OBJECTS["CP"].model, relations.OBJECTS["ORG"].model)):
-            model = type(row)
-            db.execute(update(model).where(model.id == row.id).values(primary_signer_id=None))
-    for model in (*WRITE_ORDER, ApprovalAttempt):
-        for row in [item for item in (*rows, *artifacts) if type(item) is model]:
-            table = model.__table__
-            db.execute(delete(table).where(*(col == getattr(row, col.key) for col in table.primary_key.columns)))
+def _removal_plan(rows, artifacts, policies):
+    keys_by_model = {}
+    for row in (*rows, *artifacts):
+        model = type(row)
+        if model not in policies:
+            raise ObjectRegistryError("Не определена политика удаления записи")
+        key = tuple(getattr(row, col.key) for col in model.__table__.primary_key)
+        keys = keys_by_model.setdefault(model, set())
+        if None in key or key in keys:
+            raise ObjectRegistryError("Некорректный ключ записи в наборе удаления")
+        keys.add(key)
+    ordered = sorted(keys_by_model, key=lambda model: (policies[model].order, model.__table__.name))
+    return [(policies[model], keys_by_model[model]) for model in ordered]
+
+
+def _key_filter(columns, keys):
+    if len(columns) == 1:
+        return columns[0].in_([key[0] for key in keys])
+    return tuple_(*columns).in_(list(keys))
+
+
+def _remove(db, plan):
+    # Clear only declared fields on rows selected for this same transaction.
+    for policy, keys in plan:
+        if policy.clear_fields:
+            table = policy.model.__table__
+            db.execute(update(table).where(_key_filter(list(table.primary_key), keys))
+                       .values({field: None for field in policy.clear_fields}))
+    for policy, keys in plan:
+        table = policy.model.__table__
+        columns = list(table.primary_key)
+        removed = db.execute(delete(table).where(_key_filter(columns, keys)).returning(*columns))
+        if {tuple(key) for key in removed} != keys:
+            raise ObjectVersionConflictError("База не подтвердила удаление всех записей набора")
+    # Check deferred constraints and verify final absence after all DELETEs.
+    db.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+    for policy, keys in plan:
+        columns = list(policy.model.__table__.primary_key)
+        if db.execute(select(*columns).where(_key_filter(columns, keys)).limit(1)).first() is not None:
+            raise ObjectVersionConflictError("После удаления в базе остались записи набора")
 
 
 def execute(db, user, batch_id):
     user = authorize(db, user, execute=True, lock=True)
+    policies = relations.deletion_policies()
+    models = relations.registered_models(policies)
     ensure_no_download(db)
-    relations.lock_writes(db)
+    relations.lock_writes(db, models)
     batch = stored_batch(db, user, batch_id, lock=True)
     if batch.executed_at:
         raise ObjectVersionConflictError("Набор уже удалён. Откройте протокол удаления")
     if datetime.now(UTC) - batch.created_at > PREVIEW_TIMEOUT:
         raise ObjectVersionConflictError("Срок проверки истёк. Проверьте набор заново")
     keys = [(entry["object_type"], entry["object_id"]) for entry in batch.snapshot["objects"].values()]
-    new, rows, artifacts = preflight(db, user, keys)
+    new, rows, artifacts = preflight(db, user, keys, models)
     if new != batch.snapshot:
         raise ObjectVersionConflictError("Версии, пометки или связи изменились. Проверьте набор заново")
     if any(link["blocking"] for link in new["dependencies"]):
         raise ObjectVersionConflictError("Есть блокирующие связи. Исправьте их и проверьте набор заново")
+    plan = _removal_plan(rows, artifacts, policies)
     audit = {}
     for row in artifacts:
         audit.setdefault(row.__tablename__, {})[relations.artifact_id(row)] = _audit_row(row)
     batch.artifacts = audit
     batch.executed_at = datetime.now(UTC)
     batch.execution_tx = db.scalar(text("SELECT txid_current()::text"))
-    db.flush()
+    db.flush()  # The immutable-artifact guard reads this batch in the same transaction.
+    _remove(db, plan)
     _cleanup_jobs(db, user, batch, artifacts)
     for key in keys:
         mark = db.get(DeletionMark, key)
@@ -354,25 +382,36 @@ def execute(db, user, batch_id):
             version_before=version, changes={"version": {"before": version, "after": None}},
         )
         db.delete(mark)
-    _remove(db, rows, artifacts)
     db.flush()
     return receipt(db, batch, user)
 
 
+def batch_access_allowed(batch, user, *, edit=False):
+    try:
+        objects = batch.snapshot["objects"]
+        if not isinstance(objects, dict) or not objects:
+            return False
+        return all(has_permission(user, permission) for item in objects.values()
+                   for permission in required_permissions(item["object_type"], item["scope"], edit=edit))
+    except (KeyError, TypeError, ObjectAuthorizationError):
+        return False
+
+
 def receipt(db, batch, user):
-    objects = list(batch.snapshot["objects"].values())
-    if any(not has_permission(user, permission) for item in objects
-           for permission in required_permissions(item["object_type"], item["scope"])):
+    if not batch_access_allowed(batch, user):
         return {"id": batch.id, "state": "RESTRICTED", "executed_at": batch.executed_at,
-                "actor_id": batch.actor_id, "objects": [], "cleanup": []}
+                "actor_id": batch.actor_id, "objects": [], "cleanup": [], "can_retry": False}
     jobs = db.scalars(select(BackgroundOperation).where(
         BackgroundOperation.kind == CLEANUP, BackgroundOperation.payload["batch_id"].astext == batch.id
     ).order_by(BackgroundOperation.id)).all()
     state = "CHECKED" if not batch.executed_at else "COMPLETED"
     if any(row.state != "SUCCEEDED" for row in jobs):
         state = "FILES_BLOCKED" if any(row.state == "FAILED" for row in jobs) else "FILES_PENDING"
+    can_retry = (batch.executed_at is not None and state == "FILES_BLOCKED"
+                 and has_permission(user, Permission.ARM2_DELETE_EXECUTE)
+                 and batch_access_allowed(batch, user, edit=True))
     return {"id": batch.id, "state": state, "executed_at": batch.executed_at,
-            "actor_id": batch.actor_id, "objects": objects,
+            "actor_id": batch.actor_id, "objects": list(batch.snapshot["objects"].values()), "can_retry": can_retry,
             "cleanup": [{"object_id": row.payload["id"], "state": row.state, "failure": row.failure} for row in jobs]}
 
 

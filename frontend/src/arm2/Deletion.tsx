@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../api';
+import { api, ApiError } from '../api';
 import type { ObjectType } from './api';
 import type { Can } from './Workspace';
 import { CatalogHeader, ErrorMessage, History, Pagination, useAlive, useLoad } from './shared';
@@ -13,7 +13,7 @@ type Mark = ObjectKey & {name: string; path: string; mark: string | null; versio
 type Dependency = {target_id: string; field: string; object_id?: string; name?: string; path?: string; blocking: boolean; reason: string};
 type Preview = {id: string; objects: Record<string, Mark>; dependencies: Dependency[]; can_execute: boolean};
 type Cleanup = {object_id: string; state: string; failure?: {message: string}};
-type Receipt = {id: string; state: 'CHECKED' | 'COMPLETED' | 'FILES_PENDING' | 'FILES_BLOCKED' | 'RESTRICTED'; executed_at: string; objects: Mark[]; cleanup: Cleanup[]};
+type Receipt = {id: string; state: 'CHECKED' | 'COMPLETED' | 'FILES_PENDING' | 'FILES_BLOCKED' | 'RESTRICTED'; executed_at: string; objects: Mark[]; cleanup: Cleanup[]; can_retry: boolean};
 type Page<T> = {items: T[]; has_more: boolean};
 
 export function DeletionMark({kind, id, version, editable}: {kind: string; id?: string; version?: number; editable: boolean}) {
@@ -194,7 +194,10 @@ function DeletionReceipt({id, close}: {id: string; close: () => void}) {
     setRetrying(true);
     setError(null);
     try { await api(`${endpoint}/batches/${id}/retry`, 'POST'); reload(); }
-    catch (failure) { setError(failure); }
+    catch (failure) {
+      setError(failure);
+      if (failure instanceof ApiError && failure.status === 403) reload();
+    }
     finally { setRetrying(false); }
   };
   return <section aria-label="Протокол удаления">
@@ -206,7 +209,7 @@ function DeletionReceipt({id, close}: {id: string; close: () => void}) {
       {!!data.cleanup.length && <ul>{data.cleanup.map((row, index) => <li key={index}>
         {row.object_id} · {row.failure?.message ?? (row.state === 'SUCCEEDED' ? 'Убран из защищённого хранилища' : 'Ожидает очистки')}
       </li>)}</ul>}
-      {data.state === 'FILES_BLOCKED' && can('arm2_delete_execute') &&
+      {data.can_retry && can('arm2_delete_execute') &&
         <button type="button" disabled={retrying} onClick={() => void retry()}>Повторить сверку файлов</button>}
       <button type="button" onClick={reload}>Обновить состояние</button>
     </>}

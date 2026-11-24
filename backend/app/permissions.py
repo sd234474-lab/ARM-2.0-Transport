@@ -41,8 +41,8 @@ class Permission(StrEnum):
 
 
 PERMISSIONS = {
-    Permission.ARM2_DELETE_MARK: ("??????? ???????? ?? ????????", "??? 2.0", ()),
-    Permission.ARM2_DELETE_EXECUTE: ("???????? ???????????? ??????", "??? 2.0", (Permission.ARM2_DELETE_MARK,)),
+    Permission.ARM2_DELETE_MARK: ("Пометка объектов на удаление", "АРМ 2.0", ()),
+    Permission.ARM2_DELETE_EXECUTE: ("Удаление помеченных объектов", "АРМ 2.0", (Permission.ARM2_DELETE_MARK,)),
     Permission.ARM2_DOCUMENT_VIEW: ("Просмотр документов ARM 2.0", "АРМ 2.0", ()),
     Permission.ARM2_DOCUMENT_EDIT: ("Редактирование документов ARM 2.0", "АРМ 2.0", (Permission.ARM2_DOCUMENT_VIEW,)),
     Permission.ARM2_DOC_KIND_VIEW: ("Просмотр типов документов ARM 2.0", "АРМ 2.0", ()),

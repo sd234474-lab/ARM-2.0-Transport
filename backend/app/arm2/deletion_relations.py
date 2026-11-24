@@ -19,7 +19,7 @@ from app.arm2.document_file_models import (
 )
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_models import Document
-from app.arm2.object_registry import OBJECT_REGISTRY
+from app.arm2.object_registry import OBJECT_REGISTRY, DeletionPolicy, DeletionType, ObjectRegistryError
 from app.arm2.object_save import ObjectVersionConflictError
 from app.arm2.organization_models import Organization
 from app.arm2.questionnaire_models import QuestionnaireDraft, QuestionnaireExport, QuestionnaireUpload
@@ -27,46 +27,47 @@ from app.arm2.representative_models import CounterpartyRepresentative, Organizat
 from app.arm2.vehicle_models import Vehicle
 from app.arm2.vehicle_type_models import VehicleType
 
+OBJECT_REGISTRY.register_deletion({
+    "TYPE": DeletionType(VehicleType, 160, collection="/arm2/type"),
+    "VEH": DeletionType(Vehicle, 110, collection="/arm2/veh", clear_fields=(
+        "calibration_m3", "calibration_confirmed_by", "calibration_confirmed_at",
+        "calibration_document_id", "calibration_revision_id", "calibration_plate_number",
+    )),
+    "CP": DeletionType(Counterparty, 140, collection="/arm2/cp", clear_fields=("primary_signer_id",)),
+    "ORG": DeletionType(Organization, 150, collection="/arm2/org", clear_fields=("primary_signer_id",)),
+    "CPREP": DeletionType(CounterpartyRepresentative, 120, collection="/arm2/cp"),
+    "ORGREP": DeletionType(OrganizationRepresentative, 130, collection="/arm2/org"),
+    "DOC-KIND": DeletionType(DocumentKind, 155, collection="/arm2/document-kinds"),
+    "DOCUMENT": DeletionType(Document, 100, collection="/arm2", clear_fields=("current_revision_id",)),
+    "APPROVAL": DeletionType(ApprovalRequest, 90, collection="/arm2/approvals"),
+    "APPROVAL-ITEM": DeletionType(ApprovalDecision, 10, collection="/arm2/approvals"),
+})
+
 
 @dataclass(frozen=True)
-class DeletionType:
-    model: type
-    collection: str
+class DeletionArtifact(DeletionPolicy):
+    name: str = ""
+    owner_field: str = "document_id"
 
-
-OBJECTS = {
-    "TYPE": DeletionType(VehicleType, "/arm2/type"),
-    "VEH": DeletionType(Vehicle, "/arm2/veh"),
-    "CP": DeletionType(Counterparty, "/arm2/cp"),
-    "ORG": DeletionType(Organization, "/arm2/org"),
-    "CPREP": DeletionType(CounterpartyRepresentative, "/arm2/cp"),
-    "ORGREP": DeletionType(OrganizationRepresentative, "/arm2/org"),
-    "DOC-KIND": DeletionType(DocumentKind, "/arm2/document-kinds"),
-    "DOCUMENT": DeletionType(Document, "/arm2"),
-    "APPROVAL": DeletionType(ApprovalRequest, "/arm2/approvals"),
-    "APPROVAL-ITEM": DeletionType(ApprovalDecision, "/arm2/approvals"),
-}
-OBJECT_REGISTRY.register_deletion(OBJECTS)
+    def validate(self, *, logical_object: bool = False) -> None:
+        super().validate(logical_object=logical_object)
+        if not self.name or self.owner_field not in self.model.__table__.c:
+            raise ObjectRegistryError("Не определён владелец технической записи удаления")
 
 
 # These records are removed only with their owner. Staging/reservations have a
 # separate liveness check before they can be retired.
-ARTIFACTS = {
-    cls: "document_id" for cls in (
-        DocumentRevision, DocumentRevisionContext, RevisionFile, DocumentFileCorrection, FileAcceptance, FileStage
-    )
-}
-ARTIFACTS[DocumentFile] = "document_id"
-
-ARTIFACT_NAMES = {
-    DocumentFile: "Оригинал",
-    DocumentRevision: "Редакция",
-    DocumentRevisionContext: "Историческая привязка редакции",
-    RevisionFile: "Файл редакции",
-    DocumentFileCorrection: "Исправление загрузки",
-    FileAcceptance: "Приёмка комплекта",
-    FileStage: "Временная загрузка",
-}
+ARTIFACTS = {policy.model: policy for policy in (
+    DeletionArtifact(DocumentFileCorrection, 20, name="Исправление загрузки"),
+    DeletionArtifact(RevisionFile, 30, name="Файл редакции"),
+    DeletionArtifact(DocumentRevisionContext, 40, name="Историческая привязка редакции"),
+    DeletionArtifact(FileAcceptance, 50, name="Приёмка комплекта"),
+    DeletionArtifact(FileStage, 60, name="Временная загрузка"),
+    DeletionArtifact(DocumentRevision, 70, name="Редакция"),
+    DeletionArtifact(DocumentFile, 80, name="Оригинал"),
+)}
+# Preflight adds retired response stages only for a selected approval request.
+RESPONSE_STAGE = DeletionPolicy(ApprovalAttempt, 170)
 
 HISTORICAL_FK = {
     BulkReceipt: ("Квитанция импорта техники", "command_id", "vehicle_id"),
@@ -84,31 +85,60 @@ LOGICAL = {
     ApprovalRequest: (("vehicles_snapshot", "response_file_ids"), ApprovalRequest.id, ()),
 }
 
-SOURCE_TYPES = {entry.model.__tablename__: kind for kind, entry in OBJECTS.items()}
-MODELS = {cls.__tablename__: cls for cls in (
-    *(item.model for item in OBJECTS.values()), *ARTIFACTS, *HISTORICAL_FK, *LOGICAL, QuestionnaireUpload
-)}
+def deletion_policies() -> dict[type, DeletionPolicy]:
+    policies = {}
+    tables = {}
+    for policy in (*OBJECT_REGISTRY.deletion_definitions().values(), *ARTIFACTS.values(), RESPONSE_STAGE):
+        policy.validate()
+        table = policy.model.__table__
+        if table.key in tables:
+            raise ObjectRegistryError(f"Конфликт политик удаления для {table.name}")
+        tables[table.key] = policy
+        policies[policy.model] = policy
+
+    # Immediate foreign keys must follow the registered order unless a
+    # nullable internal pointer is cleared. The approval/file cycle uses
+    # existing deferred constraints and does not need a preparatory update.
+    for policy in policies.values():
+        for fk in policy.model.__table__.foreign_key_constraints:
+            target = fk.elements[0].target_fullname.rsplit(".", 1)[0]
+            if target not in tables:
+                continue
+            if fk.deferrable and fk.initially == "DEFERRED" and fk.ondelete != "RESTRICT":
+                continue
+            if any(column.key in policy.clear_fields for column in fk.columns):
+                continue
+            if policy.order >= tables[target].order:
+                raise ObjectRegistryError(f"Некорректный порядок удаления для связи {fk.name or target}")
+    return policies
 
 
-def lock_writes(db: Session):
+def registered_models(policies: dict[type, DeletionPolicy]):
+    return {model.__tablename__: model for model in (*policies, *HISTORICAL_FK, *LOGICAL, QuestionnaireUpload)}
+
+
+def lock_writes(db: Session, models):
     db.execute(text("SET LOCAL lock_timeout = '4s'"))
     # Row locks alone allow new JSON references. Lock only the registered ARM2 relationships
     # while reading the preflight/committing the removal, with no provider calls inside.
-    db.execute(text("LOCK TABLE " + ", ".join(sorted(MODELS)) + " IN SHARE ROW EXCLUSIVE MODE"))
+    db.execute(text("LOCK TABLE " + ", ".join(sorted(models)) + " IN SHARE ROW EXCLUSIVE MODE"))
 
 
 def object_key(row):
-    return SOURCE_TYPES[row.__tablename__], row.id
+    kind = OBJECT_REGISTRY.deletion_type_for(type(row))
+    if kind is None:
+        raise ObjectRegistryError("Не определён тип записи для удаления")
+    return kind, row.id
 
 
 def owner_key(row):
     if isinstance(row, DocumentFile) and row.process_id:
         return "APPROVAL", row.process_id
-    return "DOCUMENT", getattr(row, ARTIFACTS[type(row)])
+    return "DOCUMENT", getattr(row, ARTIFACTS[type(row)].owner_field)
 
 
 def card_path(kind, row):
-    base = OBJECTS[kind].collection
+    base = OBJECT_REGISTRY.deletion_definition(kind).collection
     if kind == "DOCUMENT":
         return f"{base}/{row.parent_type.lower()}/{row.parent_id}/documents/{row.id}"
     if kind in {"CPREP", "ORGREP"}:
@@ -131,14 +161,14 @@ def artifact_id(row):
 def artifact_rows(db, selected):
     document_ids = [row.id for row in selected if isinstance(row, Document)]
     request_ids = [row.id for row in selected if isinstance(row, ApprovalRequest)]
-    for model, field in ARTIFACTS.items():
-        matches = getattr(model, field).in_(document_ids)
+    for model, policy in ARTIFACTS.items():
+        matches = getattr(model, policy.owner_field).in_(document_ids)
         if model is DocumentFile:
             matches |= model.process_id.in_(request_ids)
         yield from db.scalars(select(model).where(matches))
 
 
-def incoming_foreign_keys(db, targets):
+def incoming_foreign_keys(db, targets, models):
     """Discover every physical incoming reference, including compound keys."""
     tables = {}
     for row in targets:
@@ -161,7 +191,7 @@ def incoming_foreign_keys(db, targets):
             referenced = fk["referred_table"]
             if referenced not in tables or fk["referred_schema"] not in ("public", None):
                 continue
-            model = MODELS.get(table)
+            model = models.get(table)
             if model is None:
                 raise ObjectVersionConflictError(f"Нет зарегистрированной политики для связи {schema}.{table}")
             source = model.__table__
