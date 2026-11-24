@@ -11,7 +11,8 @@ class HistoryValidationError(ValueError):
     pass
 
 
-_OPERATIONS = {"CREATED", "UPDATED"}
+_DELETION_OPERATIONS = {"MARKED", "UNMARKED", "DELETED"}
+_OPERATIONS = {"CREATED", "UPDATED"} | _DELETION_OPERATIONS
 
 
 def _required_text(value: str, field: str) -> str:
@@ -44,6 +45,15 @@ def _validate_changes(
 ) -> dict:
     if type(changes) is not dict or not changes:
         raise HistoryValidationError("changes must be a non-empty plain object")
+    if operation in _DELETION_OPERATIONS:
+        expected = {
+            "MARKED": {"deletion_mark": {"before": False, "after": True}},
+            "UNMARKED": {"deletion_mark": {"before": True, "after": False}},
+            "DELETED": {"version": {"before": version_before, "after": None}},
+        }
+        if changes != expected[operation]:
+            raise HistoryValidationError("Invalid deletion history change")
+        return changes
     definition = OBJECT_REGISTRY.require(object_type)
     allowed = set(definition.history_fields)
     unknown = set(changes) - allowed
@@ -123,6 +133,10 @@ def append_history_event(
         version_before is None or version_after is None or version_after <= version_before
     ):
         raise HistoryValidationError("UPDATED requires increasing versions")
+    if operation in {"MARKED", "UNMARKED"} and (version_before is None or version_before != version_after):
+        raise HistoryValidationError("Deletion marking requires the current version")
+    if operation == "DELETED" and (version_before is None or version_after is not None):
+        raise HistoryValidationError("DELETED requires a prior version and no current version")
     cleaned_changes = _validate_changes(
         object_type,
         operation,

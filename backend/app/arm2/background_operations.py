@@ -1,9 +1,10 @@
 """ARM2 worker. PostgreSQL owns the queue and a lost worker releases its lease."""
 import logging
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from threading import Event, Thread
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import func, or_, select, text, update
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -25,7 +26,8 @@ def work_once(database, handlers):
         try:
             with Session(database, expire_on_commit=False) as db:
                 job = db.scalar(select(BackgroundOperation)
-                    .where(BackgroundOperation.state.in_(ACTIVE), BackgroundOperation.kind.in_(handlers))
+                    .where(BackgroundOperation.state.in_(ACTIVE), BackgroundOperation.kind.in_(handlers),
+                           or_(BackgroundOperation.not_before.is_(None), BackgroundOperation.not_before <= func.now()))
                     .order_by(BackgroundOperation.created_at, BackgroundOperation.id).limit(1).with_for_update())
                 if job is None:
                     return False
@@ -41,9 +43,12 @@ def work_once(database, handlers):
                     db.commit()
 
             failure = handlers[job.kind](database, job, report)
+            delay = failure.pop("retry_after", None) if failure else None
             with Session(database) as db:
                 db.execute(update(BackgroundOperation).where(BackgroundOperation.id == job.id).values(
-                    state="FAILED" if failure else "SUCCEEDED", failure=failure, updated_at=func.now()))
+                    state="QUEUED" if delay else "FAILED" if failure else "SUCCEEDED",
+                    failure=failure, updated_at=func.now(),
+                    not_before=datetime.now(UTC) + timedelta(seconds=delay) if delay else None))
                 db.commit()
             return True
         finally:

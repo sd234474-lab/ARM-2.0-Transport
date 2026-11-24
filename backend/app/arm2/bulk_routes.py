@@ -4,7 +4,7 @@ import base64
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -23,6 +23,7 @@ from app.arm2.bulk_tables import (
     suggest,
     xlsx,
 )
+from app.arm2.file_read_guard import protected_read
 from app.arm2.history_models import HistoryEvent
 from app.arm2.http_limits import bounded_route
 from app.arm2.object_save import (
@@ -153,7 +154,7 @@ def export(db: Db, user: CurrentUser, filters: Annotated[ExportQuery, Query()]):
                     headers={"Content-Disposition": 'attachment; filename="vehicles.xlsx"'})
 
 
-@router.post("/sessions", status_code=201)
+@router.post("/sessions", status_code=201, dependencies=[Depends(protected_read, scope="request")])
 async def upload(request: Request, db: Db, user: CurrentUser,
                  filename: Annotated[str, Query(max_length=200)] = "paste.tsv",
                  sheet: Annotated[str | None, Query(max_length=100)] = None):
@@ -183,12 +184,12 @@ def sessions(db: Db, user: CurrentUser):
             for s in db.scalars(select(BulkSession).where(BulkSession.user_id == user.id).order_by(BulkSession.created_at.desc()))]
 
 
-@router.get("/sessions/{session_id}")
+@router.get("/sessions/{session_id}", dependencies=[Depends(protected_read, scope="request")])
 def reopen(session_id: UUID, db: Db, user: CurrentUser):
     return checked(db, user, workspace(db, user, session_id))
 
 
-@router.put("/sessions/{session_id}")
+@router.put("/sessions/{session_id}", dependencies=[Depends(protected_read, scope="request")])
 def edit(session_id: UUID, body: Draft, db: Db, user: CurrentUser):
     record = workspace(db, user, session_id)
     if record.revision != body.revision:
@@ -200,7 +201,7 @@ def edit(session_id: UUID, body: Draft, db: Db, user: CurrentUser):
     return checked(db, user, record)
 
 
-@router.post("/sessions/{session_id}/apply")
+@router.post("/sessions/{session_id}/apply", dependencies=[Depends(protected_read, scope="request")])
 def apply(session_id: UUID, body: Apply, db: Db, user: CurrentUser):
     record = workspace(db, user, session_id)
     user = permissions(db, user, edit=True)  # Repeat after any workspace row-lock wait.
@@ -286,7 +287,7 @@ def apply(session_id: UUID, body: Apply, db: Db, user: CurrentUser):
     return next(r for r in receipts(db, user, record.id) if r["command_id"] == command_id)
 
 
-@router.post("/sessions/{session_id}/finish")
+@router.post("/sessions/{session_id}/finish", dependencies=[Depends(protected_read, scope="request")])
 def finish(session_id: UUID, body: Finish, db: Db, user: CurrentUser):
     record = workspace(db, user, session_id)
     if record.revision != body.revision:
@@ -319,7 +320,7 @@ def rejection_report(db, user, record, plans=None):
     return xlsx(["Строка", *record.payload["headers"], "Результат / причина"], rows)
 
 
-@router.get("/sessions/{session_id}/report")
+@router.get("/sessions/{session_id}/report", dependencies=[Depends(protected_read, scope="request")])
 def download_report(session_id: UUID, db: Db, user: CurrentUser):
     record = workspace(db, user, session_id)
     plans, outcomes = preview(db, user, record.payload), receipts(db, user, record.id)

@@ -43,7 +43,7 @@ class HistoryEvent(Base):
             "(object_type = 'APPROVAL-ITEM' AND object_id ~ '^APPROVAL-ITEM-[0-9]{6,}$')",
             name="ck_arm2_history_object_id",
         ),
-        CheckConstraint("operation IN ('CREATED', 'UPDATED')", name="ck_arm2_history_operation"),
+        CheckConstraint("operation IN ('CREATED', 'UPDATED', 'MARKED', 'UNMARKED', 'DELETED')", name="ck_arm2_history_operation"),
         CheckConstraint("btrim(actor_kind) <> ''", name="ck_arm2_history_actor_kind"),
         CheckConstraint("btrim(actor_id) <> ''", name="ck_arm2_history_actor_id"),
         CheckConstraint("btrim(source) <> ''", name="ck_arm2_history_source"),
@@ -62,7 +62,10 @@ class HistoryEvent(Base):
         CheckConstraint(
             "(operation = 'CREATED' AND version_before IS NULL AND version_after = 1) OR "
             "(operation = 'UPDATED' AND version_before IS NOT NULL "
-            "AND version_after IS NOT NULL AND version_after > version_before)",
+            "AND version_after IS NOT NULL AND version_after > version_before) OR "
+            "(operation IN ('MARKED', 'UNMARKED') AND version_before IS NOT NULL "
+            "AND version_after IS NOT NULL AND version_after = version_before) OR "
+            "(operation = 'DELETED' AND version_before IS NOT NULL AND version_after IS NULL)",
             name="ck_arm2_history_versions",
         ),
         CheckConstraint(

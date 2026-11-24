@@ -6,10 +6,14 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.arm2.approval_routes import router as approval_router
+from app.arm2.background_operations import operation_lifespan
 from app.arm2.bulk_routes import router as bulk_router
 from app.arm2.counterparty_models import Counterparty
 from app.arm2.counterparty_rules import counterparty_response
 from app.arm2.counterparty_store import create_counterparty, update_counterparty
+from app.arm2.deletion_cleanup import clean_job
+from app.arm2.deletion_routes import router as deletion_router
+from app.arm2.deletion_service import CLEANUP, deletion_history_allowed
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_kind_store import create_document_kind, update_document_kind
 from app.arm2.document_models import Document
@@ -26,7 +30,9 @@ from app.arm2.object_save import (
 )
 from app.arm2.organization_models import Organization
 from app.arm2.organization_store import create_organization, update_organization
+from app.arm2.questionnaire_jobs import apply_job
 from app.arm2.questionnaire_routes import router as questionnaire_router
+from app.arm2.questionnaire_store import APPLY_OPERATION
 from app.arm2.read_routes import router as read_router
 from app.arm2.representative_models import (
     CounterpartyRepresentative,
@@ -69,7 +75,9 @@ from app.auth import CurrentUser, Db, check_permission, require_permission
 from app.models import User
 from app.permissions import Permission
 
-router = APIRouter(prefix="/api/arm2", tags=["arm2"])
+router = APIRouter(prefix="/api/arm2", tags=["arm2"],
+                   lifespan=operation_lifespan({APPLY_OPERATION: apply_job, CLEANUP: clean_job}))
+router.include_router(deletion_router)
 router.include_router(read_router)  # Static /search paths precede legacy /{id} routes.
 router.include_router(questionnaire_router)
 router.include_router(bulk_router)
@@ -262,6 +270,11 @@ def _validate_history_access(
         OBJECT_REGISTRY.require(object_type).validate_id(object_id)
     except ObjectRegistryError as error:
         raise HTTPException(422, "Invalid ARM2 history object id") from error
+    try:
+        if deletion_history_allowed(db, user, object_type, object_id):
+            return
+    except ObjectAuthorizationError as error:
+        raise HTTPException(403, str(error)) from None
     if object_type in {"APPROVAL", "APPROVAL-ITEM"}:
         from app.arm2.approval_models import ApprovalDecision
         from app.arm2.approval_store import access

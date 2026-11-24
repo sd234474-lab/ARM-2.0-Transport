@@ -124,6 +124,7 @@ class ObjectDefinition:
 class ObjectRegistry:
     def __init__(self) -> None:
         self._definitions: dict[str, ObjectDefinition] = {}
+        self._deletion: dict[str, Any] = {}
 
     def register(self, definition: ObjectDefinition) -> None:
         if definition.object_type in self._definitions:
@@ -169,6 +170,15 @@ class ObjectRegistry:
             return self._definitions[object_type]
         except KeyError as error:
             raise ObjectRegistryError(f"Unknown object_type: {object_type}") from error
+
+    def register_deletion(self, definitions: dict[str, Any]) -> None:
+        if set(definitions) != set(self._definitions) or self._deletion:
+            raise ObjectRegistryError("Incomplete or duplicate ARM2 deletion coverage")
+        self._deletion = definitions.copy()
+
+    def deletion_definition(self, object_type: str):
+        self.require(object_type)
+        return self._deletion[object_type]
 
     def validate_references(
         self,

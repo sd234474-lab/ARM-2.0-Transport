@@ -6,7 +6,7 @@ import secrets
 from datetime import timedelta
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ConfigDict, Field, StrictInt
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -32,6 +32,7 @@ from app.arm2.document_file_store import (
     owned_stage,
     staging_quota,
 )
+from app.arm2.file_read_guard import protected_read
 from app.arm2.http_errors import CONTROLLED_ERRORS, controlled_error, rollback
 from app.arm2.ids import next_id
 from app.arm2.object_save import ObjectAuthorizationError, ObjectNotFoundError, ObjectVersionConflictError
@@ -253,7 +254,7 @@ def protected_response(path, name, media, preview, *, temporary=False):
     )
 
 
-@router.get(base + "/stages/{stage_id}/{action}")
+@router.get(base + "/stages/{stage_id}/{action}", dependencies=[Depends(protected_read, scope="request")])
 def preview_stage(
     parent_type: Token,
     parent_id: str,
@@ -275,7 +276,7 @@ def preview_stage(
     return translated(db, operation)
 
 
-@router.post(base + "/accept")
+@router.post(base + "/accept", dependencies=[Depends(protected_read, scope="request")])
 def accept_files(
     parent_type: Token,
     parent_id: str,
@@ -304,7 +305,8 @@ def accept_files(
     )
 
 
-@router.get(base + "/revisions/{revision_id}/files/{file_id}/{action}")
+@router.get(base + "/revisions/{revision_id}/files/{file_id}/{action}",
+            dependencies=[Depends(protected_read, scope="request")])
 def read_file(
     parent_type: Token,
     parent_id: str,
@@ -337,7 +339,7 @@ def read_file(
     return translated(db, operation)
 
 
-@router.post(base + "/corrections")
+@router.post(base + "/corrections", dependencies=[Depends(protected_read, scope="request")])
 def correct_file(parent_type: Token, parent_id: str, document_id: str, body: CorrectInput,
                  request: Request, db: Db, user: CurrentUser):
     return translated(db, lambda: accept(db, user, request.state.login_session.token_hash,

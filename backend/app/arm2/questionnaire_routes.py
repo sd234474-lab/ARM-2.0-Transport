@@ -4,7 +4,7 @@ import base64
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -15,7 +15,7 @@ from starlette.responses import FileResponse
 from app.arm2 import document_file_storage as files
 from app.arm2 import questionnaire_jobs as jobs
 from app.arm2 import questionnaire_store as store
-from app.arm2.background_operations import operation_lifespan
+from app.arm2.file_read_guard import protected_read
 from app.arm2.http_errors import CONTROLLED_ERRORS, controlled_error, rollback
 from app.arm2.http_limits import bounded_route
 from app.arm2.questionnaire_diff import authorized
@@ -25,8 +25,7 @@ from app.auth import CurrentUser, Db
 
 BoundedRoute = bounded_route(MAX_COMPRESSED, "Транспорт больше 32 МиБ")
 
-router = APIRouter(prefix='/questionnaires', route_class=BoundedRoute,
-                   lifespan=operation_lifespan({store.APPLY_OPERATION: jobs.apply_job}))
+router = APIRouter(prefix='/questionnaires', route_class=BoundedRoute)
 
 
 class Command(BaseModel):
@@ -113,7 +112,7 @@ def translated(db, operation, *, questionnaire_apply=False):
         raise HTTPException(409, 'SQL не подтвердил набор. Ни одно выбранное изменение не принято') from None
 
 
-@router.post('/exports/{cp_id}')
+@router.post('/exports/{cp_id}', dependencies=[Depends(protected_read, scope='request')])
 def export(cp_id: str, body: Export, db: Db, user: CurrentUser):
     def operation():
         result = store.export(db, user, cp_id, with_files=body.format == 'zip', incomplete_reason=body.incomplete_reason)
@@ -158,14 +157,14 @@ def operations(db: Db, user: CurrentUser):
     return translated(db, lambda: jobs.journal(db, user))
 
 
-@router.post('', status_code=201)
+@router.post('', status_code=201, dependencies=[Depends(protected_read, scope="request")])
 async def upload(request: Request, db: Db, user: CurrentUser,
                  filename: Annotated[str, Query(max_length=255)] = 'questionnaire.xlsx'):
     content = await request.body()
     return await run_in_threadpool(translated, db, lambda: store.upload(db, user, content, filename))
 
 
-@router.get('/{identifier}')
+@router.get('/{identifier}', dependencies=[Depends(protected_read, scope="request")])
 def reopen(identifier: UUID, db: Db, user: CurrentUser):
     def operation():
         key = str(identifier)
@@ -176,12 +175,12 @@ def reopen(identifier: UUID, db: Db, user: CurrentUser):
     return translated(db, operation)
 
 
-@router.put('/{identifier}')
+@router.put('/{identifier}', dependencies=[Depends(protected_read, scope="request")])
 def edit(identifier: UUID, body: Edit, db: Db, user: CurrentUser):
     return translated(db, lambda: store.edit(db, user, str(identifier), body.revision, body.choices.model_dump()))
 
 
-@router.post('/{identifier}/apply')
+@router.post('/{identifier}/apply', dependencies=[Depends(protected_read, scope="request")])
 def apply(identifier: UUID, body: Apply, request: Request, db: Db, user: CurrentUser):
     session = getattr(request.state, 'login_session', None)
     return translated(db, lambda: store.apply(db, user, str(identifier), str(body.command_id), body.revision,
@@ -194,7 +193,7 @@ def operation_state(identifier: UUID, db: Db, user: CurrentUser):
     return translated(db, lambda: jobs.state_for(db, user, str(identifier)))
 
 
-@router.post('/{identifier}/operation', status_code=202)
+@router.post('/{identifier}/operation', status_code=202, dependencies=[Depends(protected_read, scope="request")])
 def start_operation(identifier: UUID, body: Apply, request: Request, db: Db, user: CurrentUser):
     session = getattr(request.state, 'login_session', None)
     return translated(db, lambda: jobs.enqueue(db, user, str(identifier), str(body.command_id), body.revision,
