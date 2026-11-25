@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { ApiError } from '../api';
 import { detail, pageSize } from './api';
-import type { EventDetail, EventSummary, ObjectType, RecordData, Scalar } from './api';
+import type { CurrentObject, EventDetail, EventSummary, ObjectType, RecordData, Scalar } from './api';
 import { errorText, labels } from './model';
 
 export function CatalogHeader({title, children}: {title: string; children?: ReactNode}) {
@@ -57,6 +58,18 @@ export function History({type, id}: {type: ObjectType; id: string}) {
 export function HistoryDetail({id}: {id: number}) {
   const event = useLoad(signal => detail<EventDetail>(`/arm2/history/events/${id}`, signal), [id]);
   return <section aria-label="Изменения события"><h4>Было → стало</h4><ErrorMessage error={event.error} retry={event.reload}/>{event.data && <div className="arm2-table"><table><thead><tr><th>Поле</th><th>Было</th><th>Стало</th></tr></thead><tbody>{Object.entries(event.data.changes).map(([field, change]) => <tr key={field}><th>{labels[field] || field}</th><td>{display(change.before)}</td><td>{display(change.after)}</td></tr>)}</tbody></table></div>}</section>;
+}
+export function ReferenceLabel({label, current, path}: {label: string; current?: CurrentObject; path?: string | null}) {
+  const [showHistory, setShowHistory] = useState(false);
+  if (current?.state === 'RESTRICTED') return <>Нет доступа к объекту</>;
+  if (current?.state === 'UNKNOWN') return <>{label} · Состояние объекта не подтверждено</>;
+  if (current?.state === 'DELETED') return <>{label} · Объект удалён
+    {current.event_id && <> <button type="button" onClick={() => setShowHistory(open => !open)}
+      aria-expanded={showHistory}>История удаления</button>
+      {showHistory && <HistoryDetail id={current.event_id}/>}</>}
+  </>;
+  const destination = current?.path ?? path;
+  return destination ? <Link to={destination}>{label}</Link> : <>{label}</>;
 }
 export function SaveForm({resource, original, allowed, submit, reload, children, showSubmit = true}: {resource: string; original: RecordData; allowed: boolean; submit: () => Promise<void>; reload: () => void; children: (editable: boolean) => ReactNode; showSubmit?: boolean}) {
   const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(), [denied, setDenied] = useState(false), [saved, setSaved] = useState(false), [comparison, setComparison] = useState<RecordData>();

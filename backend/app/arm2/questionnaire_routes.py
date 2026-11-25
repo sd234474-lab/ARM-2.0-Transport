@@ -136,8 +136,25 @@ def listing(db: Db, user: CurrentUser):
 def receipts(db: Db, user: CurrentUser):
     def operation():
         authorized(db, user, 'arm2_cp_view')
-        return [r.result for r in db.scalars(select(QuestionnaireReceipt).where(
+        return [store.present_receipt(db, user, r) for r in db.scalars(select(QuestionnaireReceipt).where(
             QuestionnaireReceipt.author_id == user.id).order_by(QuestionnaireReceipt.accepted_at.desc()).limit(100))]
+    return translated(db, operation)
+
+
+@router.get('/exports/history/{identifier}')
+def export_history(identifier: UUID, db: Db, user: CurrentUser):
+    from app.arm2.deletion_service import resolve_reference
+    from app.arm2.object_save import ObjectNotFoundError
+    from app.arm2.questionnaire_models import QuestionnaireExport
+
+    def operation():
+        authorized(db, user, 'arm2_cp_view')
+        export = db.get(QuestionnaireExport, str(identifier))
+        if export is None or export.author_id != user.id:
+            raise ObjectNotFoundError('Протокол выгрузки не найден')
+        cp = resolve_reference(db, user, "CP", export.cp_id)
+        return {'id': export.id, 'cp_id': export.cp_id if cp['state'] != 'RESTRICTED' else None,
+                'current_object': cp, 'at': export.at.isoformat(), 'incomplete_reason': export.incomplete_reason}
     return translated(db, operation)
 
 

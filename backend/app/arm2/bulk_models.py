@@ -1,7 +1,7 @@
 """Temporary operator workspace and minimal durable per-command receipts."""
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,11 +27,12 @@ class BulkReceipt(Base):
     source: Mapped[str] = mapped_column(String(200))
     fingerprint: Mapped[str] = mapped_column(String(64))
     row_key: Mapped[str] = mapped_column(String(100))
-    vehicle_id: Mapped[str] = mapped_column(ForeignKey("arm2_vehicles.id", ondelete="RESTRICT"))
+    vehicle_id: Mapped[str] = mapped_column(String)
     event_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("arm2_history_events.event_id", ondelete="RESTRICT"))
     version_after: Mapped[int] = mapped_column(Integer)
     fields: Mapped[list] = mapped_column(JSONB)
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (CheckConstraint("vehicle_id ~ '^VEH-[0-9]{6,}$'", name="ck_arm2_bulk_receipt_vehicle"),)
 
 
 class BulkCleanup(Base):

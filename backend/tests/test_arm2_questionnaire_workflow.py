@@ -153,6 +153,13 @@ def background_draft(client, parent):
     return choose(client, draft, cp_target=parent, cp_fields=['phone'], documents=file_choices(draft, kind))
 
 
+def mark_counterparty_for_deletion(client, identifier):
+    path = f'/api/arm2/deletion/marks/CP/{identifier}'
+    version = check(client.get(path))['version']
+    check(client.put(path, json={'expected_version': version, 'expected_mark': None, 'marked': True}))
+    return {'objects': [{'object_type': 'CP', 'object_id': identifier}]}
+
+
 def test_background_acceptance_shows_real_progress_and_coalesces_requests(b5, monkeypatch):
     client, db, _, parents, _, disk = b5
     entered, release = Event(), Event()
@@ -165,6 +172,7 @@ def test_background_acceptance_shows_real_progress_and_coalesces_requests(b5, mo
 
     monkeypatch.setattr(disk, 'upload', hold_upload)
     draft = background_draft(client, parents['cp'])
+    selection = mark_counterparty_for_deletion(client, parents['cp'])
     before = snapshot(db)
     path = operation_endpoint(draft)
     body = operation_command(draft)
@@ -178,6 +186,7 @@ def test_background_acceptance_shows_real_progress_and_coalesces_requests(b5, mo
         assert check(client.get('/api/arm2/questionnaires/operations'))[0]['id'] == queued['id']
         assert reopen(client, draft)['revision'] == draft['revision']
         assert client.delete(path.removesuffix('/operation')).status_code == 409
+        assert client.post('/api/arm2/deletion/preview', json=selection).status_code == 409
         assert snapshot(db) == before
     finally:
         release.set()
@@ -186,6 +195,8 @@ def test_background_acceptance_shows_real_progress_and_coalesces_requests(b5, mo
     assert count(db, QuestionnaireReceipt) == 1 and len(disk.uploads) == 1
     assert check(client.post(path, json=body), 202)['receipt'] == saved['receipt']
     assert reopen(client, draft)['status'] == 'ACCEPTED'
+    checked = check(client.post('/api/arm2/deletion/preview', json=selection))
+    assert not any(item['purpose'] == 'OPEN_OPERATION' for item in checked['dependencies'])
     assert 'payload' not in saved and 'session_hash' not in saved
 
 
@@ -194,6 +205,7 @@ def test_background_failure_is_explicit_and_orphaned_running_job_recovers(b5, mo
 
     client, db, _, parents, _, disk = b5
     draft = background_draft(client, parents['cp'])
+    selection = mark_counterparty_for_deletion(client, parents['cp'])
     before = snapshot(db)
     disk.fail_at = 0
     path = operation_endpoint(draft)
@@ -202,6 +214,10 @@ def test_background_failure_is_explicit_and_orphaned_running_job_recovers(b5, mo
     assert failed['failure']['code'] == 'STORAGE' and failed['failure']['can_save_without_documents']
     assert not failed['receipt'] and snapshot(db) == before
     assert reopen(client, draft)['choices'] == draft['choices']
+    checked = check(client.post('/api/arm2/deletion/preview', json=selection))
+    assert not checked['can_execute']
+    assert any(item['purpose'] == 'OPEN_OPERATION' and draft['id'] in (item.get('path') or '')
+               for item in checked['dependencies'])
 
     # Persist the state left by a dead process before the next worker starts.
     disk.fail_at = None
@@ -1315,10 +1331,9 @@ def test_verified_word_is_downloadable_and_named_zip_roundtrips_without_duplicat
     assert apply(c, draft)[0]['no_op'] and snapshot(db) == before
 
 
-@pytest.mark.parametrize('source_id', ['', 'VEH-999999'])
-def test_catalogue_mode_does_not_prevent_new_vehicle_or_matching_by_plate(b5, source_id):
+def test_catalogue_mode_without_explicit_id_does_not_prevent_new_vehicle_or_matching_by_plate(b5):
     c, db, _, parents, *_ = b5
-    rows = [{'C': 'ИЗ СПРАВОЧНИКА', 'B': source_id, 'E': 'A789BC86', 'F': 'Catalogue truck', 'G': 'Model',
+    rows = [{'C': 'ИЗ СПРАВОЧНИКА', 'E': 'A789BC86', 'F': 'Catalogue truck', 'G': 'Model',
              'I': 'B999BC86', 'J': 'Wrong columns'}]
     d = choose(c, upload(c, workbook(rows=rows)), cp_target=parents['cp'])
     row = d['comparison']['vehicles'][0]
@@ -1335,6 +1350,21 @@ def test_catalogue_mode_does_not_prevent_new_vehicle_or_matching_by_plate(b5, so
     assert not second['choices'].get('vehicles', {}).get('v:5', {}).get('include')
     result, _ = apply(c, second)
     assert result['no_op'] and snapshot(db) == before
+
+
+def test_questionnaire_missing_explicit_vehicle_id_does_not_fall_back_to_plate(b5):
+    c, db, _, parents, *_ = b5
+    actual = db.get(Vehicle, parents['veh'])
+    draft = choose(c, upload(c, workbook(rows=[
+        {'C': 'ИЗ СПРАВОЧНИКА', 'B': 'VEH-999999', 'E': actual.plate_number, 'F': 'Proposed'},
+    ])), cp_target=parents['cp'])
+    row = draft['comparison']['vehicles'][0]
+    assert row['id'] is None
+    assert any('VEH-ID не найден' in item for item in row['errors'])
+    before = snapshot(db)
+    invalid = choose(c, draft, cp_target=parents['cp'], vehicles={row['key']: {'include': True}})
+    apply(c, invalid, status=422)
+    assert snapshot(db) == before
 
 
 def test_extensionless_references_bind_once_per_row_and_reset_obsolete_file_approval(b5):

@@ -106,6 +106,22 @@ async function change(label:string,value:string) {await act(async()=>{const node
 const writes=()=>vi.mocked(api).mock.calls.filter(([,method])=>method==='POST'||method==='PUT');
 async function create(description?:string) {await mount(base+'/new');await change('Тип документа','DOC-KIND-000001');await change('Название карточки','  Первый  ');if(description!==undefined)await change('Описание',description);await click('Сохранить');}
 
+it('shows deleted prior parents with common history controls while retaining revision entries', async()=>{
+  await create();
+  const revision = {id:'DOCUMENT-REV-000001',number:1,document_id:'DOCUMENT-000001',parent_type:'CP' as const,
+    parent_id:'CP-000009',author_id:7,occurred_at:'2026-11-16T10:00:00Z',source:'arm2-api-manual',files:[],
+    parent_current_object:{state:'DELETED' as const,event_id:1}};
+  filePage.current_revision_id='DOCUMENT-REV-000002';
+  filePage.revisions=[{...revision,id:filePage.current_revision_id,number:2,parent_id:'CP-000001',
+    parent_current_object:{state:'LIVE'}},revision];
+  await mount(base+'/DOCUMENT-000001');
+  await click('Предыдущие редакции');
+  expect(host.textContent).toContain('CP-000009 · Объект удалён');
+  expect(host.querySelector('a[href="/arm2/cp/CP-000009"]')).toBeNull();
+  await click('История удаления');
+  expect(api).toHaveBeenCalledWith('/arm2/history/events/1','GET',undefined,expect.any(AbortSignal));
+});
+
 it('persists a zero-file row, preserves description text, reopens, edits, no-ops and reads history',async()=>{
   await create('  Строка\nвторая  ');
   expect(writes()[0][2]).toEqual({name:'Первый',description:'  Строка\nвторая  ',kind_ref:'DOC-KIND-000001'});

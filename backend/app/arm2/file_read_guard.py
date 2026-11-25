@@ -28,6 +28,22 @@ def protected_background_work(database):
         yield
 
 
+def try_exclusive_file_access(db):
+    return db.scalar(text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": READ_KEY})
+
+
 def ensure_no_download(db):
-    if not db.scalar(text("SELECT pg_try_advisory_xact_lock(:key)"), {"key": READ_KEY}):
+    if not try_exclusive_file_access(db):
         raise ObjectVersionConflictError("Идёт выдача файлов или обработка связанных данных. Повторите после завершения операции")
+
+
+@contextmanager
+def protected_cleanup(database):
+    """Exclude publication and protected file reads during a cleanup attempt."""
+    with database.connect().execution_options(isolation_level="AUTOCOMMIT") as lease:
+        if not lease.scalar(text("SELECT pg_try_advisory_lock(:key)"), {"key": READ_KEY}):
+            raise ObjectVersionConflictError("Файлы используются другой операцией")
+        try:
+            yield
+        finally:
+            lease.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": READ_KEY})

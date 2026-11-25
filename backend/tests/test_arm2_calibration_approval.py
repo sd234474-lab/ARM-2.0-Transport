@@ -380,12 +380,14 @@ def test_0071_to_0072_preserves_originals_versions_history_and_links(qa, monkeyp
     from app.config import settings
 
     c, db, user, parents, kind, fake = qa
+    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    db.rollback()
+    command.downgrade(config, "0075")
     path = f"/api/arm2/veh/{parents['veh']}/documents"
     document = ok(c.post(path, json={"kind_ref": kind, "name": "До миграции"}), 201)
     path += "/" + document["id"]
     ok(accept(c, path, 1, [stage(c, path, pdf("old-original"))]))
     db.commit()
-    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     engine = db.get_bind()
 
     def snapshot():
@@ -431,7 +433,7 @@ def test_downgrade_refuses_to_discard_confirmation_or_approval_evidence(qa):
     with pytest.raises(RuntimeError, match="downgrade refused"):
         command.downgrade(Config(str(Path(__file__).resolve().parents[1] / "alembic.ini")), "0071")
     db.rollback()
-    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0075"
+    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0076"
 
 
 def test_lost_commit_reply_uses_durable_receipt_not_duplicate_publication(qa, monkeypatch):

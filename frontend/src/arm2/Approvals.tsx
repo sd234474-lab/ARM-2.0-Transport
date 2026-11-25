@@ -2,10 +2,10 @@ import {useEffect, useRef, useState} from 'react';
 import {Link, useNavigate, useParams} from 'react-router-dom';
 import {api, ApiError} from '../api';
 import {apiUrl} from '../workspace';
-import type {DocumentFile} from './api';
+import type {CurrentObject, DocumentFile} from './api';
 import type {CalibrationState} from './Calibration';
 import {openFilePreview} from './filePreviewWindow';
-import {CatalogHeader, ErrorMessage, History, Pagination, useAlive, useLoad} from './shared';
+import {CatalogHeader, ErrorMessage, History, Pagination, ReferenceLabel, useAlive, useLoad} from './shared';
 import {useDraftCache, useDraftGuard} from './useDraftGuard';
 
 interface Decision {id: string; vehicle_id: string; plate_number: string; volume_m3: number; state: string; version: number; response_file_id: string | null; decided_at: string | null; decided_by: number | null}
@@ -26,6 +26,7 @@ export function NewApproval() {
   useEffect(() => {cache.delete("approval:letter");}, [cache]);
   const [draft, setDraft] = useState<LetterDraft>(() => cache.get("approval:letter") ?? {first: '', second: '', selection: [], key: crypto.randomUUID()});
   const [offset, setOffset] = useState(0), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>();
+  const [completed, setCompleted] = useState<{request_id: string; current_object: CurrentObject}>();
   const inFlight = useRef(false), alive = useAlive(), navigate = useNavigate();
   const dirty = !!draft.first || !!draft.second || !!draft.selection.length || busy;
   const guard = useDraftGuard(dirty, () => {cache.set("approval:letter", draft);}, () => {cache.delete("approval:letter");});
@@ -35,13 +36,20 @@ export function NewApproval() {
     if (inFlight.current || !draft.first.trim() || !draft.second.trim() || !draft.selection.length) return;
     inFlight.current = true; setBusy(true); setError(undefined);
     try {
-      const value = await api<{request_id: string}>(endpoint + '/letter', 'POST', {command_id: draft.key,
+      const value = await api<{request_id: string; current_object?: CurrentObject}>(endpoint + '/letter', 'POST', {command_id: draft.key,
         contract_number_1: draft.first, contract_number_2: draft.second,
         vehicles: draft.selection.map(row => ({vehicle_id: row.vehicle_id, vehicle_version: row.vehicle_version}))});
-      if (alive.current) {guard.current = false; cache.delete("approval:letter"); navigate('/arm2/approvals/' + value.request_id);}
+      if (alive.current) {
+        guard.current = false;
+        cache.delete("approval:letter");
+        if (value.current_object) setCompleted({request_id: value.request_id, current_object: value.current_object});
+        else navigate('/arm2/approvals/' + value.request_id);
+      }
     } catch (error) {if (alive.current) setError(error);}
     finally {inFlight.current = false; if (alive.current) setBusy(false);}
   };
+  if (completed) return <section><Link to="/arm2/approvals">← К заявкам</Link><h2>Результат выпуска письма</h2>
+    <ReferenceLabel label={completed.request_id} current={completed.current_object}/></section>;
   return <section><Link to="/arm2/approvals">← К заявкам</Link><h2>Одно письмо по двум контрактам</h2><ErrorMessage error={error}/><ErrorMessage error={result.error} retry={result.reload}/><fieldset disabled={busy}>
     <div className="arm2-grid"><label>Первый номер контракта *<input maxLength={160} value={draft.first} onChange={e => change({first: e.target.value})}/></label><label>Второй номер контракта *<input maxLength={160} value={draft.second} onChange={e => change({second: e.target.value})}/></label></div>
     <p>Оба номера войдут в шапку одного письма. Решение заказчика принимается один раз по каждой машине и её характеристикам.</p>

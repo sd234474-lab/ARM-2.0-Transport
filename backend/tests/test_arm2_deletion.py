@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import CheckConstraint, delete, event, select, text, update
+from sqlalchemy import CheckConstraint, ForeignKey, delete, event, select, text, update
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from test_arm2_calibration_approval import letter, prepare
@@ -19,6 +19,7 @@ from test_arm2_document_file_api import qa as qa
 from test_arm2_questionnaire_workflow import b5 as b5
 
 from app.arm2 import background_operations
+from app.arm2 import deletion_relations as relations
 from app.arm2.background_operations import work_once
 from app.arm2.bulk_models import BulkReceipt, BulkSession
 from app.arm2.deletion_cleanup import clean_job
@@ -212,13 +213,13 @@ def test_type_dependency_approval_evidence_and_customer_files(qa):
     vehicle = ok(c.get("/api/arm2/vehicles/" + vehicle_id))
     type_id = vehicle["type_id"]
     mark(c, "TYPE", type_id)
-    assert any(link["object_id"] == vehicle_id and link["blocking"] for link in
+    assert any(link.get("object_id") == vehicle_id and link["blocking"] for link in
                preview(c, ("TYPE", type_id))["dependencies"])
     mark(c, "VEH", vehicle_id)
     mark(c, "DOCUMENT", document_id)
     blocked = preview(c, ("VEH", vehicle_id), ("DOCUMENT", document_id))
     assert not blocked["can_execute"]
-    assert any(link["object_id"] == approval_id and link["field"] == "vehicles_snapshot"
+    assert any(link.get("object_id") == approval_id and link["field"] == "vehicles_snapshot.vehicle_id"
                and link["blocking"] for link in blocked["dependencies"])
     mark(c, "APPROVAL", approval_id)
     assert not preview(c, ("APPROVAL", approval_id))["can_execute"]
@@ -259,12 +260,13 @@ def test_logical_references_and_existing_receipts_remain_visible(qa):
     identifier = parents["veh"]
     mark(c, "VEH", identifier)
     draft = BulkSession(id=str(uuid4()), user_id=user.id, source="Synthetic",
-                        payload={"plans": [{"target": identifier}]})
+                        payload={"plans": [{"key": identifier, "vehicle_id": identifier, "fields": {}}]})
     db.add(draft)
     db.commit()
     check = preview(c, ("VEH", identifier))
     assert not check["can_execute"]
-    assert any(row["object_id"] == draft.id and row["field"] == "payload" for row in check["dependencies"])
+    assert any(row.get("object_id") == draft.id and row["field"] == "payload.plans.vehicle_id"
+               and row["purpose"] == "OPEN_OPERATION" for row in check["dependencies"])
     db.add(BulkReceipt(
         command_id=str(uuid4()), session_id=draft.id, user_id=user.id, source="Synthetic",
         fingerprint="f" * 64, row_key="row-1", vehicle_id=identifier, version_after=1, fields=[],
@@ -272,11 +274,12 @@ def test_logical_references_and_existing_receipts_remain_visible(qa):
     db.delete(draft)
     db.commit()
     check = preview(c, ("VEH", identifier))
-    assert not check["can_execute"]
-    assert any("Квитанция импорта" in row["reason"] and row["blocking"] for row in check["dependencies"])
+    assert check["can_execute"]
+    assert any("Квитанция импорта" in row["name"] and not row["blocking"] and row["purpose"] == "HISTORY"
+               for row in check["dependencies"])
 
 
-def test_questionnaire_export_keeps_its_counterparty_and_receipt(b5):
+def test_questionnaire_export_survives_counterparty_deletion(b5):
     c, db, _, parents, _, _ = b5
     cp_id = parents["cp"]
     exported = ok(c.post(f"/api/arm2/questionnaires/exports/{cp_id}", json={"format": "xlsx"}))
@@ -286,13 +289,15 @@ def test_questionnaire_export_keeps_its_counterparty_and_receipt(b5):
     db.rollback()
     mark(c, "CP", cp_id)
     checked = preview(c, ("CP", cp_id))
-    assert not checked["can_execute"]
-    assert any(item["object_id"] == export_id and item["field"] == "cp_id" and item["blocking"]
+    assert checked["can_execute"]
+    assert any(item.get("object_id") == export_id and item["field"] == "cp_id" and not item["blocking"]
                for item in checked["dependencies"])
-    assert execute(c, checked["id"]).status_code == 409
-    assert ok(c.get(f"/api/arm2/counterparties/{cp_id}"))["id"] == cp_id
+    assert ok(execute(c, checked["id"]))["state"] == "COMPLETED"
+    assert c.get(f"/api/arm2/counterparties/{cp_id}").status_code == 404
     assert db.get(QuestionnaireExport, export_id).cp_id == cp_id
-    assert db.scalar(select(HistoryEvent).where(HistoryEvent.operation == "DELETED")) is None
+    receipt = ok(c.get(f"/api/arm2/questionnaires/exports/history/{export_id}"))
+    assert receipt["current_object"]["state"] == "DELETED"
+    assert ok(c.get(f"/api/arm2/history/events/{receipt['current_object']['event_id']}"))["operation"] == "DELETED"
     assert not queue_snapshot(db)
 
 
@@ -391,11 +396,25 @@ class SyntheticDeletionObject(SyntheticBase):
     version: Mapped[int]
 
 
+class SyntheticOwnedDetail(SyntheticBase):
+    __tablename__ = "synthetic_owned_detail"
+    owner_id: Mapped[str] = mapped_column(ForeignKey("synthetic_deletion_object.id", ondelete="RESTRICT"), primary_key=True)
+    ordinal: Mapped[int] = mapped_column(primary_key=True)
+
+
+class SyntheticReceipt(SyntheticBase):
+    __tablename__ = "synthetic_receipt"
+    command_key: Mapped[str] = mapped_column(primary_key=True)
+    object_id: Mapped[str]
+
+
 def test_new_type_registration_requires_and_uses_removal_policy(qa, monkeypatch):
     c, db, _, _, _, _ = qa
     with engine().begin() as conn:
         SyntheticBase.metadata.create_all(conn)
         conn.execute(SyntheticDeletionObject.__table__.insert(), {"id": "SAMPLE-000001", "version": 1})
+        conn.execute(SyntheticOwnedDetail.__table__.insert(), {"owner_id": "SAMPLE-000001", "ordinal": 1})
+        conn.execute(SyntheticReceipt.__table__.insert(), {"command_key": "receipt-1", "object_id": "SAMPLE-000001"})
         # Extend only the isolated test schema so HIST accepts the synthetic type.
         for constraint in HistoryEvent.__table__.constraints:
             if isinstance(constraint, CheckConstraint) and constraint.name in {
@@ -417,9 +436,20 @@ def test_new_type_registration_requires_and_uses_removal_policy(qa, monkeypatch)
 
     definitions = {**known, "SAMPLE": DeletionType(SyntheticDeletionObject, 180, collection="/arm2/sample")}
     OBJECT_REGISTRY.register_deletion(definitions)
+    owned = relations.DeletionArtifact(SyntheticOwnedDetail, 179, name="Тестовая принадлежность",
+                                      owners=(("SAMPLE", "owner_id"),), key_fields=("owner_id", "ordinal"))
+    monkeypatch.setattr(relations, "ARTIFACTS", {**relations.ARTIFACTS, SyntheticOwnedDetail: owned})
+    monkeypatch.setattr(relations, "PHYSICAL", (*relations.PHYSICAL, relations.fk(
+        SyntheticOwnedDetail, "owner_id", SyntheticDeletionObject, purpose=relations.Purpose.OWNED,
+    )))
+    monkeypatch.setattr(relations, "LOGICAL", (*relations.LOGICAL, relations.ReferencePolicy(
+        SyntheticReceipt, relations.Purpose.HISTORY, path="object_id", label="История тестового объекта",
+        extract=lambda row: (("SAMPLE", row.object_id, "object_id"),),
+    )))
     key = ("SAMPLE", "SAMPLE-000001")
     selected = mark(c, *key)
     checked = preview(c, key)
+    assert {(x["purpose"], x["blocking"]) for x in checked["dependencies"]} == {("OWNED", False), ("HISTORY", False)}
 
     # An incomplete registry must also be rejected at runtime before any mutation.
     with monkeypatch.context() as broken:
@@ -441,6 +471,9 @@ def test_new_type_registration_requires_and_uses_removal_policy(qa, monkeypatch)
     assert completed["state"] == "COMPLETED"
     assert c.get(f"{BASE}/marks/{key[0]}/{key[1]}").status_code == 404
     assert db.get(SyntheticDeletionObject, key[1]) is None and db.get(DeletionMark, key) is None
+    assert db.get(SyntheticOwnedDetail, (key[1], 1)) is None
+    assert db.get(SyntheticReceipt, "receipt-1").object_id == key[1]
+    assert db.get(DeletionBatch, checked["id"]).artifacts["synthetic_owned_detail"][key[1] + ":1"]["ordinal"] == 1
     audit = db.scalar(select(HistoryEvent).where(HistoryEvent.operation == "DELETED", HistoryEvent.object_id == key[1]))
     assert audit.object_type == key[0] and audit.correlation_id == checked["id"]
 
@@ -588,7 +621,8 @@ def test_overlapping_transactions_invalidate_checked_set(qa, change):
                 ))
             elif change == "json":
                 writer.execute(BulkSession.__table__.insert().values(
-                    id=str(uuid4()), user_id=user.id, source="Synthetic", payload={"plans": [{"target": key[1]}]},
+                    id=str(uuid4()), user_id=user.id, source="Synthetic",
+                    payload={"plans": [{"key": key[1], "vehicle_id": key[1], "fields": {}}]},
                 ))
             else:
                 writer.execute(select(Vehicle.id).where(Vehicle.id == key[1]).with_for_update())
@@ -627,13 +661,13 @@ def test_migration_preserves_existing_history_and_rejects_loss_of_new_audit(qa):
     assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0074"
     db.rollback()
     command.upgrade(config, "head")
-    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0075"
+    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0076"
     assert db.execute(statement).all() == old_history
     db.rollback()
     mark(c, "DOC-KIND", kind)
     with pytest.raises(RuntimeError, match="deletion audit exists"):
         command.downgrade(config, "0074")
-    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0075"
+    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0076"
 
 
 def test_unknown_incoming_fk_fails_closed(qa):

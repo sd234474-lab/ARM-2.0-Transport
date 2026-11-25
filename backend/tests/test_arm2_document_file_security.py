@@ -12,6 +12,7 @@ from test_arm2_document_file_api import qa as qa
 from app.arm2 import document_file_storage as storage
 from app.arm2.document_file_models import DocumentFile, DocumentRevision, FileStage
 from app.arm2.document_file_store import cleanup_expired_staging, instant
+from app.arm2.file_read_guard import protected_background_work
 from app.arm2.history_models import HistoryEvent
 from app.auth import hasher
 from app.models import User
@@ -151,6 +152,10 @@ def test_expired_staging_cleanup_only_opaque_local_paths_and_never_accepted_byte
     row.expires_at = instant() - timedelta(seconds=1)
     db.commit()
     assert storage.private_path(row.id).exists()
+    with protected_background_work(db.get_bind()):
+        cleanup_expired_staging(db)
+        db.commit()
+        assert storage.private_path(row.id).exists()
     cleanup_expired_staging(db)
     db.commit()
     assert not storage.private_path(row.id).exists()

@@ -105,7 +105,7 @@ def stage_data(stage, db=None, document=None):
 @router.get(base + "/files")
 def get_files(parent_type: Token, parent_id: str, document_id: str, db: Db, user: CurrentUser, history: bool = True):
     return translated(
-        db, lambda: bundles(db, document_access(db, user, parent_type.upper(), parent_id, document_id), history)
+        db, lambda: bundles(db, document_access(db, user, parent_type.upper(), parent_id, document_id), history, user=user)
     )
 
 

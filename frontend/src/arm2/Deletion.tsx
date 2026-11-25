@@ -10,11 +10,15 @@ export const DeletionPermissions = createContext<Can>(() => false);
 const endpoint = '/arm2/deletion';
 type ObjectKey = {object_type: ObjectType; object_id: string};
 type Mark = ObjectKey & {name: string; path: string; mark: string | null; version: number};
-type Dependency = {target_id: string; field: string; object_id?: string; name?: string; path?: string; blocking: boolean; reason: string};
+type Dependency = {target_id: string; purpose: 'ACTIVE_DOMAIN' | 'OPEN_OPERATION' | 'HISTORY' | 'OWNED' | 'UNKNOWN';
+  object_id?: string; name?: string; path?: string; at?: string; blocking: boolean; reason: string; selectable?: Mark};
 type Preview = {id: string; objects: Record<string, Mark>; dependencies: Dependency[]; can_execute: boolean};
 type Cleanup = {object_id: string; state: string; failure?: {message: string}};
 type Receipt = {id: string; state: 'CHECKED' | 'COMPLETED' | 'FILES_PENDING' | 'FILES_BLOCKED' | 'RESTRICTED'; executed_at: string; objects: Mark[]; cleanup: Cleanup[]; can_retry: boolean};
 type Page<T> = {items: T[]; has_more: boolean};
+const markUrl = (kind: string, id: string) => `${endpoint}/marks/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`;
+const saveMark = (kind: string, id: string, version: number, previous: string | null, marked: boolean) =>
+  api<Mark>(markUrl(kind, id), 'PUT', {expected_version: version, expected_mark: previous, marked});
 
 export function DeletionMark({kind, id, version, editable}: {kind: string; id?: string; version?: number; editable: boolean}) {
   const can = useContext(DeletionPermissions);
@@ -23,7 +27,7 @@ export function DeletionMark({kind, id, version, editable}: {kind: string; id?: 
 }
 
 function MarkControl({kind, id, version}: {kind: string; id: string; version: number}) {
-  const path = `${endpoint}/marks/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`;
+  const path = markUrl(kind, id);
   const result = useLoad(signal => api<Mark>(path, 'GET', undefined, signal), [path, version]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -33,9 +37,7 @@ function MarkControl({kind, id, version}: {kind: string; id: string; version: nu
     setBusy(true);
     setError(null);
     try {
-      await api(path, 'PUT', {
-        expected_version: version, expected_mark: result.data.mark, marked: !result.data.mark,
-      });
+      await saveMark(kind, id, version, result.data.mark, !result.data.mark);
       if (alive.current) result.reload();
     } catch (failure) {
       if (alive.current) { setError(failure); result.reload(); }
@@ -57,6 +59,11 @@ export function DeletionNavigation() {
 
 const keyOf = (object: ObjectKey) => `${object.object_type}:${object.object_id}`;
 const labelOf = (row: Mark) => row.name === row.object_id ? row.object_id : `${row.name} · ${row.object_id}`;
+const groups: {label: string; filter: (item: Dependency) => boolean}[] = [
+  {label: 'Блокирующие связи', filter: item => item.blocking},
+  {label: 'История сохраняется', filter: item => !item.blocking && item.purpose === 'HISTORY'},
+  {label: 'Обрабатываются в составе набора', filter: item => !item.blocking && item.purpose !== 'HISTORY'},
+];
 const states = {
   CHECKED: 'Набор проверен',
   RESTRICTED: 'Текущие права ограничивают доступ к составу набора',
@@ -96,6 +103,18 @@ export default function Deletion() {
     } catch (failure) {
       setError(failure);
     } finally {
+      setBusy(false);
+    }
+  };
+  const add = async (row: Mark) => {
+    setBusy(true);
+    setError(null);
+    try {
+      change(row.mark ? row : await saveMark(row.object_type, row.object_id, row.version, null, true), true);
+    } catch (failure) {
+      setError(failure);
+    } finally {
+      marks.reload();
       setBusy(false);
     }
   };
@@ -146,13 +165,29 @@ export default function Deletion() {
         ? 'В наборе есть блокирующие связи.' : 'Блокирующих связей нет.'}</p>
       {Object.values(preview.objects).map(object => {
         const dependencies = preview.dependencies.filter(item => item.target_id === object.object_id);
-        return <details key={object.object_id} open={dependencies.some(item => item.blocking)}>
+        return <details key={object.object_id} open={dependencies.length > 0}>
           <summary>{labelOf(object)} · связей {dependencies.length}</summary>
-          {dependencies.length ? <ul>{dependencies.map((item, index) => <li key={index}>
-            {item.blocking && <strong>Блокирует. </strong>}
-            {item.path ? <Link to={item.path}>{item.name ?? item.object_id ?? 'Открыть раздел'}</Link>
-              : (item.name ?? item.object_id)} {item.field} · {item.reason}
-          </li>)}</ul> : <p>Связей нет.</p>}
+          {dependencies.length ? groups.map(group => {
+            const rows = dependencies.filter(group.filter);
+            if (!rows.length) return null;
+            return <section key={group.label} aria-label={group.label}>
+              <h4>{group.label}</h4>
+              <ul>{rows.map((item, index) => {
+                const label = item.name ?? item.object_id ?? 'Связь';
+                const available = item.selectable;
+                return <li key={index}>
+                  {item.path ? <Link to={item.path} target="_blank" rel="noopener noreferrer"
+                    className="arm2-deletion-link">{label}</Link> : label}
+                  {item.at && <> · <time dateTime={item.at}>{new Date(item.at).toLocaleString('ru-RU')}</time></>}
+                  {' · '}{item.reason}
+                  {available && can('arm2_delete_mark') && <> <button type="button"
+                    disabled={busy || selection.length >= 100} onClick={() => void add(available)}>
+                    {available.mark ? 'Добавить в набор' : 'Пометить и добавить в набор'}
+                  </button></>}
+                </li>;
+              })}</ul>
+            </section>;
+          }) : <p>Связей нет.</p>}
         </details>;
       })}
       {can('arm2_delete_execute') && preview.can_execute && <button type="button" disabled={busy}

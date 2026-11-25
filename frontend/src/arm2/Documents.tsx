@@ -10,7 +10,7 @@ import {openFilePreview} from './filePreviewWindow';
 import type { DocumentKind, DocumentListRecord, DocumentParent, DocumentRecord, RecordData, DocumentFile, EventDetail, FileBundle, FileStage } from './api';
 import type { Can } from './Workspace';
 import { DeletionMark } from './Deletion';
-import { CatalogHeader, ErrorMessage, History, Pagination, useAlive, useLoad } from './shared';
+import { CatalogHeader, ErrorMessage, History, Pagination, ReferenceLabel, useAlive, useLoad } from './shared';
 import { CatalogRow } from './CatalogRow';
 import { CatalogFilters } from './CatalogFilters';
 import { PartyPicker } from './Selectors';
@@ -169,7 +169,7 @@ function DocumentFiles({path, original, editable, blocked, calibration, draft, s
         {!draft && allowed && <button type="button" disabled={blocked || busy || result.loading} onClick={begin}>{current ? 'Изменить файлы' : '+ Добавить файл'}</button>}
         <button type="button" className="arm2-document-link" aria-expanded={fileHistory} onClick={()=>setFileHistory(value=>!value)}>{fileHistory?'Закрыть предыдущие редакции':'Предыдущие редакции'}</button>
       </div>
-      {fileHistory && result.data.revisions.filter(row => row.id !== result.data?.current_revision_id).map(revision => <details key={revision.id}><summary>Предыдущая редакция {revision.number} · {new Date(revision.occurred_at).toLocaleString('ru-RU')} · Автор {revision.author_id}</summary><p>{revision.id} · {revision.source === 'arm2-api-correct' ? 'Исправление ошибочной загрузки' : revision.source} · Родитель при создании: {revision.parent_id}</p>{fileRows(revision.files,revision.id)}</details>)}
+      {fileHistory && result.data.revisions.filter(row => row.id !== result.data?.current_revision_id).map(revision => <details key={revision.id}><summary>Предыдущая редакция {revision.number} · {new Date(revision.occurred_at).toLocaleString('ru-RU')} · Автор {revision.author_id}</summary><p>{revision.id} · {revision.source === 'arm2-api-correct' ? 'Исправление ошибочной загрузки' : revision.source} · Родитель при создании: <ReferenceLabel label={revision.parent_id??'Родитель'} current={revision.parent_current_object}/></p>{fileRows(revision.files,revision.id)}</details>)}
     </>}
 
   </section>;

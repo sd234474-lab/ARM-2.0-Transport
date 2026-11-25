@@ -147,6 +147,8 @@ def access(db, user, request_id, *, edit=False):
 
 
 def attempt(db, user, key, action, target_id, payload):
+    from app.arm2.deletion_service import retired_command
+
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     old = db.get(ApprovalAttempt, str(key), populate_existing=True)
     if old:
@@ -154,7 +156,20 @@ def attempt(db, user, key, action, target_id, payload):
             raise ObjectAuthorizationError("Команда принадлежит другому пользователю")
         if (old.action, old.target_id, old.fingerprint) != (action, target_id, digest):
             raise ObjectVersionConflictError("Ключ команды уже связан с другими данными")
+    elif retired_command(db, ApprovalAttempt, str(key)) is not None:
+        raise ObjectVersionConflictError("Команда уже закрыта. Используйте сохранённый протокол")
     return old, digest
+
+
+def historic_approval_result(db, user, kind, identifier, result):
+    from app.arm2.deletion_service import resolve_reference
+
+    resolved = resolve_reference(db, user, kind, identifier, edit=True)
+    if resolved["state"] == "RESTRICTED":
+        raise ObjectAuthorizationError("Нет доступа к протоколу операции")
+    if resolved["state"] == "UNKNOWN":
+        raise ObjectVersionConflictError("Не удалось подтвердить историю операции")
+    return {**result, "current_object": resolved} if resolved["state"] == "DELETED" else result
 
 
 def receipt(db, user, key, action, target, digest, result):
@@ -282,13 +297,13 @@ def save_calibration_proof(db, user, vehicle, document, volume, save_context):
 
 def confirm_calibration(db, user, session_hash, vehicle_id, command):
     session_access(db, user, session_hash)
-    vehicle_access(db, user, vehicle_id, edit=True)
     payload = dict(command)
     key = payload.pop("command_id")
     with attempt_lease(db, "approval-" + key):
         old, digest = attempt(db, user, key, "calibration", vehicle_id, payload)
         if old and old.result:
-            return old.result
+            return historic_approval_result(db, user, "VEH", vehicle_id, old.result)
+        vehicle_access(db, user, vehicle_id, edit=True)
         document, originals = calibration_document(
             db, user, vehicle_id, payload["document_id"], edit=True, lock=True
         )
@@ -428,8 +443,7 @@ def issue_letter(db, user, session_hash, command):
     with attempt_lease(db, "approval-" + key):
         old, digest = attempt(db, user, key, "letter", "", payload)
         if old and old.result:
-            access(db, user, old.result["request_id"], edit=True)
-            return old.result
+            return historic_approval_result(db, user, "APPROVAL", old.result["request_id"], old.result)
         snapshots, originals = selected_snapshots(db, user, payload["vehicles"])
         if old is None:
             letter_path, package_path = files.fresh_path(), files.fresh_path()
@@ -598,11 +612,11 @@ def apply_response(db, user, session_hash, request_id, command):
     payload = dict(command)
     key = payload.pop("command_id")
     session_access(db, user, session_hash)
-    access(db, user, request_id, edit=True)
     with attempt_lease(db, "approval-" + key):
         old, digest = attempt(db, user, key, "response", request_id, payload)
         if old and old.result:
-            return old.result
+            return historic_approval_result(db, user, "APPROVAL", request_id, old.result)
+        access(db, user, request_id, edit=True)
         staged = response_stage(db, user, session_hash, request_id, payload["stage_id"])
         plan = staged.plan["file"]
         request = access(db, user, request_id, edit=True)

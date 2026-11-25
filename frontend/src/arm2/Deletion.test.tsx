@@ -115,6 +115,38 @@ it('uses the batch-level retry capability and refreshes it after a permissions d
   expect(button('Повторить сверку файлов')).toBeUndefined();
 });
 
+it('groups open work, retained history and owned records and explicitly adds an editable blocker', async () => {
+  const vehicle = {object_type: 'VEH', object_id: 'VEH-000456', version: 3, name: 'Самосвал',
+    path: '/arm2/veh/VEH-000456', mark: null};
+  const row = {target_id: marked.object_id, blocking: true};
+  const draftPath = '/arm2/veh/bulk?session=operator-draft';
+  vi.mocked(api).mockImplementation(async (path, method) => {
+    if (path.endsWith('?offset=0')) return {items: path.includes('/marks') ? [marked] : [], has_more: false};
+    if (path.endsWith('/preview')) return {id: 'checked', objects: {[marked.object_id]: marked}, can_execute: false,
+      dependencies: [
+        {...row, purpose: 'OPEN_OPERATION', name: 'Черновик Техника.xlsx', field: 'payload',
+          at: '2026-11-24T04:00:00Z', path: draftPath, reason: 'Завершите операцию'},
+        {...row, purpose: 'ACTIVE_DOMAIN', name: vehicle.name, selectable: vehicle, reason: 'Исправьте связь'},
+        {...row, purpose: 'HISTORY', name: 'Квитанция', blocking: false, reason: 'Сохранится в истории'},
+        {...row, purpose: 'OWNED', name: 'Файл редакции', blocking: false, reason: 'Обрабатывается с владельцем'},
+      ]};
+    if (path.endsWith('/marks/VEH/VEH-000456') && method === 'PUT') return {...vehicle, mark: 'new-mark'};
+    throw Error(path);
+  });
+  await render(<Deletion/>, ['arm2_delete_mark', 'arm2_delete_execute']);
+  await click(host.querySelector<HTMLInputElement>('input[type=checkbox]')!);
+  await click(button('Проверить набор'));
+  expect(host.querySelector(`a[href="${draftPath}"]`)?.getAttribute('target')).toBe('_blank');
+  expect(host.textContent).not.toContain('payload');
+  expect(host.querySelector('[aria-label="История сохраняется"]')?.textContent).toContain('Квитанция');
+  expect(host.querySelector('[aria-label="Обрабатываются в составе набора"]')?.textContent).toContain('Файл редакции');
+  await click(button('Пометить и добавить в набор'));
+  expect(vi.mocked(api)).toHaveBeenCalledWith(base + '/marks/VEH/VEH-000456', 'PUT',
+    {expected_version: 3, expected_mark: null, marked: true});
+  expect(button('Проверить набор').textContent).toContain('2');
+  expect(button('Подтвердить удаление')).toBeUndefined();
+});
+
 it('shows separate deletion permissions under the ARM2 group and keeps the prerequisite', async () => {
   const catalog = [
     {code: 'arm2_delete_mark', name: 'Пометка объектов на удаление', group: 'АРМ 2.0',

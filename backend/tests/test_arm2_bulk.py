@@ -8,10 +8,12 @@ from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from openpyxl import Workbook, load_workbook
 from sqlalchemy import create_engine, func, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.arm2.bulk_models import BulkCleanup, BulkReceipt, BulkSession
 from app.arm2.bulk_parse import MANIFEST, parse
+from app.arm2.bulk_tables import fingerprint
 from app.arm2.object_save import SaveContext, update_object
 from app.arm2.routes import router
 from app.arm2.vehicle_models import Vehicle
@@ -347,14 +349,26 @@ def test_unknown_receipt_blocks_retry_finish_and_cleanup(bulk):
     first, body = accept(c, w, w["plans"][0])
     second, _ = accept(c, w, w["plans"][1])
     with Session(engine) as db:
+        record = db.get(BulkReceipt, first["command_id"])
         db.get(BulkReceipt, first["command_id"]).event_id = second["event_id"]
+        with pytest.raises(DBAPIError, match="historical evidence is immutable"):
+            db.commit()
+        db.rollback()
+        # An inconsistent receipt can arrive through a legacy data restore.
+        # Its command must remain blocked even if an event with that ID exists.
+        body = {**body, "command_id": str(uuid4()), "confirm_owner": False, "confirm_plate": False}
+        db.add(BulkReceipt(command_id=body["command_id"], session_id=record.session_id, user_id=record.user_id,
+                           source=record.source, fingerprint=fingerprint(body), row_key=body["row_key"],
+                           vehicle_id=record.vehicle_id, event_id=second["event_id"], version_after=1,
+                           fields=record.fields))
         db.commit()
     restored = reopen(c, w)
-    assert restored["blocked"] and restored["results"][0]["status"] == "UNKNOWN"
+    assert restored["blocked"]
+    assert next(row for row in restored["results"] if row["command_id"] == body["command_id"])["status"] == "UNKNOWN"
     assert c.post(f"/api/arm2/bulk/sessions/{w['id']}/apply", json=body).status_code == 409
     assert c.post(f"/api/arm2/bulk/sessions/{w['id']}/finish", json={"revision": w["revision"]}).status_code == 409
     assert c.post(f"/api/arm2/bulk/cleanup/{w['id']}", json={"confirm_session": w["id"]}).status_code == 409
-    assert counts(engine) == (2, 2, 2)
+    assert counts(engine) == (2, 2, 3)
 
 
 def test_history_failure_and_lost_commit_ack_are_reconciled(bulk, monkeypatch):

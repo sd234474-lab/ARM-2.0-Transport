@@ -4,12 +4,12 @@ import {Link, useSearchParams} from 'react-router-dom';
 import {api, ApiError} from '../api';
 import {questionnaireApi} from './api';
 
-import type {QuestionnaireChoices, QuestionnaireDocument, QuestionnaireDraft, QuestionnaireField, QuestionnaireOperation, QuestionnaireReceipt} from './api';
+import type {CurrentObject, QuestionnaireChoices, QuestionnaireDocument, QuestionnaireDraft, QuestionnaireField, QuestionnaireOperation, QuestionnaireReceipt} from './api';
 import {labels} from './model';
 import {QuestionnaireFields, fieldDecision} from './QuestionnaireFields';
 import type {FieldAction, FieldEditor} from './QuestionnaireFields';
 import {OwnerPicker} from './Selectors';
-import {display, ErrorMessage} from './shared';
+import {display, ErrorMessage, ReferenceLabel, useLoad} from './shared';
 import type {Can} from './Workspace';
 import './Questionnaire.css';
 
@@ -54,7 +54,26 @@ function SignerSources({value,change}:{value:NonNullable<QuestionnaireDraft['com
 function Receipt({value}:{value:QuestionnaireReceipt}) {
   const names:Record<string,string>={CP:'Контрагент',CPREP:'Представитель',VEH:'Машина',DOCUMENT:'Документ'};
   const unique=[...new Map((value.changes||[]).map(v=>[v.kind+v.id,v])).values()];
-  return <section aria-label="Протокол приёмки анкеты">{value.without_documents&&<p role="status">Данные сохранены без документов. Вложения остаются в черновике для дозагрузки.</p>}<h3>{value.no_op?'Предметных изменений нет':'Изменения приняты'}</h3><p>{Object.entries(names).map(([kind,name])=>`${name}: ${value.objects.filter(o=>o.kind===kind).length}`).join(' · ')}</p><ul>{unique.map(v=><li key={v.kind+v.id}>{v.url?<Link to={v.url}>Открыть: {value.objects.find(o=>o.kind===v.kind&&(o.id||o.document_id)===v.id)?.name||names[v.kind]||'Запись'}</Link>:names[v.kind]||'Запись'}</li>)}</ul>{value.cp_id&&<Link to={'/arm2/cp/'+value.cp_id}>Открыть контрагента</Link>}<details><summary>Технический протокол и история</summary><p>Команда {value.command_id} · Заполнение {value.filled_date||'Не указано'} · Загрузка {value.uploaded_at} · Приёмка {value.accepted_at}</p><div className="arm2-table"><table><thead><tr><th>Объект</th><th>Поле</th><th>Было</th><th>Стало</th></tr></thead><tbody>{value.changes?.flatMap((change,i)=>Object.entries(change.fields).map(([field,v])=><tr key={i+field}><td>{change.url?<Link to={change.url}>{change.kind} {change.id}</Link>:change.id}</td><th>{labels[field]||field}</th><td>{display(v.before)}</td><td>{display(v.after)}</td></tr>))}</tbody></table></div><p>События истории: {value.event_ids.join(', ')||'Не создавались'}</p></details></section>;
+  return <section aria-label="Протокол приёмки анкеты">
+    {value.without_documents&&<p role="status">Данные сохранены без документов. Вложения остаются в черновике для дозагрузки.</p>}
+    <h3>{value.no_op?'Предметных изменений нет':'Изменения приняты'}</h3>
+    <p>{Object.entries(names).map(([kind,name])=>`${name}: ${value.objects.filter(o=>o.kind===kind).length}`).join(' · ')}</p>
+    <ul>{unique.map(v=>{
+      const name = value.objects.find(o=>o.kind===v.kind&&(o.id||o.document_id)===v.id)?.name||names[v.kind]||'Запись';
+      return <li key={v.kind+v.id}><ReferenceLabel label={v.url?'Открыть: '+name:name} current={v.current_object} path={v.url}/></li>;
+    })}</ul>
+    {(value.cp_id||value.cp_current_object)&&<ReferenceLabel label={value.cp_id?'Открыть контрагента':'Контрагент'}
+      current={value.cp_current_object} path={value.cp_id?'/arm2/cp/'+value.cp_id:null}/>}
+    <details><summary>Технический протокол и история</summary>
+      <p>Команда {value.command_id} · Заполнение {value.filled_date||'Не указано'} · Загрузка {value.uploaded_at} · Приёмка {value.accepted_at}</p>
+      <div className="arm2-table"><table><thead><tr><th>Объект</th><th>Поле</th><th>Было</th><th>Стало</th></tr></thead>
+        <tbody>{value.changes?.flatMap((change,i)=>Object.entries(change.fields??{}).map(([field,v])=><tr key={i+field}>
+          <td><ReferenceLabel label={change.id??names[change.kind]??'Запись'} current={change.current_object} path={change.url}/></td>
+          <th>{labels[field]||field}</th><td>{display(v.before)}</td><td>{display(v.after)}</td>
+        </tr>))}</tbody></table></div>
+      <p>События истории: {value.event_ids.join(', ')||'Не создавались'}</p>
+    </details>
+  </section>;
 }
 
 const running = (job?: QuestionnaireOperation | null) => job?.state === 'QUEUED' || job?.state === 'RUNNING';
@@ -70,6 +89,25 @@ function operationText(job: QuestionnaireOperation) {
 }
 
 export default function Questionnaire({can}:{can:Can}) {
+  const [params] = useSearchParams();
+  const exported = params.get('export');
+  return exported ? <ExportHistory id={exported}/> : <QuestionnaireWorkspace can={can}/>;
+}
+
+function ExportHistory({id}:{id:string}) {
+  const {data, error, loading, reload} = useLoad(signal => api<{
+    cp_id: string | null; current_object: CurrentObject; at: string; incomplete_reason: string | null;
+  }>(`/arm2/questionnaires/exports/history/${encodeURIComponent(id)}`, 'GET', undefined, signal), [id]);
+  return <section><Link to="/arm2/questionnaires">← К анкетам</Link><h2>Протокол выгрузки анкеты</h2>
+    <ErrorMessage error={error} retry={reload}/>
+    {loading && <p role="status">Открываем протокол…</p>}
+    {data && <><p><ReferenceLabel label={data.cp_id??'Контрагент'} current={data.current_object}/></p>
+      <p>Выгружено {new Date(data.at).toLocaleString('ru-RU')}</p>
+      {data.incomplete_reason && <p>Причина неполной выгрузки {data.incomplete_reason}</p>}</>}
+  </section>;
+}
+
+function QuestionnaireWorkspace({can}:{can:Can}) {
   const [params,setParams]=useSearchParams(),identifier=params.get('draft');
   const [draft,setDraft]=useState<QuestionnaireDraft>(),[list,setList]=useState<Awaited<ReturnType<typeof questionnaireApi.list>>>([]),[receipts,setReceipts]=useState<QuestionnaireReceipt[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[receipt,setReceipt]=useState<QuestionnaireReceipt>(),[retry,setRetry]=useState(false);
   const [editor,setEditor]=useState<FieldEditor>();

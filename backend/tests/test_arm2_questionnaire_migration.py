@@ -31,7 +31,7 @@ def test_0069_upgrade_preserves_0068_rows_ids_versions_history_and_sequence(isol
     monkeypatch.setenv('DATABASE_URL', isolated_arm2_database_url)
     settings.cache_clear()
     scripts = ScriptDirectory.from_config(config())
-    assert scripts.get_heads() == ['0075'] and scripts.get_revision('0069').down_revision == '0068'
+    assert scripts.get_heads() == ['0076'] and scripts.get_revision('0069').down_revision == '0068'
     command.downgrade(config(), '0068')
     engine = create_engine(isolated_arm2_database_url)
     with engine.begin() as db:
@@ -58,6 +58,7 @@ def test_0069_upgrade_preserves_0068_rows_ids_versions_history_and_sequence(isol
 @pytest.mark.parametrize('reason', ['name', 'history', 'draft', 'upload', 'receipt', 'export'])
 def test_0069_guard_never_discards_names_history_or_questionnaire_ledgers(b5, reason):
     c, db, user, parents, *_ = b5
+    command.downgrade(config(), '0075')
     if reason == 'name':
         db.execute(text("UPDATE arm2_counterparties SET last_name='Keep normalized name' WHERE id=:id"), {'id': parents['cp']})
     elif reason == 'history':

@@ -117,20 +117,23 @@ def workspace(db, user, session_id):
 
 
 def receipts(db, user, session_id):
+    from app.arm2.deletion_service import resolve_reference
+
     result = []
     records = db.scalars(select(BulkReceipt).where(BulkReceipt.session_id == str(session_id), BulkReceipt.user_id == user.id)
                          .order_by(BulkReceipt.at, BulkReceipt.command_id)).all()
     for record in records:
-        vehicle = db.get(Vehicle, record.vehicle_id, populate_existing=True)
+        current = resolve_reference(db, user, "VEH", record.vehicle_id)
         event = db.get(HistoryEvent, record.event_id) if record.event_id else None
-        verified = vehicle is not None and vehicle.version >= record.version_after
+        verified = current.get("version", 0) >= record.version_after
         if record.event_id:
             verified &= (event is not None and event.correlation_id == record.command_id and event.object_type == "VEH"
                          and event.object_id == record.vehicle_id and event.version_after == record.version_after
                          and event.actor_id == str(user.id) and event.source == "arm2-table")
         result.append({"command_id": record.command_id, "row_key": record.row_key, "vehicle_id": record.vehicle_id,
                        "event_id": record.event_id, "version_after": record.version_after, "fields": record.fields,
-                       "at": record.at.isoformat(), "status": "UNKNOWN" if not verified else "SAVED" if event else "SKIP"})
+                       "at": record.at.isoformat(), "status": "UNKNOWN" if not verified else "SAVED" if event else "SKIP",
+                       **({"current_object": current} if current["state"] != "LIVE" else {})})
     return result
 
 
@@ -333,10 +336,12 @@ def download_report(session_id: UUID, db: Db, user: CurrentUser):
 
 
 @router.get("/protocols")
-def protocols(db: Db, user: CurrentUser):
+def protocols(db: Db, user: CurrentUser, session_id: UUID | None = None):
     permissions(db, user)
-    ids = db.execute(select(BulkReceipt.session_id, BulkReceipt.source).where(BulkReceipt.user_id == user.id)
-                     .group_by(BulkReceipt.session_id, BulkReceipt.source).limit(100)).all()
+    query = select(BulkReceipt.session_id, BulkReceipt.source).where(BulkReceipt.user_id == user.id)
+    if session_id is not None:
+        query = query.where(BulkReceipt.session_id == str(session_id))
+    ids = db.execute(query.group_by(BulkReceipt.session_id, BulkReceipt.source).limit(100)).all()
     return [{"id": sid, "source": source, "author": user.id, "results": receipts(db, user, sid)} for sid, source in ids]
 
 

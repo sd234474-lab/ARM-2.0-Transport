@@ -105,12 +105,44 @@ def require_idle(db, identifier, operation_id=None):
         raise ObjectVersionConflictError('Приёмка анкеты выполняется. Проверьте состояние в журнале загрузок')
 
 
+def present_receipt(db, user, receipt):
+    from app.arm2.deletion_service import resolve_reference
+
+    result = receipt.result
+    if receipt.author_id != user.id:
+        raise ObjectAuthorizationError('Квитанция доступна только её автору')
+    resolved = {}
+    projected = {}
+    for section in ('objects', 'changes'):
+        records = []
+        for entry in result[section]:
+            key = (entry['kind'], entry.get('id') or entry.get('document_id'))
+            if key not in resolved:
+                resolved[key] = resolve_reference(db, user, *key)
+            current = resolved[key]
+            if current['state'] == 'RESTRICTED':
+                records.append({'kind': entry['kind'], 'current_object': current})
+            elif current['state'] == 'LIVE':
+                records.append({**entry, 'url': current['path']} if entry.get('url') else entry)
+            else:
+                records.append({**entry, 'url': None, 'current_object': current})
+        projected[section] = records
+    cp = result.get('cp_id')
+    if cp and ('CP', cp) not in resolved:
+        resolved['CP', cp] = resolve_reference(db, user, 'CP', cp)
+    restricted = any(state['state'] == 'RESTRICTED' for state in resolved.values())
+    cp_state = resolved.get(('CP', cp))
+    return {**result, **projected, 'cp_id': cp if not cp_state or cp_state['state'] == 'LIVE' else None,
+            **({'event_ids': []} if restricted else {}),
+            **({'cp_current_object': cp_state} if cp_state and cp_state['state'] != 'LIVE' else {})}
+
+
 def view(db, user, draft, *, reset_on_change=True, read_only=False):
     if draft.status != 'OPEN':
         receipt = db.scalar(select(QuestionnaireReceipt).where(QuestionnaireReceipt.draft_id == draft.id)
                             .order_by(QuestionnaireReceipt.accepted_at.desc()).limit(1))
         return {'id': draft.id, 'revision': draft.revision, 'status': draft.status,
-                'receipt': receipt.result if receipt else None}
+                'receipt': present_receipt(db, user, receipt) if receipt else None}
     if read_only or active_apply(db, draft.id):
         return {'id': draft.id, 'revision': draft.revision, 'status': draft.status, 'filename': draft.filename,
                 'documents_pending': bool(draft.payload.get('_documents_pending')),
@@ -182,7 +214,7 @@ def view(db, user, draft, *, reset_on_change=True, read_only=False):
         .order_by(QuestionnaireReceipt.accepted_at.desc(), QuestionnaireReceipt.command_id.desc())) if draft.payload.get('_documents_pending') else None
     return {'id': draft.id, 'revision': draft.revision, 'status': draft.status, 'filename': draft.filename,
             'documents_pending': bool(draft.payload.get('_documents_pending')),
-            'receipt': data_receipt.result if data_receipt else None,
+            'receipt': present_receipt(db, user, data_receipt) if data_receipt else None,
             'choices': draft.choices, 'approval_reset': approval_reset,
             'preview_id': review_hash(comparison, draft.choices), 'comparison': comparison}
 
@@ -527,7 +559,7 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
         if old:
             if old.author_id != principal.id or old.draft_id != identifier or old.fingerprint != signature:
                 raise ObjectVersionConflictError('UUID уже использован с другим содержимым')
-            return old.result
+            return present_receipt(db, principal, old)
         require_idle(db, identifier, operation_id)
         # Revocation is an ACCESS failure even when it also changes the visible preview.
         decisions = draft.choices
@@ -740,7 +772,7 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
             raise
         if not without_documents:
             cleanup_local(db, draft.id)
-        return result
+        return present_receipt(db, user, db.get(QuestionnaireReceipt, command_id))
 
 
 def cleanup_local(db, draft_id):
@@ -764,15 +796,18 @@ def cancel(db, user, identifier):
 
 def cleanup(db, user, identifier):
     """Only ledger-owned unpublished originals may be moved to provider trash; never accepted FILEs."""
+    from app.arm2.deletion_cleanup import still_referenced
+
     with attempt_lease(db, 'B5:' + identifier):
         draft = owned(db, user, identifier, open_only=False)
         if draft.status == 'OPEN':
             raise ValueError('Сначала завершите или отклоните разбор')
+        require_idle(db, identifier)
         pending = 0
         for stage in db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == identifier)):
             for entries in stage.prepared.values():
                 for item in entries:
-                    if item['existing'] or db.scalar(select(DocumentFile.id).where(DocumentFile.storage_ref == item['storage_ref'])):
+                    if item['existing'] or still_referenced(db, item['storage_ref']):
                         continue
                     prefix = files.document_root() + '/questionnaires/' + identifier + '/'
                     if not item['storage_ref'].startswith(prefix):

@@ -219,16 +219,18 @@ def test_migration_0072_to_0073_preserves_data_and_guards_naming_history(qa):
     from alembic import command
     c, db, *_ = qa
     config = Config(str(Path(__file__).resolve().parents[1] / 'alembic.ini'))
-    assert ScriptDirectory.from_config(config).get_heads() == ['0075']
+    assert ScriptDirectory.from_config(config).get_heads() == ['0076']
     before = db.execute(select(DocumentKind.id, DocumentKind.name, DocumentKind.version, DocumentKind.file_naming_template)).all()
     db.rollback()
     command.downgrade(config, '0072')
     command.upgrade(config, '0073')
     assert db.execute(select(DocumentKind.id, DocumentKind.name, DocumentKind.version, DocumentKind.file_naming_template)).all() == before
     db.rollback()
+    command.upgrade(config, '0075')
     _, _, kind_id = setup_case(qa)
     before_files = file_snapshot(db)
     db.rollback()
+    command.downgrade(config, '0073')
     with pytest.raises(RuntimeError, match='0073 downgrade refused'):
         command.downgrade(config, '0072')
     assert file_snapshot(db) == before_files

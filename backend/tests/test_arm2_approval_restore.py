@@ -130,7 +130,7 @@ def test_sql_and_file_runtime_restore_reopens_evidence_and_resumes_private_reply
             try:
                 reopened = ok(c.get(path))
                 assert reopened == initial
-                assert restored_db.scalar(text("SELECT version_num FROM alembic_version")) == "0075"
+                assert restored_db.scalar(text("SELECT version_num FROM alembic_version")) == "0076"
                 assert {table: restored_db.execute(text(f'SELECT row_to_json(t)::text FROM {table} t ORDER BY 1')).scalars().all()
                         for table in tables} == preserved
                 assert c.get(path + f"/files/{initial['letter_file_id']}/download").content.startswith(

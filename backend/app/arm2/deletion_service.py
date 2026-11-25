@@ -4,15 +4,12 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import delete, select, text, tuple_, update
+from sqlalchemy import delete, inspect, select, text, tuple_, update
 
 from app.arm2 import deletion_relations as relations
-from app.arm2.approval_models import ApprovalAttempt, ApprovalDecision, ApprovalRequest
 from app.arm2.approval_store import access as approval_access
-from app.arm2.bulk_models import BulkSession
 from app.arm2.deletion_models import DeletionBatch, DeletionMark
-from app.arm2.document_file_models import DocumentFile, FileAcceptance, FileStage
-from app.arm2.document_file_storage import STAGE_SECONDS
+from app.arm2.document_file_models import DocumentFile
 from app.arm2.document_store import PARENTS, parent_access
 from app.arm2.file_read_guard import ensure_no_download
 from app.arm2.history_models import HistoryEvent
@@ -20,7 +17,6 @@ from app.arm2.history_store import append_history_event
 from app.arm2.object_registry import OBJECT_REGISTRY, ObjectRegistryError
 from app.arm2.object_save import ObjectAuthorizationError, ObjectNotFoundError, ObjectVersionConflictError
 from app.arm2.operation_models import BackgroundOperation
-from app.arm2.questionnaire_models import QuestionnaireDraft
 from app.models import User
 from app.permissions import Permission, has_permission
 
@@ -160,58 +156,75 @@ def marked_objects(db, user, offset, limit):
     return {"items": result[offset:offset + limit], "has_more": len(result) > offset + limit}
 
 
-def active(row):
-    now = datetime.now(UTC)
-    if isinstance(row, FileStage):
-        return row.expires_at > now and row.state != "consumed"
-    if isinstance(row, FileAcceptance):
-        return row.expires_at > now and row.state != "accepted"
-    return row.created_at + timedelta(seconds=STAGE_SECONDS) > now
+def operation_details(db, policy, row, user):
+    row = policy.origin(db, row) if policy.origin else row
+    if row is None or not policy.author or getattr(row, policy.author) != user.id:
+        return {}
+    if any(not has_permission(user, Permission(code)) for code in policy.permissions):
+        return {}
+    detail = {"object_id": str(inspect(row).identity[0])}
+    label = getattr(row, "source", None) or getattr(row, "filename", None)
+    if label:
+        detail["name"] = policy.label + " · " + label
+    if policy.date:
+        detail["at"] = getattr(row, policy.date).isoformat()
+    if policy.url:
+        detail["path"] = policy.url(row)
+    return detail
 
 
-def dependency(db, user, row, target, field, selected):
-    model = type(row)
+def dependency(db, user, reference, selected):
+    policy, row, target, field = reference.policy, reference.source, reference.target, reference.field
     target_key = relations.owner_key(target) if type(target) in relations.ARTIFACTS else relations.object_key(target)
-    # Scope reports hide objects outside the operator's current rights, while retaining a blocker.
-    entry = {"target_type": target_key[0], "target_id": target_key[1], "field": field}
-    if model in relations.ARTIFACTS:
+    purpose = policy.purpose
+    entry = {"target_type": target_key[0], "target_id": target_key[1], "field": field, "purpose": purpose}
+    if reference.retired:
+        return {**entry, "object_type": row.__tablename__, "name": policy.label,
+                "purpose": relations.Purpose.OWNED, "blocking": False,
+                "reason": "Срок операции истёк. Сведения о команде останутся в истории",
+                **operation_details(db, policy, row, user)}
+    if purpose == relations.Purpose.HISTORY:
+        return {**entry, "object_type": row.__tablename__, "name": policy.label,
+                "blocking": False, "reason": "Сохранится в истории", **operation_details(db, policy, row, user)}
+    if purpose == relations.Purpose.OPEN_OPERATION:
+        return {**entry, "object_type": row.__tablename__, "name": policy.label, "blocking": True,
+                "reason": "Завершите или отмените операцию", **operation_details(db, policy, row, user)}
+    if purpose == relations.Purpose.OWNED and type(row) in relations.ARTIFACTS:
+        artifact = relations.ARTIFACTS[type(row)]
         key = relations.owner_key(row)
         if key in selected:
-            reason = "Принадлежит выбранному объекту"
-            if isinstance(row, (FileStage, FileAcceptance)) and active(row):
-                reason = "Идёт работа с файлами. Завершите её или дождитесь окончания срока черновика"
-            artifact = relations.artifact_id(row)
-            return {**entry, "object_type": row.__tablename__, "object_id": artifact,
-                    "name": f"{relations.ARTIFACTS[model].name} · {artifact}",
-                    "reason": reason, "blocking": reason != "Принадлежит выбранному объекту"}
+            active = artifact.active is not None and artifact.active(row, datetime.now(UTC))
+            public_id = {} if artifact.private else {"object_id": relations.artifact_id(row)}
+            return {**entry, "purpose": relations.Purpose.OPEN_OPERATION if active else purpose,
+                    "object_type": row.__tablename__, **public_id,
+                    "name": artifact.name, "blocking": active,
+                    "reason": "Завершите работу с файлами" if active else "Обрабатывается вместе с владельцем"}
         row = lookup(db, *key)
-    if OBJECT_REGISTRY.deletion_type_for(type(row)) is not None:
-        kind, identifier = relations.object_key(row)
+        entry["purpose"] = relations.Purpose.ACTIVE_DOMAIN
+    if entry["purpose"] not in (relations.Purpose.ACTIVE_DOMAIN, relations.Purpose.OWNED):
+        raise ObjectVersionConflictError("Неизвестная связь объекта. Удаление заблокировано")
+    kind, identifier = relations.object_key(row)
+    try:
+        object_access(db, user, kind, row)
+    except (ObjectAuthorizationError, ObjectNotFoundError):
+        return {**entry, "blocking": True, "reason": "Связанный объект вне ваших прав доступа"}
+    included = (kind, identifier) in selected
+    if not included:
+        entry["purpose"] = relations.Purpose.ACTIVE_DOMAIN
+    link = {
+        **entry, "object_type": kind, "object_id": identifier, "name": getattr(row, "name", identifier),
+        "path": relations.card_path(kind, row), "blocking": not included,
+        "reason": "Выбран вместе с этой записью" if included else "Исправьте связь в карточке",
+    }
+    if not included:
         try:
-            object_access(db, user, kind, row)
-        except ObjectAuthorizationError:
-            return {**entry, "blocking": True, "reason": "Связанный объект вне ваших прав доступа"}
-        return {
-            **entry, "object_type": kind, "object_id": identifier, "name": getattr(row, "name", identifier),
-            "path": relations.card_path(kind, row), "blocking": (kind, identifier) not in selected,
-            "reason": "Выбран вместе с этой записью" if (kind, identifier) in selected
-            else "Исправьте связь в карточке или явно добавьте объект в набор",
-        }
-    if model in relations.HISTORICAL_FK:
-        label, id_field, _ = relations.HISTORICAL_FK[model]
-        return {**entry, "object_type": row.__tablename__, "object_id": getattr(row, id_field)
-                if (getattr(row, "author_id", None) or getattr(row, "user_id", None)) == user.id else None,
-                "blocking": True, "reason": f"{label}. Связь защищена как часть истории"}
-    if isinstance(row, (ApprovalAttempt, BulkSession, QuestionnaireDraft)):
-        owned = (getattr(row, "principal_id", None) or getattr(row, "author_id", None)
-                 or getattr(row, "user_id", None)) == user.id
-        path = "/arm2/questionnaires" if isinstance(row, QuestionnaireDraft) else "/arm2/veh/bulk"
-        if isinstance(row, ApprovalAttempt):
-            path = "/arm2/approvals"
-        return {**entry, "object_type": row.__tablename__, "object_id": row.id if owned else None,
-                "path": path if owned else None, "blocking": True,
-                "reason": "Незавершённая операция. Завершите или отмените её"}
-    raise ObjectVersionConflictError("Неизвестная связь объекта. Удаление заблокировано")
+            object_access(db, user, kind, row, edit=True)
+        except (ObjectAuthorizationError, ObjectNotFoundError):
+            pass
+        else:
+            link["selectable"] = public_object(kind, row, db.get(DeletionMark, (kind, identifier)))
+            link["reason"] = "Исправьте связь в карточке или добавьте объект в набор"
+    return link
 
 
 def preflight(db, user, keys, models):
@@ -233,30 +246,28 @@ def preflight(db, user, keys, models):
 
     artifacts = list(relations.artifact_rows(db, rows))
     targets = [*rows, *artifacts]
-    sources = [*relations.incoming_foreign_keys(db, targets, models), *relations.incoming_logical(db, targets)]
-    for row in rows:
-        if isinstance(row, ApprovalDecision):
-            sources.append((lookup(db, "APPROVAL", row.request_id), row, "request_id"))
-    for row in db.scalars(select(ApprovalAttempt).where(
-        ApprovalAttempt.action == "response-stage", ApprovalAttempt.target_id.in_(
-            [item.id for item in rows if isinstance(item, ApprovalRequest)]))):
-        request = next(item for item in rows if item.id == row.target_id)
-        if row.result is None and active(row) and not db.get(DocumentFile, row.plan["file"]["id"]):
-            sources.append((row, request, "target_id"))
-        else:
-            artifacts.append(row)
+    relations.check_manifests(db, targets)
+    sources = [
+        *relations.incoming_foreign_keys(db, targets, models),
+        *relations.incoming_logical(db, targets),
+        *relations.incoming_inverse(db, targets),
+    ]
     dependent = {}
     selection = set(keys)
-    for source, target, field in sources:
-        link = dependency(db, user, source, target, field, selection)
-        identity = (link.get("target_id"), link.get("object_type"), link.get("object_id"), field, link["reason"])
+    for source in sources:
+        link = dependency(db, user, source, selection)
+        if source.retired and source.source not in artifacts:
+            artifacts.append(source.source)
+        identity = (link.get("target_id"), link.get("object_type"), link.get("object_id"), link["field"], link["reason"])
         dependent[identity] = link
+    relations.ensure_idle(db, artifacts)
     return {"objects": objects, "dependencies": sorted(dependent.values(), key=lambda x: (
         x["target_id"], x.get("object_type") or "", x.get("object_id") or "", x["field"], x["reason"]
     ))}, rows, artifacts
 
 
 def preview(db, user, keys):
+    ensure_no_download(db)
     models = relations.registered_models(relations.deletion_policies())
     relations.lock_writes(db, models)
     snapshot, _, _ = preflight(db, user, keys, models)
@@ -276,26 +287,32 @@ def stored_batch(db, user, batch_id, *, lock=False):
 
 def _audit_row(row):
     # Do not retain session credentials or transient plans in the historical artifact image.
-    omitted = {"plan", "session_hash", "principal_id"}
+    omitted = {"plan", "session_hash"}
     return jsonable_encoder({col.key: getattr(row, col.key) for col in row.__table__.columns if col.key not in omitted})
+
+
+def retired_command(db, model, identifier):
+    table = model.__tablename__
+    matches = db.scalars(select(DeletionBatch.artifacts[table][identifier]).where(
+        DeletionBatch.executed_at.is_not(None),
+        DeletionBatch.artifacts[table].op("?")(identifier),
+    ).limit(2)).all()
+    if len(matches) > 1:
+        raise ObjectVersionConflictError("История команды требует проверки")
+    return matches[0] if matches else None
 
 
 def _cleanup_jobs(db, user, batch, artifacts):
     originals = {}
     locals_ = {}
     for row in artifacts:
-        if isinstance(row, DocumentFile):
-            originals[row.storage_ref] = {key: getattr(row, key) for key in ("id", "storage_ref", "sha256", "size")}
-        if isinstance(row, FileAcceptance):
-            for item in row.plan["files"]:
-                if not item["existing"]:
+        collect = relations.ARTIFACTS[type(row)].cleanup
+        if collect:
+            tokens, candidates = collect(row)
+            locals_.update(tokens)
+            for item in candidates:
+                if not db.scalar(select(DocumentFile.id).where(DocumentFile.id == item["id"])):
                     originals[item["storage_ref"]] = {key: item[key] for key in ("id", "storage_ref", "sha256", "size")}
-        if isinstance(row, ApprovalAttempt):
-            item = row.plan["file"]
-            locals_[item["token"]] = item["id"]
-            originals[item["storage_ref"]] = {key: item[key] for key in ("id", "storage_ref", "sha256", "size")}
-        if isinstance(row, FileStage):
-            locals_[row.id] = row.file_id
     for payload in [*originals.values(), *({"token": key, "id": value} for key, value in locals_.items())]:
         job_id = str(uuid4())
         db.add(BackgroundOperation(
@@ -415,16 +432,56 @@ def receipt(db, batch, user):
             "cleanup": [{"object_id": row.payload["id"], "state": row.state, "failure": row.failure} for row in jobs]}
 
 
+def deleted_reference(db, kind, identifier):
+    events = db.scalars(select(HistoryEvent).where(
+        HistoryEvent.object_type == kind, HistoryEvent.object_id == identifier,
+        HistoryEvent.operation == "DELETED",
+    ).limit(2)).all()
+    if len(events) != 1:
+        return None
+    event = events[0]
+    batch = db.get(DeletionBatch, event.correlation_id) if event.correlation_id else None
+    if (not batch or not batch.executed_at or not batch.execution_tx
+            or event.source != "arm2-api-deletion" or event.actor_kind != "HUMAN"
+            or event.actor_id != str(batch.actor_id)):
+        return None
+    try:
+        saved = batch.snapshot["objects"][identifier]
+        if (saved["object_type"], saved["object_id"], saved["version"]) != (kind, identifier, event.version_before):
+            return None
+        required_permissions(kind, saved["scope"])
+    except (AttributeError, KeyError, TypeError, ObjectAuthorizationError):
+        return None
+    return event, saved
+
+
+def resolve_reference(db, user, kind, identifier, *, edit=False):
+    """Read current identity and retained evidence through the same object access rules."""
+    try:
+        identity(kind, identifier)
+        model = OBJECT_REGISTRY.deletion_definition(kind).model
+    except (ValueError, TypeError):
+        return {"state": "UNKNOWN"}
+    row = db.get(model, identifier, populate_existing=True)
+    if row is not None:
+        try:
+            object_access(db, user, kind, row, edit=edit)
+        except (ObjectAuthorizationError, ObjectNotFoundError):
+            return {"state": "RESTRICTED"}
+        if deleted_reference(db, kind, identifier):
+            return {"state": "UNKNOWN"}
+        return {"state": "LIVE", "version": row.version, "path": relations.card_path(kind, row)}
+    proved = deleted_reference(db, kind, identifier)
+    if proved is None:
+        return {"state": "UNKNOWN"}
+    event, saved = proved
+    if any(not has_permission(user, code) for code in required_permissions(kind, saved["scope"], edit=edit)):
+        return {"state": "RESTRICTED"}
+    return {"state": "DELETED", "version": event.version_before, "event_id": event.event_id}
+
+
 def deletion_history_allowed(db, user, kind, identifier):
-    batch_id = db.scalar(select(HistoryEvent.correlation_id).where(
-        HistoryEvent.object_type == kind, HistoryEvent.object_id == identifier, HistoryEvent.operation == "DELETED"
-    ))
-    if not batch_id:
-        return False
-    batch = db.get(DeletionBatch, batch_id)
-    if not batch or not batch.executed_at:
-        return False
-    saved = batch.snapshot["objects"][identifier]["scope"]
-    if any(not has_permission(user, code) for code in required_permissions(kind, saved)):
-        raise ObjectAuthorizationError("Нет прав на историю удалённого объекта")
-    return True
+    result = resolve_reference(db, user, kind, identifier)
+    if result["state"] == "RESTRICTED":
+        raise ObjectAuthorizationError("Нет прав на историю объекта")
+    return result["state"] == "DELETED"

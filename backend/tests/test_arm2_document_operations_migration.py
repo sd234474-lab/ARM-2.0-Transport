@@ -36,7 +36,7 @@ def test_0066_adds_historical_context_without_rewriting_0065_artifacts_and_round
     # current CP API to run on a schema that predates mandatory explicit CP type.
     monkeypatch.setenv('DATABASE_URL', isolated_arm2_database_url)
     settings.cache_clear()
-    assert ScriptDirectory.from_config(config()).get_heads() == ["0075"]
+    assert ScriptDirectory.from_config(config()).get_heads() == ["0076"]
     command.downgrade(config(), '0065')
     engine = create_engine(isolated_arm2_database_url)
     with engine.begin() as db:
@@ -83,7 +83,7 @@ def test_0066_downgrade_never_discards_operations_or_correction_audit(qa, action
     db.commit()
     with pytest.raises(RuntimeError, match="downgrade refused"):
         command.downgrade(config(), "0065")
-    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0075"
+    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0076"
     assert snapshot(db) == before
     assert db.scalar(text("SELECT count(*) FROM arm2_document_file_corrections")) == (
         1 if action == "correct" else 0
@@ -92,6 +92,7 @@ def test_0066_downgrade_never_discards_operations_or_correction_audit(qa, action
 
 def test_pending_b3c_acceptance_retries_after_refused_downgrade_without_changed_fingerprint_or_upload_contract(qa):
     c, db, *_, disk = qa
+    command.downgrade(config(), "0075")
     url = create(qa)
     candidate = stage(c, url, pdf("pending-before-0066"))
     import uuid
@@ -110,6 +111,7 @@ def test_pending_b3c_acceptance_retries_after_refused_downgrade_without_changed_
     db.commit()
     with pytest.raises(RuntimeError, match='0070.*downgrade refused'):
         command.downgrade(config(), "0065")
+    command.upgrade(config(), "0076")
     disk.fail_at = None
     assert accept(c, url, 1, [candidate], key).status_code == 200
     db.expire_all()

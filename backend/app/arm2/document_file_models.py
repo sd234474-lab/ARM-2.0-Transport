@@ -80,9 +80,9 @@ class DocumentRevisionContext(Base):
     document_id: Mapped[str] = mapped_column(String)
     parent_type: Mapped[str] = mapped_column(String)
     parent_id: Mapped[str] = mapped_column(String)
-    _cp: Mapped[str | None] = mapped_column(String, Computed("CASE WHEN parent_type='CP' THEN parent_id END", persisted=True), ForeignKey("arm2_counterparties.id", ondelete="RESTRICT"))
-    _org: Mapped[str | None] = mapped_column(String, Computed("CASE WHEN parent_type='ORG' THEN parent_id END", persisted=True), ForeignKey("arm2_organizations.id", ondelete="RESTRICT"))
-    _veh: Mapped[str | None] = mapped_column(String, Computed("CASE WHEN parent_type='VEH' THEN parent_id END", persisted=True), ForeignKey("arm2_vehicles.id", ondelete="RESTRICT"))
+    _cp: Mapped[str | None] = mapped_column(String, Computed("CASE WHEN parent_type='CP' THEN parent_id END", persisted=True))
+    _org: Mapped[str | None] = mapped_column(String, Computed("CASE WHEN parent_type='ORG' THEN parent_id END", persisted=True))
+    _veh: Mapped[str | None] = mapped_column(String, Computed("CASE WHEN parent_type='VEH' THEN parent_id END", persisted=True))
     __table_args__ = (
         ForeignKeyConstraint(["revision_id", "document_id"], ["arm2_document_revisions.id", "arm2_document_revisions.document_id"], ondelete="RESTRICT"),
         CheckConstraint("(parent_type='CP' AND parent_id ~ '^CP-[0-9]{6,}$') OR (parent_type='ORG' AND parent_id ~ '^ORG-[0-9]{6,}$') OR (parent_type='VEH' AND parent_id ~ '^VEH-[0-9]{6,}$')", name="ck_arm2_revision_context_parent"),

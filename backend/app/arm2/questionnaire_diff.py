@@ -225,6 +225,8 @@ def build(db, principal, draft):
             plate = normalize_plate_number(re.sub(r'\s+', '', raw['plate_number']))
             by_plate = db.scalar(select(Vehicle).where(Vehicle.plate_number == plate).execution_options(populate_existing=True))
             by_id = db.get(Vehicle, raw['id'], populate_existing=True) if raw['id'] else None
+            if raw['id'] and by_id is None:
+                raise ValueError('VEH-ID не найден. Уточните сопоставление в исходной анкете')
             if by_id and by_id.plate_number != plate:
                 raise ValueError('VEH-ID и госномер не совпадают; исправьте исходную строку')
             current = by_id or by_plate
@@ -461,11 +463,16 @@ def document_plan(db, user, draft, attachment, key, parent_key, role, cp, rows):
                    f['parent_type'] == ptype and f['parent_id'] == pid), None)
     if signed:
         original = db.get(DocumentFile, signed['file_id'])
+        signed_invalid = original is None or original.document_id != signed['document_id']
         if original is None or original.document_id != signed['document_id']:
             signed = None  # SHA or a signed filename alone cannot establish a different parent/DOCUMENT.
+    else:
+        signed_invalid = False
     doc_id = choice.get('document_id') or (signed['document_id'] if signed else None)
     doc = db.get(Document, doc_id, populate_existing=True) if doc_id and doc_id != 'new' and allowed else None
     error = attachment.error
+    if signed_invalid and not choice.get('document_id'):
+        error = error or 'Исходный FILE из анкеты недоступен. Проверьте привязку вложения'
     if not allowed:
         error = 'Нет прав на документы выбранного родителя'
     if not parent_key:
