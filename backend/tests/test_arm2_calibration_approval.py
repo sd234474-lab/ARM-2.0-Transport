@@ -372,6 +372,7 @@ def test_permissions_response_failure_and_atomic_unknown_vehicle(qa):
     assert c.get("/api/arm2/history/APPROVAL/" + request_id).status_code == 403
 
 
+@pytest.mark.parametrize("isolated_arm2_database_url", ["0075"], indirect=True)
 def test_0071_to_0072_preserves_originals_versions_history_and_links(qa, monkeypatch):
     from alembic.config import Config
     from sqlalchemy import text
@@ -382,7 +383,6 @@ def test_0071_to_0072_preserves_originals_versions_history_and_links(qa, monkeyp
     c, db, user, parents, kind, fake = qa
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     db.rollback()
-    command.downgrade(config, "0075")
     path = f"/api/arm2/veh/{parents['veh']}/documents"
     document = ok(c.post(path, json={"kind_ref": kind, "name": "До миграции"}), 201)
     path += "/" + document["id"]
@@ -422,6 +422,7 @@ def test_0071_to_0072_preserves_originals_versions_history_and_links(qa, monkeyp
     settings.cache_clear()
 
 
+@pytest.mark.parametrize("isolated_arm2_database_url", ["0075"], indirect=True)
 def test_downgrade_refuses_to_discard_confirmation_or_approval_evidence(qa):
     from alembic.config import Config
     from sqlalchemy import text
@@ -433,7 +434,7 @@ def test_downgrade_refuses_to_discard_confirmation_or_approval_evidence(qa):
     with pytest.raises(RuntimeError, match="downgrade refused"):
         command.downgrade(Config(str(Path(__file__).resolve().parents[1] / "alembic.ini")), "0071")
     db.rollback()
-    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0076"
+    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0075"
 
 
 def test_lost_commit_reply_uses_durable_receipt_not_duplicate_publication(qa, monkeypatch):

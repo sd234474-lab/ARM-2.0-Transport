@@ -19,6 +19,7 @@ from test_arm2_questionnaire_workflow import upload as upload_questionnaire
 from test_arm2_questionnaire_workflow import workbook as questionnaire_workbook
 
 from alembic import command
+from app.arm2.deletion_models import DeletionBatch
 from app.config import settings
 
 TARGETS = {
@@ -56,12 +57,39 @@ def snapshot(engine):
                 for table in TABLES}
 
 
+def guards(engine):
+    with engine.connect() as db:
+        return db.execute(text("""
+            SELECT tgrelid::regclass::text, tgname, tgenabled, pg_get_triggerdef(oid)
+            FROM pg_trigger WHERE NOT tgisinternal AND tgrelid::regclass::text LIKE 'arm2_%'
+            ORDER BY 1, 2
+        """)).all()
+
+
+@pytest.mark.parametrize("isolated_arm2_database_url", ["0075"], indirect=True)
+def test_empty_upgrade_downgrade_restores_catalog_and_original_guards(isolated_arm2_database_url, monkeypatch):
+    from sqlalchemy import create_engine
+
+    monkeypatch.setenv("DATABASE_URL", isolated_arm2_database_url)
+    settings.cache_clear()
+    database = create_engine(isolated_arm2_database_url)
+    try:
+        fks, existing_guards = inventory(database), guards(database)
+        command.upgrade(config(), "0076")
+        assert inventory(database) == {k: v for k, v in fks.items() if k not in TARGETS}
+        assert len(guards(database)) == len(existing_guards) + 5
+        command.downgrade(config(), "0075")
+        assert inventory(database) == fks and guards(database) == existing_guards
+    finally:
+        database.dispose()
+
+
+@pytest.mark.parametrize("isolated_arm2_database_url", ["0075"], indirect=True)
 def test_five_fk_delta_and_populated_roundtrip(qa, monkeypatch):
     c, db, _, parents, _, disk = qa
     database = db.get_bind()
     monkeypatch.setenv("ARM2_TABLE_SIGNING_KEY", "isolated-reference-semantics-key")
     settings.cache_clear()
-    command.downgrade(config(), "0075")
     original = pdf("migration")
     url = create(qa, "veh")
     ok(accept(c, url, 1, [stage(c, url, original)]))
@@ -94,14 +122,16 @@ def test_five_fk_delta_and_populated_roundtrip(qa, monkeypatch):
     assert inventory(database) == {k: v for k, v in fks.items() if k not in TARGETS}
     assert snapshot(database) == before
     assert disk.location(disk.uploads[0]).read_bytes() == original
-    command.downgrade(config(), "0075")
+    with monkeypatch.context() as different_session_clock:
+        different_session_clock.setenv("PGOPTIONS", "-c timezone=UTC")
+        command.downgrade(config(), "0075")
     assert inventory(database) == fks and snapshot(database) == before
 
 
+@pytest.mark.parametrize("isolated_arm2_database_url", ["0075"], indirect=True)
 def test_inconsistent_manifest_stops_migration_before_fk_changes(qa):
     c, db, _, _, _, _ = qa
     database = db.get_bind()
-    command.downgrade(config(), "0075")
     url = create(qa, "veh")
     ok(accept(c, url, 1, [stage(c, url, pdf("mismatched"))]))
     revision = bundle(c, url)["current_revision_id"]
@@ -131,4 +161,65 @@ def test_new_history_refuses_downgrade_without_destroying_receipt(qa):
     with pytest.raises(RuntimeError, match="new or retired historical evidence"):
         command.downgrade(config(), "0075")
     assert snapshot(database) == before
+    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0076"
+
+
+@pytest.mark.parametrize("isolated_arm2_database_url", ["0075"], indirect=True)
+@pytest.mark.parametrize("scenario", ["history-only", "TYPE", "DOC-KIND", "executed-ledger-only"])
+def test_common_history_and_executed_deletion_protect_downgrade(qa, scenario):
+    c, db, _, _, kind, _ = qa
+    database = db.get_bind()
+    earlier_events = snapshot(database)["arm2_history_events"]
+    if scenario == "executed-ledger-only":
+        mark(c, "DOC-KIND", kind)
+        batch = preview(c, ("DOC-KIND", kind))
+        earlier_events = snapshot(database)["arm2_history_events"]
+    command.upgrade(config(), "0076")
+    if scenario in ("history-only", "TYPE"):
+        type_id = ok(c.post("/api/arm2/types", json={
+            "name": "Проверка защиты общего журнала", "plate_category": "Автомобильный",
+            "requires_sts": True, "requires_calibration": False, "requires_wialon": False,
+        }), 201)["id"]
+        subject = ("TYPE", type_id)
+    else:
+        subject = ("DOC-KIND", kind)
+    if scenario in ("TYPE", "DOC-KIND"):
+        mark(c, *subject)
+        checked = preview(c, subject)
+        assert checked["can_execute"]
+        ok(execute(c, checked["id"]))
+        card = "types" if scenario == "TYPE" else "document-kinds"
+        assert c.get(f"/api/arm2/{card}/{subject[1]}").status_code == 404
+        assert ok(c.get(f"/api/arm2/history/{subject[0]}/{subject[1]}"))[0]["operation"] == "DELETED"
+    if scenario == "executed-ledger-only":
+        # Isolate the fingerprint of the executed ledger from the accompanying HIST writes.
+        with database.begin() as conn:
+            conn.execute(text("UPDATE arm2_deletion_batches SET executed_at=now() WHERE id=:id"), {"id": batch["id"]})
+        assert db.get(DeletionBatch, batch["id"], populate_existing=True).executed_at is not None
+    db.rollback()
+    before, fks, triggers = snapshot(database), inventory(database), guards(database)
+    if scenario == "executed-ledger-only":
+        assert before["arm2_history_events"] == earlier_events
+    else:
+        assert before["arm2_history_events"] != earlier_events
+    assert all(not before[table] for table in (
+        "arm2_bulk_receipts", "arm2_questionnaire_receipts", "arm2_questionnaire_exports",
+        "arm2_document_revision_contexts", "arm2_document_file_acceptances", "arm2_approval_attempts",
+    ))
+    with pytest.raises(RuntimeError, match="new or retired historical evidence"):
+        command.downgrade(config(), "0075")
+    assert snapshot(database) == before and inventory(database) == fks and guards(database) == triggers
+    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0076"
+
+
+@pytest.mark.parametrize("comment", ["NULL", "'{}'", "'invalid json'"])
+def test_invalid_baseline_refuses_downgrade_before_ddl(qa, comment):
+    _, db, *_ = qa
+    database = db.get_bind()
+    before, fks, triggers = snapshot(database), inventory(database), guards(database)
+    with database.begin() as conn:
+        conn.exec_driver_sql(f"COMMENT ON FUNCTION arm2_guard_reference_history() IS {comment}")
+    with pytest.raises(RuntimeError, match="missing or invalid historical baseline"):
+        command.downgrade(config(), "0075")
+    assert snapshot(database) == before and inventory(database) == fks and guards(database) == triggers
     assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0076"

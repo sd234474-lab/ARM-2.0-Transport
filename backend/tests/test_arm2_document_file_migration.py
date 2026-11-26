@@ -110,6 +110,7 @@ def test_0065_preserves_real_0064_data_and_empty_schema_roundtrip(isolated_arm2_
 
 
 @pytest.mark.parametrize("reason", ["stage", "naming_history", "file_reference"])
+@pytest.mark.parametrize("isolated_arm2_database_url", ["0065"], indirect=True)
 def test_0065_guards_staging_naming_or_file_history_without_loss(
     isolated_arm2_database_url, monkeypatch, reason
 ):
@@ -126,7 +127,7 @@ def test_0065_guards_staging_naming_or_file_history_without_loss(
                 )
                 db.execute(
                     text(
-                        "INSERT INTO arm2_counterparties(id,name,type,version) VALUES('CP-000001','Parent','Юридическое лицо',1)"
+                        "INSERT INTO arm2_counterparties(id,name,status,version) VALUES('CP-000001','Parent','REVIEW',1)"
                     )
                 )
                 db.execute(
@@ -164,7 +165,7 @@ def test_0065_guards_staging_naming_or_file_history_without_loss(
         with pytest.raises(RuntimeError, match="downgrade refused"):
             command.downgrade(config(), "0064")
         with engine.connect() as db:
-            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0076"
+            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0065"
             assert db.execute(text("SELECT row_to_json(h)::text FROM arm2_history_events h")).all() == before
     finally:
         engine.dispose()

@@ -15,13 +15,13 @@ from app.arm2.counterparty_models import Counterparty
 from app.arm2.counterparty_store import create_counterparty
 from app.arm2.document_file_models import DocumentFile, DocumentFileCorrection
 from app.arm2.document_file_store import (
-    attempt_lease,
     export_name,
     publish_prepared_revision_in_transaction,
     revision_files,
 )
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_models import Document
+from app.arm2.file_read_guard import attempt_lease
 from app.arm2.history_models import HistoryEvent
 from app.arm2.ids import next_id
 from app.arm2.object_save import (

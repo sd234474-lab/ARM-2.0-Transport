@@ -3,7 +3,6 @@
 import hashlib
 import json
 import time
-from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select, text
@@ -21,7 +20,13 @@ from app.arm2.document_file_models import (
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_models import Document
 from app.arm2.document_store import ADAPTER, PARENTS, parent_access
-from app.arm2.file_read_guard import try_exclusive_file_access
+from app.arm2.file_read_guard import (
+    approval_attempt_key,
+    attempt_lease,
+    stage_attempt_key,
+    try_exclusive_file_access,
+    try_idle_attempt,
+)
 from app.arm2.ids import next_id
 from app.arm2.object_save import (
     ObjectAuthorizationError,
@@ -158,19 +163,6 @@ def bundles(db, document, include_history=True, *, user):
         "max_files": files.MAX_FILES,
         "max_file_bytes": files.settings().max_file_bytes,
     }
-
-
-@contextmanager
-def attempt_lease(db, key):
-    # Session advisory lock spans network IO, not a business/row transaction.
-    with db.get_bind().connect().execution_options(isolation_level="AUTOCOMMIT") as lock:
-        acquired = lock.scalar(text("SELECT pg_try_advisory_lock(hashtextextended(:key,6365))"), {"key": key})
-        if not acquired:
-            raise ObjectVersionConflictError("Запрос уже выполняется; повторите с тем же ключом")
-        try:
-            yield
-        finally:
-            lock.execute(text("SELECT pg_advisory_unlock(hashtextextended(:key,6365))"), {"key": key})
 
 
 def reauthorize(db, user, session_hash, ptype, pid, docid):
@@ -459,6 +451,8 @@ def cleanup_expired_staging(db):
     for stage in db.scalars(
         select(FileStage).where(FileStage.expires_at < instant()).limit(100).with_for_update(skip_locked=True)
     ):
+        if not try_idle_attempt(db, stage_attempt_key(stage.id)):
+            continue
         try:
             files.private_path(stage.id).unlink(missing_ok=True)
         except PermissionError:
@@ -469,6 +463,8 @@ def cleanup_expired_staging(db):
         ApprovalAttempt.action.in_(['letter', 'response-stage']),
         ApprovalAttempt.created_at < instant() - timedelta(seconds=files.STAGE_SECONDS))
         .limit(100).with_for_update(skip_locked=True)):
+        if not try_idle_attempt(db, approval_attempt_key(attempt.id)):
+            continue
         plans = attempt.plan.get('files', []) if attempt.action == 'letter' else [attempt.plan['file']]
         for plan in plans:
             try:

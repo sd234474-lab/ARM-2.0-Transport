@@ -33,6 +33,7 @@ from app.arm2.object_save import (
     create_object,
     update_object,
 )
+from app.arm2.reference_paths import BULK_SCHEMA, bulk_references
 from app.arm2.vehicle_models import Vehicle
 from app.auth import AdminUser, CurrentUser, Db
 from app.models import User
@@ -113,7 +114,15 @@ def workspace(db, user, session_id):
         raise HTTPException(404, "Рабочий набор не найден")
     if record.user_id != user.id:
         raise HTTPException(403, "Продолжать загрузку может только её автор")
+    validate_payload(record.payload)
     return record
+
+
+def validate_payload(payload):
+    try:
+        bulk_references(payload)
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(409, "Неизвестная форма рабочего набора. Черновик сохранён без изменений") from None
 
 
 def receipts(db, user, session_id):
@@ -142,8 +151,10 @@ def checked(db, user, record):
     plans = preview(db, user, record.payload)
     preview_id = str(uuid4())
     reset = record.payload.get("plans") is not None and fingerprint(record.payload["plans"]) != fingerprint(plans)
-    record.payload = {**record.payload, "plans": plans, "preview_id": preview_id,
-                      **({"decisions": {}, "confirmations": {}} if reset else {})}
+    payload = {**record.payload, "schema": BULK_SCHEMA, "plans": plans, "preview_id": preview_id,
+               **({"decisions": {}, "confirmations": {}} if reset else {})}
+    validate_payload(payload)
+    record.payload = payload
     db.commit()
     return {"id": record.id, "source": record.source, "revision": record.revision,
             **{k: record.payload.get(k) for k in ("headers", "rows", "mapping", "excluded", "clears", "decisions", "confirmations", "warning", "failures")},
@@ -284,7 +295,7 @@ def apply(session_id: UUID, body: Apply, db: Db, user: CurrentUser):
         status = 409 if isinstance(error, (ObjectVersionConflictError, IntegrityError)) else 403 if isinstance(error, ObjectAuthorizationError) else 422
         message = "Госномер уже занят; повторите сравнение" if isinstance(error, IntegrityError) else str(error)
         failures = {**record.payload.get("failures", {}), command_id: {"row_key": body.row_key, "status": status, "message": message}}
-        record.payload = {**record.payload, "failures": failures}
+        record.payload = {**record.payload, "schema": BULK_SCHEMA, "failures": failures}
         db.commit()
         raise HTTPException(status, message) from None
     return next(r for r in receipts(db, user, record.id) if r["command_id"] == command_id)
@@ -328,7 +339,7 @@ def download_report(session_id: UUID, db: Db, user: CurrentUser):
     record = workspace(db, user, session_id)
     plans, outcomes = preview(db, user, record.payload), receipts(db, user, record.id)
     report = rejection_report(db, user, record, plans)
-    record.payload = {**record.payload, "report_revision": record.revision,
+    record.payload = {**record.payload, "schema": BULK_SCHEMA, "report_revision": record.revision,
                       "report_fingerprint": fingerprint({"plans": plans, "results": outcomes})}
     db.commit()
     return Response(report, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

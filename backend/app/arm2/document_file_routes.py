@@ -24,7 +24,6 @@ from app.arm2.document_file_models import (
 from app.arm2.document_file_store import (
     StagingQuotaExceeded,
     accept,
-    attempt_lease,
     bundles,
     document_access,
     export_name,
@@ -32,7 +31,7 @@ from app.arm2.document_file_store import (
     owned_stage,
     staging_quota,
 )
-from app.arm2.file_read_guard import protected_read
+from app.arm2.file_read_guard import attempt_lease, protected_read, stage_attempt_key
 from app.arm2.http_errors import CONTROLLED_ERRORS, controlled_error, rollback
 from app.arm2.ids import next_id
 from app.arm2.object_save import ObjectAuthorizationError, ObjectNotFoundError, ObjectVersionConflictError
@@ -184,7 +183,8 @@ async def upload_stage(
     path = files.private_path(stage.id)
     owns_file = False
     try:
-        with attempt_lease(db, "stage-" + stage.id):
+        with attempt_lease(db, stage_attempt_key(stage.id)):
+            document_access(db, user, parent_type.upper(), parent_id, document_id, edit=True)
             stage = owned_stage(
                 db, user, request.state.login_session.token_hash, document_id, stage_id, ready=False
             )

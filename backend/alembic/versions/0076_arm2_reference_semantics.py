@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 
 import sqlalchemy as sa
 
@@ -29,6 +30,13 @@ HISTORY_ROWS = (
     ("arm2_document_revision_contexts", "true"),
     ("arm2_approval_attempts", "result IS NOT NULL"),
     ("arm2_document_file_acceptances", "state = 'accepted'"),
+    ("arm2_history_events", "true"),
+    ("arm2_deletion_batches", "executed_at IS NOT NULL"),
+)
+HISTORY_GUARDS = (
+    ("arm2_bulk_receipts", ""), ("arm2_questionnaire_exports", ""),
+    ("arm2_questionnaire_receipts", ""), ("arm2_approval_attempts", "'approval'"),
+    ("arm2_document_file_acceptances", "'acceptance'"),
 )
 GUARD = "arm2_guard_reference_history"
 
@@ -55,6 +63,8 @@ def foreign_keys(db):
 
 
 def history_fingerprint(db):
+    # to_jsonb renders timestamptz in the session time zone.
+    db.exec_driver_sql("SET LOCAL TIME ZONE 'UTC'")
     digest = hashlib.sha256()
     for table, where in HISTORY_ROWS:
         digest.update(table.encode())
@@ -64,6 +74,24 @@ def history_fingerprint(db):
             digest.update(value.encode())
             digest.update(b"\n")
     return digest.hexdigest()
+
+
+def read_baseline(db):
+    raw = db.scalar(sa.text(f"SELECT obj_description(to_regprocedure('{GUARD}()'), 'pg_proc')"))
+    try:
+        baseline = json.loads(raw)
+        if not isinstance(baseline, dict) or set(baseline) != {"format", "history", "fk_names"}:
+            raise ValueError
+        names = baseline["fk_names"]
+        if (type(baseline["format"]) is not int or baseline["format"] != 1
+                or not re.fullmatch(r"[0-9a-f]{64}", baseline["history"])
+                or not isinstance(names, list) or len(names) != len(HISTORY_FKS)
+                or any(not isinstance(name, str) or not 0 < len(name.encode()) <= 63 or "\x00" in name
+                       for name in names)):
+            raise ValueError
+    except (ValueError, TypeError):
+        raise RuntimeError("0076 downgrade refused: missing or invalid historical baseline") from None
+    return baseline
 
 
 def validate_history(db):
@@ -104,7 +132,7 @@ def upgrade():
     })) + " IN SHARE ROW EXCLUSIVE MODE")
     names = foreign_keys(db)
     validate_history(db)
-    baseline = json.dumps({"history": history_fingerprint(db), "fk_names": [names[key] for key in HISTORY_FKS]})
+    baseline = json.dumps({"format": 1, "history": history_fingerprint(db), "fk_names": [names[key] for key in HISTORY_FKS]})
     for (table, _, _), name in names.items():
         op.drop_constraint(name, table, schema="public", type_="foreignkey")
     for table, column, prefix, constraint in TYPED_IDS:
@@ -141,11 +169,7 @@ def upgrade():
         END $$;
         COMMENT ON FUNCTION {GUARD}() IS '{baseline.replace("'", "''")}';
     """)
-    for table, mode in (
-        ("arm2_bulk_receipts", ""), ("arm2_questionnaire_exports", ""),
-        ("arm2_questionnaire_receipts", ""), ("arm2_approval_attempts", "'approval'"),
-        ("arm2_document_file_acceptances", "'acceptance'"),
-    ):
+    for table, mode in HISTORY_GUARDS:
         op.execute(f"CREATE TRIGGER {GUARD} BEFORE UPDATE OR DELETE ON {table} "
                    f"FOR EACH ROW EXECUTE FUNCTION {GUARD}({mode})")
 
@@ -154,16 +178,15 @@ def downgrade():
     db = op.get_bind()
     tables = {table for table, _ in HISTORY_ROWS} | {target for _, _, target in HISTORY_FKS}
     op.execute(f"LOCK TABLE {', '.join(sorted(tables))} IN ACCESS EXCLUSIVE MODE")
+    baseline = read_baseline(db)
     for table, column, target in HISTORY_FKS:
         if db.exec_driver_sql(f"SELECT EXISTS (SELECT FROM {table} s LEFT JOIN {target} t ON s.{column}=t.id "
                               f"WHERE s.{column} IS NOT NULL AND t.id IS NULL)").scalar():
             raise RuntimeError(f"0076 downgrade refused: retained history in {table}.{column}")
-    baseline = json.loads(db.scalar(sa.text(f"SELECT obj_description('{GUARD}()'::regprocedure, 'pg_proc')")))
     if history_fingerprint(db) != baseline["history"]:
         raise RuntimeError("0076 downgrade refused: new or retired historical evidence")
-    for table, _ in HISTORY_ROWS:
-        if table != "arm2_document_revision_contexts":
-            op.execute(f"DROP TRIGGER {GUARD} ON {table}")
+    for table, _ in HISTORY_GUARDS:
+        op.execute(f"DROP TRIGGER {GUARD} ON {table}")
     op.execute(f"DROP FUNCTION {GUARD}()")
     for table, _, _, constraint in TYPED_IDS:
         op.drop_constraint(constraint, table, type_="check")

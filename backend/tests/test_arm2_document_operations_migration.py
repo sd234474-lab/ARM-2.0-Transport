@@ -90,9 +90,9 @@ def test_0066_downgrade_never_discards_operations_or_correction_audit(qa, action
     )
 
 
+@pytest.mark.parametrize("isolated_arm2_database_url", ["0075"], indirect=True)
 def test_pending_b3c_acceptance_retries_after_refused_downgrade_without_changed_fingerprint_or_upload_contract(qa):
     c, db, *_, disk = qa
-    command.downgrade(config(), "0075")
     url = create(qa)
     candidate = stage(c, url, pdf("pending-before-0066"))
     import uuid

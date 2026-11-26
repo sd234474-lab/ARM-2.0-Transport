@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import CheckConstraint, ForeignKey, delete, event, select, text, update
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from test_arm2_bulk import upload
 from test_arm2_calibration_approval import letter, prepare
 from test_arm2_document_api import api as api
 from test_arm2_document_file_api import accept, bundle, create, pdf, stage
@@ -259,10 +260,7 @@ def test_logical_references_and_existing_receipts_remain_visible(qa):
     c, db, user, parents, _, _ = qa
     identifier = parents["veh"]
     mark(c, "VEH", identifier)
-    draft = BulkSession(id=str(uuid4()), user_id=user.id, source="Synthetic",
-                        payload={"plans": [{"key": identifier, "vehicle_id": identifier, "fields": {}}]})
-    db.add(draft)
-    db.commit()
+    draft = db.get(BulkSession, upload(c, "Госномер\nА123ВС86")["id"])
     check = preview(c, ("VEH", identifier))
     assert not check["can_execute"]
     assert any(row.get("object_id") == draft.id and row["field"] == "payload.plans.vehicle_id"
@@ -647,6 +645,7 @@ def test_overlapping_transactions_invalidate_checked_set(qa, change):
     assert original.read_bytes() == contents
 
 
+@pytest.mark.parametrize("isolated_arm2_database_url", ["0075"], indirect=True)
 def test_migration_preserves_existing_history_and_rejects_loss_of_new_audit(qa):
     from alembic.config import Config
 
@@ -660,14 +659,14 @@ def test_migration_preserves_existing_history_and_rejects_loss_of_new_audit(qa):
     command.downgrade(config, "0074")
     assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0074"
     db.rollback()
-    command.upgrade(config, "head")
-    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0076"
+    command.upgrade(config, "0075")
+    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0075"
     assert db.execute(statement).all() == old_history
     db.rollback()
     mark(c, "DOC-KIND", kind)
     with pytest.raises(RuntimeError, match="deletion audit exists"):
         command.downgrade(config, "0074")
-    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0076"
+    assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0075"
 
 
 def test_unknown_incoming_fk_fails_closed(qa):

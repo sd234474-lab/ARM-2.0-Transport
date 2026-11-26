@@ -15,6 +15,7 @@ from app.arm2.bulk_models import BulkCleanup, BulkReceipt, BulkSession
 from app.arm2.bulk_parse import MANIFEST, parse
 from app.arm2.bulk_tables import fingerprint
 from app.arm2.object_save import SaveContext, update_object
+from app.arm2.reference_paths import BULK_SCHEMA
 from app.arm2.routes import router
 from app.arm2.vehicle_models import Vehicle
 from app.arm2.vehicle_store import create_vehicle
@@ -84,6 +85,25 @@ def reopen(client, w):
     response = client.get(f"/api/arm2/bulk/sessions/{w['id']}")
     assert response.status_code == 200, response.text
     return response.json()
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_known_legacy_and_current_workspace_keep_all_live_plan_variants(bulk, legacy):
+    client, engine, _, users, _ = bulk
+    seed(engine, users[0], 2)
+    draft = upload(client, "Госномер\tРабочее имя\nА000АА86\tТехника 0\nА001АА86\tНовая подпись\nА231ВС86\tНовая\n???\tОшибка")
+    assert {plan["action"] for plan in draft["plans"]} == {"CREATE", "UPDATE", "SKIP", "CONFLICT"}
+    with Session(engine) as db:
+        stored = db.get(BulkSession, draft["id"])
+        assert stored.payload["schema"] == BULK_SCHEMA
+        if legacy:
+            stored.payload = {key: value for key, value in stored.payload.items() if key != "schema"}
+            db.commit()
+    checked = reopen(client, draft)
+    assert checked["plans"] == draft["plans"]
+    assert not checked["approval_reset"]
+    with Session(engine) as db:
+        assert db.get(BulkSession, draft["id"]).payload["schema"] == BULK_SCHEMA
 
 
 def seed(engine, user_id, count=1):

@@ -1,19 +1,37 @@
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from threading import Barrier
+from threading import Barrier, Event
+from uuid import uuid4
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+from test_arm2_calibration_approval import letter, prepare
+from test_arm2_deletion import BASE, execute, mark, ok, preview, queue_snapshot
 from test_arm2_document_file_api import accept, bundle, create, pdf, stage
 from test_arm2_document_file_api import api as api
 from test_arm2_document_file_api import qa as qa
 
+from app.arm2 import background_operations
 from app.arm2 import document_file_storage as storage
+from app.arm2.approval_models import ApprovalAttempt
+from app.arm2.deletion_cleanup import clean_job
+from app.arm2.deletion_models import DeletionBatch, DeletionMark
+from app.arm2.deletion_service import CLEANUP
 from app.arm2.document_file_models import DocumentFile, DocumentRevision, FileStage
 from app.arm2.document_file_store import cleanup_expired_staging, instant
-from app.arm2.file_read_guard import protected_background_work
+from app.arm2.file_read_guard import (
+    approval_attempt_key,
+    attempt_lease,
+    protected_background_work,
+    stage_attempt_key,
+    try_idle_attempt,
+)
 from app.arm2.history_models import HistoryEvent
+from app.arm2.operation_models import BackgroundOperation
 from app.auth import hasher
 from app.models import User
 
@@ -167,6 +185,100 @@ def test_expired_staging_cleanup_only_opaque_local_paths_and_never_accepted_byte
     db.commit()
     assert c.get(url + "/stages/" + row.id + "/preview").status_code == 422
     assert accept(c, url, 2, [expired]).status_code == 422
+
+
+@pytest.mark.parametrize("preview_before_upload", [False, True])
+def test_expired_stream_keeps_document_stage_mark_and_bytes_until_lease_is_released(qa, monkeypatch, preview_before_upload):
+    c, db, _, _, _, _ = qa
+    run_worker = background_operations.work_once
+    monkeypatch.setattr(background_operations, "work_once", lambda *_: False)
+    url = create(qa)
+    identifier = url.split("/")[-1]
+    key = ("DOCUMENT", identifier)
+    marked = mark(c, *key)
+    checked_before = preview(c, key) if preview_before_upload else None
+    assert checked_before is None or checked_before["can_execute"]
+    original = pdf("stream crossing its expiry")
+    stage_id = ok(c.post(url + "/stages", json={"original_upload_name": "stream.pdf", "size": len(original)}), 201)["id"]
+    runtime = storage.private_path(stage_id)
+    entered, release = Event(), Event()
+
+    async def chunks():
+        yield original[:12]
+        entered.set()
+        assert await asyncio.to_thread(release.wait, 20), "Streaming barrier did not release"
+        yield original[12:]
+
+    async def put():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=c.app), base_url=str(c.base_url),
+                                     cookies=dict(c.cookies), headers={"X-CSRF-Token": c.cookies["csrf"]}) as client:
+            return await client.put(url + f"/stages/{stage_id}/content", content=chunks())
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        request = pool.submit(asyncio.run, put())
+        try:
+            assert entered.wait(15) and runtime.is_file()
+            with Session(db.get_bind()) as other:
+                assert try_idle_attempt(other, stage_attempt_key(stage_id)) is False
+                stage_row = other.get(FileStage, stage_id)
+                assert stage_row.state == "empty"
+                stage_row.expires_at = instant() - timedelta(seconds=1)
+                other.commit()
+                cleanup_expired_staging(other)
+                other.commit()
+            assert runtime.is_file()
+            response = c.post(BASE + "/preview", json={"objects": [{"object_type": key[0], "object_id": key[1]}]})
+            assert response.status_code == 409 and "ещё выполняется" in response.json()["detail"]
+            if checked_before:
+                response = execute(c, checked_before["id"])
+                assert response.status_code == 409 and "ещё выполняется" in response.json()["detail"]
+            assert c.get(url).status_code == 200
+            assert db.get(FileStage, stage_id, populate_existing=True).state == "empty"
+            assert db.get(DeletionMark, key).command_id == marked["mark"]
+            assert db.scalar(select(func.count()).select_from(DeletionBatch).where(DeletionBatch.executed_at.is_not(None))) == 0
+            assert db.scalar(select(func.count()).select_from(HistoryEvent).where(HistoryEvent.operation == "DELETED")) == 0
+            assert not queue_snapshot(db)
+            db.rollback()
+        finally:
+            release.set()
+        assert ok(request.result(timeout=15))["state"] == "ready"
+    assert runtime.read_bytes() == original and c.get(url).status_code == 200
+    assert c.get(url + f"/stages/{stage_id}").status_code == 422
+    checked_after = preview(c, key)
+    assert checked_after["can_execute"]
+    assert ok(execute(c, checked_after["id"]))["state"] == "FILES_PENDING"
+    assert c.get(url).status_code == 404
+    assert db.get(FileStage, stage_id, populate_existing=True) is None
+    job = db.scalars(select(BackgroundOperation)).one()
+    assert job.payload["token"] == stage_id and job.state == "QUEUED"
+    db.rollback()
+    assert run_worker(db.get_bind(), {CLEANUP: clean_job}) and not runtime.exists()
+    assert not run_worker(db.get_bind(), {CLEANUP: clean_job})
+    assert ok(c.get(f"{BASE}/batches/{checked_after['id']}"))["state"] == "COMPLETED"
+
+
+def test_expired_approval_stage_respects_the_shared_cleanup_lease(qa, monkeypatch):
+    c, db, _, _, _, _ = qa
+    _, issued = letter(c, prepare(qa)[:1])
+    request = ok(issued, 201)["request_id"]
+    identifier = str(uuid4())
+    original = pdf("response-stage")
+    ok(c.put(f"/api/arm2/approvals/{request}/response-stages/{identifier}",
+             params={"name": "reply.pdf"}, content=original))
+    row = db.get(ApprovalAttempt, identifier)
+    path = storage.private_path(row.plan["file"]["token"])
+    # Advance the expiry check for this disposable stage without changing the immutable row.
+    advanced = instant() + timedelta(seconds=storage.STAGE_SECONDS + 1)
+    db.rollback()
+    monkeypatch.setattr("app.arm2.document_file_store.instant", lambda: advanced)
+    with attempt_lease(db, approval_attempt_key(identifier)):
+        cleanup_expired_staging(db)
+        db.commit()
+        assert path.read_bytes() == original
+    assert db.get(ApprovalAttempt, identifier) is not None
+    cleanup_expired_staging(db)
+    db.commit()
+    assert not path.exists() and db.get(ApprovalAttempt, identifier) is not None
 
 
 def test_root_overlap_and_download_adapter_errors_are_sanitized(qa, monkeypatch, tmp_path):

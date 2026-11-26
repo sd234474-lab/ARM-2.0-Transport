@@ -11,6 +11,31 @@ from app.db import engine
 
 # Database-local; held until ASGI completes the response (including streaming).
 READ_KEY = 850910010
+ATTEMPT_LOCK = "hashtextextended(:key,6365)"
+
+
+def stage_attempt_key(identifier):
+    return "stage-" + identifier
+
+
+def approval_attempt_key(identifier):
+    return "approval-" + identifier
+
+
+@contextmanager
+def attempt_lease(db, key):
+    # Session lock spans provider I/O and survives commits by the operation.
+    with db.get_bind().connect().execution_options(isolation_level="AUTOCOMMIT") as lock:
+        if not lock.scalar(text(f"SELECT pg_try_advisory_lock({ATTEMPT_LOCK})"), {"key": key}):
+            raise ObjectVersionConflictError("Запрос уже выполняется; повторите с тем же ключом")
+        try:
+            yield
+        finally:
+            lock.execute(text(f"SELECT pg_advisory_unlock({ATTEMPT_LOCK})"), {"key": key})
+
+
+def try_idle_attempt(db, key):
+    return db.scalar(text(f"SELECT pg_try_advisory_xact_lock({ATTEMPT_LOCK})"), {"key": key})
 
 
 def protected_read():

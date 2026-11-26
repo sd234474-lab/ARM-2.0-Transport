@@ -1,14 +1,15 @@
 """End-to-end evidence for registered ARM2 reference semantics."""
 
+from copy import deepcopy
 from uuid import uuid4
 
 import pytest
 from openpyxl import Workbook
 from sqlalchemy import inspect, select
 from test_arm2_bulk import accept as import_row
-from test_arm2_bulk import book_bytes, reopen, upload
+from test_arm2_bulk import book_bytes, edit, reopen, upload
 from test_arm2_calibration_approval import letter, prepare
-from test_arm2_deletion import BASE, execute, mark, ok, preview
+from test_arm2_deletion import BASE, execute, mark, ok, preview, queue_snapshot
 from test_arm2_document_api import api as api
 from test_arm2_document_file_api import accept, bundle, create, pdf, stage
 from test_arm2_document_file_api import qa as qa
@@ -21,10 +22,10 @@ from test_arm2_questionnaire_workflow import upload as upload_questionnaire
 
 from app.arm2 import deletion_relations as relations
 from app.arm2.bulk_models import BulkReceipt, BulkSession
-from app.arm2.deletion_models import DeletionBatch
+from app.arm2.deletion_models import DeletionBatch, DeletionMark
 from app.arm2.deletion_service import resolve_reference
 from app.arm2.document_file_models import DocumentRevisionContext
-from app.arm2.document_file_store import attempt_lease
+from app.arm2.file_read_guard import attempt_lease
 from app.arm2.history_models import HistoryEvent
 from app.arm2.questionnaire_models import QuestionnaireReceipt
 from app.db import engine
@@ -87,20 +88,94 @@ def test_real_xlsx_import_and_replay_keep_receipt_and_history_after_delete(qa):
 
 
 def test_only_typed_plan_refs_are_live_and_unknown_shape_is_rejected(qa):
-    c, db, user, parents, _, _ = qa
+    c, db, _, parents, _, _ = qa
     identifier = parents["veh"]
-    row = BulkSession(id=str(uuid4()), user_id=user.id, source="Synthetic",
-                      payload={"rows": [[identifier]], "originals": {identifier: {"name": identifier}},
-                               "plans": [{"key": "new", "fields": {}, "similar": [{"id": identifier}]}]})
-    db.add(row)
+    draft = upload(c, f"Госномер\tРабочее имя\nА125ВС86\t{identifier}")
+    row = db.get(BulkSession, draft["id"])
+    plan = {**row.payload["plans"][0], "similar": [{"id": identifier, "plate": "А123ВС86"}]}
+    row.payload = {**row.payload, "originals": {identifier: {"name": identifier}}, "plans": [plan]}
     db.commit()
     mark(c, "VEH", identifier)
     assert preview(c, ("VEH", identifier))["can_execute"]
-    row.payload = {"plans": [{"unexpected": identifier}]}
+    row.payload = {**row.payload, "plans": [{**plan, "unexpected": identifier}]}
     db.commit()
     response = c.post(BASE + "/preview", json={"objects": [{"object_type": "VEH", "object_id": identifier}]})
     assert response.status_code == 409 and "arm2_bulk_sessions.payload.plans" in response.json()["detail"]
     assert db.scalar(select(HistoryEvent).where(HistoryEvent.operation == "DELETED")) is None
+
+
+@pytest.mark.parametrize("damage", ["unknown-version", "legacy-target", "unknown-option", "bad-index", "bad-typed-id"])
+def test_unknown_bulk_shapes_stop_preview_execute_and_reopen_without_mutation(qa, damage):
+    c, db, _, parents, _, _ = qa
+    identifier = parents["veh"]
+    selected = ("VEH", identifier)
+    marked = mark(c, *selected)
+    checked = preview(c, selected)
+    assert checked["can_execute"]
+    draft = upload(c, "Госномер\tРабочее имя\nА812ВС86\tОтдельная машина")
+    record = db.get(BulkSession, draft["id"])
+    payload = deepcopy(record.payload)
+    plan = payload["plans"][0]
+    if damage in ("unknown-version", "legacy-target"):
+        payload.pop("schema")
+        payload["plans"] = [{"key": "p1", "fields": {}, "target": {"type": "VEH", "id": identifier}}]
+        if damage == "unknown-version":
+            payload["schema"] = "ARM_BULK_V999"
+    if damage == "unknown-option":
+        plan["fields"]["name"][0]["target"] = {"type": "VEH", "id": identifier}
+    if damage == "bad-index":
+        payload["decisions"] = {plan["key"]: {"name": False}}
+    if damage == "bad-typed-id":
+        plan["fields"]["type_id"] = [{**plan["fields"]["name"][0], "value": "VEH-000001"}]
+    record.payload = payload
+    revision = record.revision
+    db.commit()
+    selected_body = {"objects": [{"object_type": selected[0], "object_id": selected[1]}]}
+    assert c.post(BASE + "/preview", json=selected_body).status_code == 409
+    assert execute(c, checked["id"]).status_code == 409
+    workspace = f"/api/arm2/bulk/sessions/{draft['id']}"
+    draft_keys = ("headers", "rows", "mapping", "excluded", "clears", "decisions", "confirmations")
+    assert c.get(workspace).status_code == 409
+    assert c.get(workspace + "/report").status_code == 409
+    assert c.put(workspace, json={"revision": revision, **{k: draft[k] for k in draft_keys}}).status_code == 409
+    assert c.post(workspace + "/apply", json={"command_id": str(uuid4()), "preview_id": draft["preview_id"],
+                                              "row_key": plan["key"], "fields": {"name": 0}}).status_code == 409
+    assert c.post(workspace + "/finish", json={"revision": revision}).status_code == 409
+    current = db.get(BulkSession, draft["id"], populate_existing=True)
+    assert current.payload == payload and current.revision == revision
+    assert c.get(f"/api/arm2/vehicles/{identifier}").status_code == 200
+    assert db.get(DeletionMark, selected).command_id == marked["mark"]
+    assert db.get(DeletionBatch, checked["id"]).executed_at is None
+    assert db.scalar(select(HistoryEvent).where(HistoryEvent.operation == "DELETED")) is None
+    assert not queue_snapshot(db)
+    if damage == "unknown-version":
+        cleanup = f"/api/arm2/bulk/cleanup/{draft['id']}"
+        assert c.post(cleanup, json={"confirm_session": str(uuid4())}).status_code == 422
+        assert ok(c.post(cleanup, json={"confirm_session": draft["id"]}))["cleaned"] == draft["id"]
+        assert c.get(workspace).status_code == 404 and preview(c, selected)["can_execute"]
+
+
+def test_only_selected_bulk_type_and_owner_options_block_deletion(qa):
+    c, _, _, parents, _, _ = qa
+    typ = ok(c.post("/api/arm2/types", json={
+        "name": "Тип для сверки решений", "plate_category": "Автомобильный", "requires_sts": True,
+        "requires_calibration": False, "requires_wialon": False,
+    }), 201)["id"]
+    cp = parents["cp"]
+    draft = upload(c, f"а\tб\tв\tг\nА813ВС86\t{typ}\tCP\t{cp}")
+    draft = edit(c, draft, mapping=["plate_number", "type_id", "owner_kind", "owner_id"])
+    plan = draft["plans"][0]
+    assert plan["fields"]["type_id"][0]["value"] == typ and plan["fields"]["owner"][0]["value"] == ["CP", cp]
+    mark(c, "TYPE", typ)
+    mark(c, "CP", cp)
+    selection = (("TYPE", typ), ("CP", cp))
+    assert preview(c, *selection)["can_execute"]
+    draft = edit(c, draft, decisions={plan["key"]: {"type_id": 0}})
+    blocked = preview(c, *selection)
+    assert not blocked["can_execute"]
+    assert {item["target_id"] for item in blocked["dependencies"] if item["blocking"]} == {typ}
+    edit(c, draft, decisions={plan["key"]: {"type_id": 0, "owner": 0}})
+    assert {item["target_id"] for item in preview(c, *selection)["dependencies"] if item["blocking"]} == {typ, cp}
 
 
 def test_partial_b5_holds_selected_counterparty_then_keeps_immutable_receipt(b5):

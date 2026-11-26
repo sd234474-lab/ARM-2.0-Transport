@@ -212,6 +212,7 @@ def test_new_revision_does_not_inherit_old_confirmation_and_preserves_old_file(q
     assert '27м3' in bundle(c, path)['revisions'][0]['files'][0]['download_name']
 
 
+@pytest.mark.parametrize('isolated_arm2_database_url', ['0075'], indirect=True)
 def test_migration_0072_to_0073_preserves_data_and_guards_naming_history(qa):
     from alembic.config import Config
     from alembic.script import ScriptDirectory

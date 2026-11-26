@@ -1,6 +1,5 @@
 """Incoming physical and live logical references for the ARM2 object registry."""
 
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -25,6 +24,7 @@ from app.arm2.document_file_models import (
 from app.arm2.document_file_storage import STAGE_SECONDS
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_models import Document
+from app.arm2.file_read_guard import approval_attempt_key, stage_attempt_key, try_idle_attempt
 from app.arm2.object_registry import OBJECT_REGISTRY, DeletionPolicy, DeletionType, ObjectRegistryError
 from app.arm2.object_save import ObjectVersionConflictError
 from app.arm2.operation_models import BackgroundOperation
@@ -46,6 +46,7 @@ from app.arm2.reference_paths import (
     questionnaire_pending_targets,
     questionnaire_selection,
     questionnaire_upload,
+    reference_id,
 )
 from app.arm2.representative_models import CounterpartyRepresentative, OrganizationRepresentative
 from app.arm2.vehicle_models import Vehicle
@@ -121,6 +122,7 @@ ARTIFACTS = {policy.model: policy for policy in (
     DeletionArtifact(FileAcceptance, 50, name="Приёмка комплекта", active=is_active_acceptance,
                      lease=lambda row: row.id, private=True, cleanup=unpublished_acceptance),
     DeletionArtifact(FileStage, 60, name="Временная загрузка", active=is_active_stage, private=True,
+                     lease=lambda row: stage_attempt_key(row.id),
                      cleanup=lambda row: (((row.id, row.file_id),), ())),
     DeletionArtifact(DocumentRevision, 70, name="Редакция"),
     DeletionArtifact(DocumentFile, 80, name="Оригинал", owners=(("DOCUMENT", "document_id"), ("APPROVAL", "process_id")),
@@ -128,7 +130,7 @@ ARTIFACTS = {policy.model: policy for policy in (
     DeletionArtifact(ApprovalAttempt, 170, name="Черновик ответа заказчика",
                      owners=(("APPROVAL", "target_id"),), active=is_active_attempt,
                      eligible=(ApprovalAttempt.action == "response-stage",),
-                     lease=lambda row: "approval-" + row.id, private=True, cleanup=reserved_approval_originals),
+                     lease=lambda row: approval_attempt_key(row.id), private=True, cleanup=reserved_approval_originals),
 )}
 
 
@@ -415,9 +417,7 @@ def check_manifests(db, targets):
 def ensure_idle(db, artifacts):
     for row in artifacts:
         policy = ARTIFACTS[type(row)]
-        if policy.lease and not db.scalar(text(
-            "SELECT pg_try_advisory_xact_lock(hashtextextended(:key,6365))"
-        ), {"key": policy.lease(row)}):
+        if policy.lease and not try_idle_attempt(db, policy.lease(row)):
             raise ObjectVersionConflictError("Связанная операция ещё выполняется")
 
 
@@ -511,13 +511,9 @@ def incoming_logical(db, targets):
                 if not (active or retired):
                     continue
                 for kind, identifier, field in refs:
-                    if not isinstance(identifier, str) or not isinstance(field, str):
+                    if not isinstance(field, str):
                         raise ValueError("Некорректный формат логической ссылки")
-                    if kind in ("FILE", "DOCUMENT-REV"):
-                        if not re.fullmatch(f"{kind}-[0-9]{{6,}}", identifier):
-                            raise ValueError("Некорректный ID файла или редакции")
-                    else:
-                        OBJECT_REGISTRY.require(kind).validate_id(identifier)
+                    reference_id(kind, identifier, field)
                     key = (kind, identifier)
                     identity = (policy, id(row), key, field)
                     if key in by_id and identity not in seen:

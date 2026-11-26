@@ -160,6 +160,27 @@ def mark_counterparty_for_deletion(client, identifier):
     return {'objects': [{'object_type': 'CP', 'object_id': identifier}]}
 
 
+def test_unknown_reference_shape_in_unselected_draft_choice_blocks_old_deletion_check(b5):
+    c, db, _, parents, _, _ = b5
+    identifier = parents['cp']
+    selection = mark_counterparty_for_deletion(c, identifier)
+    path = '/api/arm2/deletion'
+    batch = check(c.post(path + '/preview', json=selection))
+    assert batch['can_execute']
+    draft = upload(c, workbook())
+    row = db.get(QuestionnaireDraft, draft['id'])
+    preserved = {**row.choices, 'documents': {'v:5:sts': {'accept': False, 'target': {'type': 'CP', 'id': identifier}}}}
+    row.choices = preserved
+    db.commit()
+    denied = c.post(path + '/preview', json=selection)
+    assert denied.status_code == 409 and 'choices/preview/staging' in denied.json()['detail']
+    assert c.post(f"{path}/batches/{batch['id']}/execute", json={'confirmed': True}).status_code == 409
+    assert check(c.get(f'/api/arm2/counterparties/{identifier}'))['id'] == identifier
+    assert db.get(QuestionnaireDraft, draft['id'], populate_existing=True).choices == preserved
+    assert db.scalar(select(func.count()).select_from(HistoryEvent).where(HistoryEvent.operation == 'DELETED')) == 0
+    assert db.scalar(select(func.count()).select_from(BackgroundOperation)) == 0
+
+
 def test_background_acceptance_shows_real_progress_and_coalesces_requests(b5, monkeypatch):
     client, db, _, parents, _, disk = b5
     entered, release = Event(), Event()

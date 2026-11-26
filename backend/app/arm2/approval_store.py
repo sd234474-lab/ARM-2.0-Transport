@@ -11,7 +11,6 @@ from app.arm2 import document_file_storage as files
 from app.arm2.approval_models import ApprovalAttempt, ApprovalDecision, ApprovalRequest
 from app.arm2.document_file_models import DocumentFile, DocumentFileCorrection
 from app.arm2.document_file_store import (
-    attempt_lease,
     document_access,
     instant,
     revision_files,
@@ -20,6 +19,7 @@ from app.arm2.document_file_store import (
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_models import Document
 from app.arm2.document_store import lock_kind, parent_access
+from app.arm2.file_read_guard import approval_attempt_key, attempt_lease
 from app.arm2.ids import next_id
 from app.arm2.object_registry import OBJECT_REGISTRY, ObjectReference
 from app.arm2.object_save import (
@@ -299,7 +299,7 @@ def confirm_calibration(db, user, session_hash, vehicle_id, command):
     session_access(db, user, session_hash)
     payload = dict(command)
     key = payload.pop("command_id")
-    with attempt_lease(db, "approval-" + key):
+    with attempt_lease(db, approval_attempt_key(key)):
         old, digest = attempt(db, user, key, "calibration", vehicle_id, payload)
         if old and old.result:
             return historic_approval_result(db, user, "VEH", vehicle_id, old.result)
@@ -440,7 +440,7 @@ def issue_letter(db, user, session_hash, command):
     if any(not number or len(number) > 160 or any(ord(c) < 32 for c in number) for number in numbers):
         raise ValueError("Укажите оба номера контрактов (до 160 символов)")
     session_access(db, user, session_hash)
-    with attempt_lease(db, "approval-" + key):
+    with attempt_lease(db, approval_attempt_key(key)):
         old, digest = attempt(db, user, key, "letter", "", payload)
         if old and old.result:
             return historic_approval_result(db, user, "APPROVAL", old.result["request_id"], old.result)
@@ -556,7 +556,7 @@ def stage_response(db, user, session_hash, request_id, key, name, data):
     if not 0 < len(data) <= MAX_RESPONSE_BYTES:
         raise ValueError("Ответ должен быть не больше 2 МиБ")
     payload = {"name": name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
-    with attempt_lease(db, "approval-" + key):
+    with attempt_lease(db, approval_attempt_key(key)):
         old, digest = attempt(db, user, key, "response-stage", request_id, payload)
         if old:
             response_stage(db, user, session_hash, request_id, key)
@@ -612,7 +612,7 @@ def apply_response(db, user, session_hash, request_id, command):
     payload = dict(command)
     key = payload.pop("command_id")
     session_access(db, user, session_hash)
-    with attempt_lease(db, "approval-" + key):
+    with attempt_lease(db, approval_attempt_key(key)):
         old, digest = attempt(db, user, key, "response", request_id, payload)
         if old and old.result:
             return historic_approval_result(db, user, "APPROVAL", request_id, old.result)

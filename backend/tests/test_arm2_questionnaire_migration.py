@@ -56,9 +56,9 @@ def test_0069_upgrade_preserves_0068_rows_ids_versions_history_and_sequence(isol
 
 
 @pytest.mark.parametrize('reason', ['name', 'history', 'draft', 'upload', 'receipt', 'export'])
+@pytest.mark.parametrize('isolated_arm2_database_url', ['0075'], indirect=True)
 def test_0069_guard_never_discards_names_history_or_questionnaire_ledgers(b5, reason):
     c, db, user, parents, *_ = b5
-    command.downgrade(config(), '0075')
     if reason == 'name':
         db.execute(text("UPDATE arm2_counterparties SET last_name='Keep normalized name' WHERE id=:id"), {'id': parents['cp']})
     elif reason == 'history':

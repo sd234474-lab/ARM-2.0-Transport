@@ -41,6 +41,7 @@ def snapshot(engine):
                 for table in ("arm2_vehicles", "arm2_history_events", "users")}
 
 
+@pytest.mark.parametrize("isolated_arm2_database_url", ["0075"], indirect=True)
 def test_empty_bulk_schema_roundtrip_preserves_vehicle_history_and_sequence(migrated):
     engine, config, db, _, vehicle, _ = migrated
     before = snapshot(engine)
@@ -63,9 +64,9 @@ def test_empty_bulk_schema_roundtrip_preserves_vehicle_history_and_sequence(migr
 
 
 @pytest.mark.parametrize("existing", ["workspace", "receipt", "cleanup"])
+@pytest.mark.parametrize("isolated_arm2_database_url", ["0075"], indirect=True)
 def test_bulk_downgrade_never_discards_workspace_protocol_or_cleanup_audit(migrated, existing):
     engine, config, db, user, vehicle, _ = migrated
-    command.downgrade(config, "0075")
     sid = str(uuid4())
     if existing == "workspace":
         db.add(BulkSession(id=sid, user_id=user.id, source="test.tsv", revision=1, payload={"rows": []}))
@@ -87,6 +88,7 @@ def test_bulk_downgrade_never_discards_workspace_protocol_or_cleanup_audit(migra
         assert conn.scalar(text(f"SELECT count(*) FROM {table}")) == 1
 
 
+@pytest.mark.parametrize("isolated_arm2_database_url", ["0075"], indirect=True)
 def test_type_category_history_blocks_lossy_downgrade_even_after_clear(migrated):
     engine, config, db, user, _, context = migrated
     typ = create_vehicle_type(db, "Категория", True, False, False, plate_category="Автомобильный", principal=user, context=context)
@@ -98,4 +100,4 @@ def test_type_category_history_blocks_lossy_downgrade_even_after_clear(migrated)
         command.downgrade(config, "0066")
     assert snapshot(engine) == before
     with engine.connect() as conn:
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0076"
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0075"

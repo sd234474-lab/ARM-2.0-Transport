@@ -8,8 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.arm2 import document_file_storage as files
 from app.arm2 import questionnaire_store as store
-from app.arm2.document_file_store import attempt_lease
-from app.arm2.file_read_guard import protected_background_work
+from app.arm2.file_read_guard import attempt_lease, protected_background_work
 from app.arm2.http_errors import CONTROLLED_ERRORS, controlled_error, rollback
 from app.arm2.object_save import ObjectAuthorizationError, ObjectVersionConflictError
 from app.arm2.operation_models import BackgroundOperation
