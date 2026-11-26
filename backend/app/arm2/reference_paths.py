@@ -1,10 +1,12 @@
 """Explicit paths written by the B3–B5 and approval workflows."""
 
 import re
+from enum import Enum, auto
 from uuid import UUID
 
 from app.arm2.bulk_diff import CLEARABLE
 from app.arm2.bulk_tables import FIELDS, LABELS
+from app.arm2.ids import is_canonical_id
 from app.arm2.object_registry import OBJECT_REGISTRY
 
 BULK_SCHEMA = "ARM_BULK_V1"
@@ -23,6 +25,12 @@ DOCUMENT_PREVIEW = (DOCUMENT_CHOICE - {"accept"}) | SHORT_DOCUMENT_PREVIEW | {
 }
 VEHICLE_CHOICE = {"fields", "type_id", "without_type", "confirm_owner", "include", "edits", "volume"}
 VEHICLE_PREVIEW_FIELDS = {"name", "model", "type_id", "accounting_state", "owner"}
+
+
+class ReferenceState(Enum):
+    EXISTING = auto()
+    CREATING = auto()
+    UNRESOLVED = auto()
 
 
 def record(value):
@@ -54,7 +62,7 @@ def reference_id(kind, identifier, path):
     if not isinstance(identifier, str):
         raise ValueError(f"Некорректный ID в {path}")
     if kind in ("FILE", "DOCUMENT-REV"):
-        if not re.fullmatch(f"{kind}-[0-9]{{6,}}", identifier):
+        if not is_canonical_id(kind, identifier):
             raise ValueError(f"Некорректный ID в {path}")
     else:
         OBJECT_REGISTRY.require(kind).validate_id(identifier)
@@ -143,13 +151,14 @@ def bulk_plan(raw, row_count):
     refs = []
     if expanded:
         identifier, version, matched = (plan[name] for name in ("vehicle_id", "version", "matched"))
-        typed(refs, "VEH", identifier, "payload.plans.vehicle_id", nullable=True)
-        if identifier is None:
-            if version is not None or matched is not None or action == "UPDATE":
+        state = versioned_reference(refs, "VEH", identifier, version, "payload.plans",
+                                    id_field="vehicle_id", creating=action == "CREATE")
+        if state is not ReferenceState.EXISTING:
+            if matched is not None or action == "UPDATE":
                 raise ValueError("Некорректная цель плана создания")
         else:
             shape(matched, "plans.matched", {"name", "plate_number"}, required={"name", "plate_number"})
-            if type(version) is not int or version < 1 or action == "CREATE" or not all(map(string, matched.values())):
+            if action == "CREATE" or not all(map(string, matched.values())):
                 raise ValueError("Некорректная цель плана обновления")
         items(plan["similar"])  # Candidate descriptions are never references.
         if not boolean(plan["has_snapshot"]):
@@ -238,6 +247,9 @@ def add_document(result, document, path, *, choice=False):
         ("FILE", "replace_file_id"),
     ):
         placeholders = ("", "new") if field == "document_id" else ("",)
+        if field == "document_id" and not choice:
+            versioned_reference(result, kind, document.get(field), document.get("version"), path, id_field=field)
+            continue
         typed(result, kind, document.get(field), path + "." + field,
               nullable=True, placeholders=placeholders if choice else ())
     for file in records(document, "current_files", optional=choice or document.keys() <= SHORT_DOCUMENT_PREVIEW):
@@ -266,6 +278,20 @@ def check_reference_version(identifier, version, path):
         return
     if identifier is None or type(version) is not int or version < 1:
         raise ValueError(f"Некорректная версия в {path}")
+
+
+def versioned_reference(result, kind, identifier, version, path, *, id_field="id", creating=False):
+    check_reference_version(identifier, version, path + ".version")
+    typed(result, kind, identifier, path + "." + id_field, nullable=True)
+    if identifier is not None:
+        return ReferenceState.EXISTING
+    return ReferenceState.CREATING if creating else ReferenceState.UNRESOLVED
+
+
+def questionnaire_cp_state(cp, choice):
+    if cp["key"] != "CP" or cp["target"] != choice or (cp["id"] is not None and cp["id"] != choice):
+        raise ValueError("Не совпадает контрагент в preview.cp")
+    return versioned_reference([], "CP", cp["id"], cp["version"], "preview.cp", creating=choice == "new")
 
 
 def planned_file(value, path, extra, *, required=()):
@@ -297,6 +323,8 @@ def questionnaire_selection(row):
     document_choices = record(choices.get("documents", {}))
     cp_target = choices.get("cp_target")
     typed(result, "CP", cp_target, "choices.cp_target", nullable=True, placeholders=("new", ""))
+    cp = comparison.get("cp")
+    cp_state = questionnaire_cp_state(record(cp), cp_target) if cp is not None else ReferenceState.UNRESOLVED
     for choice in record(choices.get("representatives", {})).values():
         shape(choice, "choices.representatives", {"target", "fields", "signer", "sources", "edits"})
         typed(result, "CPREP", choice.get("target"), "choices.representatives.target", nullable=True, placeholders=("new", ""))
@@ -327,13 +355,13 @@ def questionnaire_selection(row):
         key = vehicle["key"]
         choice = record(vehicle_choices.get(key, {}))
         refs = []
-        typed(refs, "VEH", vehicle["id"], "preview.vehicles.id", nullable=True)
-        check_reference_version(vehicle["id"], vehicle["version"], "preview.vehicles.version")
+        versioned_reference(refs, "VEH", vehicle["id"], vehicle["version"], "preview.vehicles")
         fields = shape(vehicle["fields"], "preview.vehicles.fields", VEHICLE_PREVIEW_FIELDS)
         comparison_field = {"current", "proposed", "selected", "error", "equal", "current_display", "proposed_display"}
         owner = shape(fields.get("owner", {}), "preview.vehicles.owner", comparison_field)
         typed_owner(refs, owner.get("current"), "preview.vehicles.owner.current")
-        typed_owner(refs, owner.get("proposed"), "preview.vehicles.owner.proposed", new_cp=cp_target == "new")
+        typed_owner(refs, owner.get("proposed"), "preview.vehicles.owner.proposed",
+                    new_cp=cp_state is ReferenceState.CREATING)
         type_choice = shape(fields.get("type_id", {}), "preview.vehicles.type_id", comparison_field)
         type_refs = []
         type_error, proposed_type = type_choice.get("error"), type_choice.get("proposed")
@@ -354,30 +382,70 @@ def questionnaire_selection(row):
         if selected_flag(choice, "include") and "type_id" in items(choice.get("fields", [])):
             result.extend(refs)
     for group in records(staging, "groups", optional=not staging):
-        result.extend(staging_group(group))
+        result.extend(staging_group(group, comparison=comparison, choices=choices, payload=payload))
     return result
 
 
-def staging_group(group):
+def staging_parent(result, group, comparison, choices, payload, path):
+    kind, key, identifier = (group[field] for field in ("parent_type", "parent_key", "parent_id"))
+    document_parent(result, key, path + ".parent_key")
+    if (kind, key) == ("CP", "CP"):
+        target = record(comparison["cp"])
+        state = questionnaire_cp_state(target, choices.get("cp_target"))
+        if state is ReferenceState.CREATING:
+            fields = record(target["fields"])
+            accepted = items(choices["cp_fields"])
+            if target["error"] or not all(
+                name in accepted and selected_flag(record(fields[name]), "selected")
+                and fields[name]["proposed"] and not fields[name]["error"] for name in ("name", "type")
+            ):
+                raise ValueError(f"Не подтверждено создание контрагента в {path}")
+    elif kind == "VEH" and key.startswith("v:"):
+        matches = [vehicle for vehicle in records(comparison, "vehicles") if vehicle["key"] == key]
+        if len(matches) != 1:
+            raise ValueError(f"Строка техники в {path} отсутствует или неоднозначна")
+        target = matches[0]
+        choice = record(record(choices.get("vehicles", {})).get(key, {}))
+        plate = target.get("plate_number")
+        creating = (selected_flag(choice, "include") and target["id"] is None
+                    and target["withdrawal"] is False and items(target["errors"]) == [] and string(plate) and bool(plate))
+        if creating:
+            fields = record(target["fields"])
+            creating = (not any(selected_flag(field, "selected") and field["error"] for field in fields.values())
+                        and (not fields.get("type_id", {}).get("error") or selected_flag(target, "without_type")))
+        if creating and payload.get("_documents_pending"):
+            saved_rows = [row for row in records(payload, "vehicles") if row["key"] == key]
+            creating = len(saved_rows) == 1 and saved_rows[0]["id"] in (None, "")
+        state = versioned_reference([], kind, target["id"], target["version"], "preview.vehicles", creating=creating)
+    elif kind == "VEH" and key.startswith("VEH-"):
+        target, state = {"id": key}, ReferenceState.EXISTING
+    else:
+        raise ValueError(f"Не совпадают тип и ключ родителя в {path}")
+    if state is ReferenceState.UNRESOLVED or identifier != target["id"]:
+        raise ValueError(f"Не совпадает ссылка на родителя в {path}")
+    typed(result, kind, identifier, path + ".parent_id", nullable=state is ReferenceState.CREATING)
+
+
+def staging_group(group, *, comparison, choices, payload=None):
     path = "staging.groups"
     keys = {"parent_type", "parent_id", "parent_key", "kind_id", "document_id", "document_name",
             "expected_version", "replacements", "files"}
     shape(group, path, keys, required=keys)
     result = []
-    document_parent(result, group["parent_key"], path + ".parent_key")
-    parent_type, parent_id = group["parent_type"], group["parent_id"]
-    if parent_type not in ("CP", "ORG", "VEH"):
-        raise ValueError(f"Неизвестный тип родителя в {path}.parent_type")
-    parent_pending = (parent_type == "CP" and group["parent_key"] == "CP"
-                      or parent_type == "VEH" and group["parent_key"].startswith("v:"))
-    typed(result, parent_type, parent_id, path + ".parent_id", nullable=parent_pending)
+    staging_parent(result, group, comparison, choices, payload or {}, path)
     typed(result, "DOC-KIND", group["kind_id"], path + ".kind_id")
-    typed(result, "DOCUMENT", group["document_id"], path + ".document_id", nullable=True)
-    check_reference_version(group["document_id"], group["expected_version"], path + ".expected_version")
-    result.extend(typed_list("FILE", group["replacements"], path + ".replacements"))
+    document = versioned_reference(result, "DOCUMENT", group["document_id"], group["expected_version"], path,
+                                   id_field="document_id", creating=True)
+    replacements = typed_list("FILE", group["replacements"], path + ".replacements")
+    if (document is ReferenceState.EXISTING and group["parent_id"] is None
+            or document is ReferenceState.CREATING and replacements):
+        raise ValueError(f"Несогласованная замена документа в {path}")
+    result.extend(replacements)
     for file in records(group, "files"):
         planned_file(file, path + ".files", {"existing", "upload_id"}, required={"existing"})
         if file["existing"]:
+            if document is ReferenceState.CREATING:
+                raise ValueError(f"Новый документ не может использовать существующий файл в {path}")
             typed(result, "FILE", file["id"], path + ".files.id")
     return result
 

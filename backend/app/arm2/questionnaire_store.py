@@ -760,6 +760,9 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
                     'documents': {k: {**v, 'accept': False} for k, v in draft.choices.get('documents', {}).items()}}
                 draft.revision += 1
                 draft.preview = build(db, principal, draft)
+                # Old groups are tied to the review before these IDs were committed.
+                # Upload.prepared retains the transfer ledger for cleanup.
+                draft.staging = {}
             else:
                 draft.status, draft.accepted_at = 'ACCEPTED', accepted
                 draft.payload, draft.choices, draft.preview, draft.staging = {}, {}, {}, {}

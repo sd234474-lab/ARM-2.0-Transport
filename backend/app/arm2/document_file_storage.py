@@ -14,6 +14,7 @@ import zipfile
 import olefile
 from PIL import Image
 
+from app.arm2.ids import is_canonical_id
 from app.config import settings
 from app.integrations import YandexDisk
 
@@ -237,7 +238,7 @@ def safe_name(preset, document, parent, kind, file_id, extension, *, generated_b
               revision_id=CURRENT_REVISION):
     if (
         preset not in PRESETS
-        or not re.fullmatch(r"FILE-[0-9]{6,}", file_id)
+        or not is_canonical_id("FILE", file_id)
         or (extension not in {"pdf", "png", "jpg", "gif", "webp", "docx", "xlsx", "pptx", "bin"}
             and not (generated_bundle and extension == "zip"))
     ):

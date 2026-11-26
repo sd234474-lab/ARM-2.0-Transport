@@ -13,6 +13,7 @@ from app.arm2.document_file_models import DocumentFile
 from app.arm2.document_file_store import revision_files
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_models import Document
+from app.arm2.ids import is_canonical_id
 from app.arm2.object_save import ObjectAuthorizationError
 from app.arm2.organization_models import Organization
 from app.arm2.questionnaire_models import QuestionnaireUpload
@@ -147,7 +148,7 @@ def build(db, principal, draft):
     reasons = []
     if cp:
         if cp_hint and cp_hint not in (cp.id, cp.name):
-            hinted = db.get(Counterparty, cp_hint) if re.fullmatch(r'CP-\d{6,}', cp_hint) else None
+            hinted = db.get(Counterparty, cp_hint) if is_canonical_id('CP', cp_hint) else None
             reasons.append({'field': 'counterparty', 'label': 'Контрагент', 'current': cp.name,
                             'proposed': hinted.name if hinted else 'В анкете указан другой контрагент'})
         if cp_values.get('inn') and cp.inn and cp_values['inn'] != cp.inn:
@@ -172,7 +173,7 @@ def build(db, principal, draft):
         lookup_id = rep_id if rep_id and rep_id != 'new' else hint if cp else None
         rep = db.get(CounterpartyRepresentative, lookup_id, populate_existing=True) if lookup_id else None
         error = None
-        if hint and cp and (not re.fullmatch(r'CPREP-\d{6,}', hint) or
+        if hint and cp and (not is_canonical_id('CPREP', hint) or
                 db.scalar(select(CounterpartyRepresentative.id).where(CounterpartyRepresentative.id == hint,
                     CounterpartyRepresentative.parent_id == cp.id)) is None):
             error = 'REP-ID не принадлежит выбранному CP или отсутствует; сопоставьте исходные данные'

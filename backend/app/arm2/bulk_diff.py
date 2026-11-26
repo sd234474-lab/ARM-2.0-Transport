@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.arm2.bulk_tables import FIELDS, permissions
 from app.arm2.counterparty_models import Counterparty
+from app.arm2.ids import is_canonical_id
 from app.arm2.organization_models import Organization
 from app.arm2.vehicle_models import Vehicle
 from app.arm2.vehicle_store import normalize_plate_number
@@ -40,7 +41,7 @@ def resolve(db, user, kind, identifier, name, original):
         raise ValueError("Нет прав просмотра указанного справочника")
     model = MODELS[kind]
     if identifier:
-        if not re.fullmatch(kind + r"-[0-9]{6,}", identifier):
+        if not is_canonical_id(kind, identifier):
             raise ValueError("Некорректный постоянный ID справочника")
         record = db.get(model, identifier)
         if record is None:
@@ -155,7 +156,7 @@ def preview(db, user, payload):
         try:
             if plate:
                 plate = normalize_plate_number(re.sub(r"\s+", "", plate))
-            if identifier and not re.fullmatch(r"VEH-[0-9]{6,}", identifier):
+            if identifier and not is_canonical_id("VEH", identifier):
                 raise ValueError("Некорректный VEH-ID")
             by_id = db.get(Vehicle, identifier) if identifier else None
             by_plate = db.scalar(select(Vehicle).where(Vehicle.plate_number == plate)) if plate else None

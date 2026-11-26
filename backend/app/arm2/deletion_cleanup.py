@@ -1,7 +1,4 @@
 """Run committed cleanup intents through the existing protected B3 storage provider."""
-
-import re
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -9,6 +6,7 @@ from app.arm2 import document_file_storage as files
 from app.arm2.approval_models import ApprovalAttempt
 from app.arm2.document_file_models import DocumentFile, FileAcceptance
 from app.arm2.file_read_guard import protected_cleanup
+from app.arm2.ids import is_canonical_id
 from app.arm2.questionnaire_models import QuestionnaireDraft, QuestionnaireUpload
 
 
@@ -53,7 +51,7 @@ def clean_original(database, item, report):
             return None
         root = files.document_root() + "/"
         target = item["storage_ref"]
-        if not target.startswith(root) or not re.fullmatch(r"FILE-[0-9]{6,}", item["id"]):
+        if not target.startswith(root) or not is_canonical_id("FILE", item["id"]):
             return {"code": "ROOT", "message": "Оригинал вне подтверждённого корня. Требуется сверка хранилища"}
         parts = target[len(root):].split("/")
         if len(parts) < 3 or any(part in {"", ".", ".."} or "\\" in part for part in parts) or parts[-2] != item["id"]:

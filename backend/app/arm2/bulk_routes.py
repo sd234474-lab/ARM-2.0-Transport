@@ -26,6 +26,7 @@ from app.arm2.bulk_tables import (
 from app.arm2.file_read_guard import protected_read
 from app.arm2.history_models import HistoryEvent
 from app.arm2.http_limits import bounded_route
+from app.arm2.ids import id_pattern
 from app.arm2.object_save import (
     ObjectAuthorizationError,
     ObjectVersionConflictError,
@@ -50,9 +51,9 @@ class Command(BaseModel):
 
 class ExportQuery(Command):
     q: Annotated[str, Field(max_length=200, pattern=r"^[^\x00]*$")] = ""
-    type_id: Annotated[str | None, Field(pattern=r"^TYPE-[0-9]{6,}$")] = None
+    type_id: Annotated[str | None, Field(pattern=id_pattern("TYPE"))] = None
     owner_kind: Literal["CP", "ORG", "NONE"] | None = None
-    owner_id: Annotated[str | None, Field(pattern=r"^(CP|ORG)-[0-9]{6,}$")] = None
+    owner_id: Annotated[str | None, Field(pattern=id_pattern("CP", "ORG"))] = None
     state: Literal["Действующая", "Архивная"] | None = None
     wialon: Literal["missing"] | None = None
     sort: Literal["name", "plate_number", "type", "owner", "accounting_state"] = "name"

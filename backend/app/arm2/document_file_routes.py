@@ -33,7 +33,7 @@ from app.arm2.document_file_store import (
 )
 from app.arm2.file_read_guard import attempt_lease, protected_read, stage_attempt_key
 from app.arm2.http_errors import CONTROLLED_ERRORS, controlled_error, rollback
-from app.arm2.ids import next_id
+from app.arm2.ids import id_pattern, next_id
 from app.arm2.object_save import ObjectAuthorizationError, ObjectNotFoundError, ObjectVersionConflictError
 from app.auth import CurrentUser, Db
 from app.schemas import StrictModel
@@ -51,7 +51,7 @@ class StageInput(StrictModel):
 
 class Candidate(StrictModel):
     stage_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
-    file_id: str | None = Field(default=None, pattern=r"^FILE-[0-9]{6,}$")
+    file_id: str | None = Field(default=None, pattern=id_pattern("FILE"))
 
 
 class AcceptInput(StrictModel):
@@ -63,7 +63,7 @@ class AcceptInput(StrictModel):
 class CorrectInput(StrictModel):
     expected_version: StrictInt = Field(gt=0)
     idempotency_key: str = Field(pattern=r"^[0-9a-f-]{36}$")
-    file_id: str = Field(pattern=r"^FILE-[0-9]{6,}$")
+    file_id: str = Field(pattern=id_pattern("FILE"))
     stage_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 

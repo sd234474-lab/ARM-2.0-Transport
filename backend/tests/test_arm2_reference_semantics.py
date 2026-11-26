@@ -1,6 +1,7 @@
 """End-to-end evidence for registered ARM2 reference semantics."""
 
 from copy import deepcopy
+from hashlib import sha256
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -19,9 +20,11 @@ from test_arm2_questionnaire_workflow import apply as apply_questionnaire
 from test_arm2_questionnaire_workflow import b5 as b5
 from test_arm2_questionnaire_workflow import choose as choose_questionnaire
 from test_arm2_questionnaire_workflow import doc_kind, transport, workbook
+from test_arm2_questionnaire_workflow import reopen as reopen_questionnaire
 from test_arm2_questionnaire_workflow import upload as upload_questionnaire
 
 from app.arm2 import deletion_relations as relations
+from app.arm2 import document_file_storage as file_storage
 from app.arm2 import reference_paths as refs
 from app.arm2.approval_models import ApprovalRequest
 from app.arm2.bulk_models import BulkReceipt, BulkSession
@@ -49,8 +52,10 @@ def set_or_remove(row, key, value):
         row[key] = value
 
 
-def preview_row(*, vehicle=None, document=None, choices=None, staging=None):
+def preview_row(*, cp=None, vehicle=None, document=None, choices=None, staging=None):
     comparison = {}
+    if cp is not None:
+        comparison["cp"] = cp
     if vehicle is not None:
         comparison["vehicles"] = [vehicle]
     if document is not None:
@@ -59,7 +64,15 @@ def preview_row(*, vehicle=None, document=None, choices=None, staging=None):
 
 
 def vehicle_row():
-    return {"key": "v:5", "id": None, "version": None, "fields": {"owner": {"current": None, "proposed": None}}}
+    return {"key": "v:5", "id": None, "version": None, "plate_number": "А123ВС86", "withdrawal": False,
+            "errors": [], "fields": {"owner": {"current": None, "proposed": None}}}
+
+
+def cp_row(identifier=None):
+    fields = {name: {"proposed": value, "selected": True, "error": None}
+              for name, value in (("name", "Синтетический CP"), ("type", "ЮЛ"))}
+    return {"key": "CP", "target": identifier or "new", "id": identifier, "version": 1 if identifier else None,
+            "error": None, "fields": fields}
 
 
 def document_preview():
@@ -76,6 +89,16 @@ def file_plan(*, existing=False):
 def document_group():
     return {"parent_type": "CP", "parent_key": "CP", "parent_id": None, "kind_id": "DOC-KIND-000001",
             "document_id": None, "document_name": "Тест", "expected_version": None, "files": [], "replacements": []}
+
+
+def staging_with_cp(group, *, existing_parent=False):
+    cp = cp_row("CP-000001" if existing_parent else None)
+    return refs.staging_group(group, comparison={"cp": cp},
+                              choices={"cp_target": cp["target"], "cp_fields": ["name", "type"]})
+
+
+def existing_document_group():
+    return {**document_group(), "document_id": "DOCUMENT-000001", "expected_version": 1, "parent_id": "CP-000001"}
 
 
 def acceptance_plan():
@@ -98,9 +121,9 @@ def typed_list_path(path, value):
         set_or_remove(vehicle, "file_ids", value)
         return refs.snapshot_references([vehicle], "vehicles_snapshot")
     if path == "staging.replacements":
-        group = document_group()
+        group = existing_document_group()
         set_or_remove(group, "replacements", value)
-        return refs.staging_group(group)
+        return staging_with_cp(group, existing_parent=True)
     plan = acceptance_plan()
     set_or_remove(plan, "uploaded", value)
     return refs.file_acceptance(SimpleNamespace(plan=plan))
@@ -211,7 +234,7 @@ def test_current_file_id_and_new_staging_kind_are_required(value):
     group = document_group()
     set_or_remove(group, "kind_id", value)
     with pytest.raises((ValueError, KeyError)):
-        refs.staging_group(group)
+        staging_with_cp(group)
 
 
 def test_document_preview_and_staging_require_lists_in_full_structures():
@@ -225,20 +248,112 @@ def test_document_preview_and_staging_require_lists_in_full_structures():
         group = document_group()
         set_or_remove(group, "files", value)
         with pytest.raises((ValueError, KeyError)):
-            refs.staging_group(group)
-    assert refs.staging_group(document_group()) == [("DOC-KIND", "DOC-KIND-000001", "staging.groups.kind_id")]
-    assert refs.staging_group({**document_group(), "parent_type": "VEH", "parent_key": "v:5"})
-    assert refs.staging_group({**document_group(), "document_id": "DOCUMENT-000001", "expected_version": 1})
+            staging_with_cp(group)
+    assert staging_with_cp(document_group()) == [("DOC-KIND", "DOC-KIND-000001", "staging.groups.kind_id")]
     for patch in ({"parent_key": ""}, {"parent_key": None}, {"parent_key": "VEH-000001", "parent_type": "VEH"},
                   {"parent_type": None}, {"document_id": ""}, {"parent_id": ""}, {"expected_version": 1},
-                  {"document_id": "DOCUMENT-000001"}, {"revision_id": None}, {"replace_file_id": None}):
+                  {"document_id": "DOCUMENT-000001"}, {"document_id": "DOCUMENT-000001", "expected_version": 1},
+                  {"revision_id": None}, {"replace_file_id": None}):
         with pytest.raises(ValueError):
-            refs.staging_group({**document_group(), **patch})
+            staging_with_cp({**document_group(), **patch})
     for key in ("parent_key", "parent_type", "parent_id", "document_id"):
         group = document_group()
         group.pop(key)
         with pytest.raises(ValueError):
-            refs.staging_group(group)
+            staging_with_cp(group)
+
+
+@pytest.mark.parametrize(("parent", "document_exists", "valid"), [
+    ("existing-cp", True, True), ("existing-cp", False, True), ("new-cp", False, True), ("new-cp", True, False),
+    ("existing-veh", True, True), ("existing-veh", False, True), ("new-veh", False, True), ("new-veh", True, False),
+    ("direct-veh", True, True), ("direct-veh", False, True),
+])
+def test_prepared_document_parent_and_document_states(parent, document_exists, valid):
+    group, choices, comparison = document_group(), {}, {}
+    if document_exists:
+        group.update(document_id="DOCUMENT-000001", expected_version=1)
+    if parent.endswith("-cp"):
+        cp = cp_row("CP-000001" if parent == "existing-cp" else None)
+        comparison["cp"] = cp
+        choices.update(cp_target=cp["target"], cp_fields=["name", "type"])
+        group["parent_id"] = cp["id"]
+    else:
+        vehicle = vehicle_row()
+        identifier = None if parent == "new-veh" else "VEH-000001"
+        vehicle.update(id=identifier, version=1 if identifier else None)
+        if parent != "direct-veh":
+            comparison["vehicles"] = [vehicle]
+            choices["vehicles"] = {"v:5": {"include": parent == "new-veh"}}
+        group.update(parent_type="VEH", parent_key=identifier if parent == "direct-veh" else "v:5", parent_id=identifier)
+    if not valid:
+        with pytest.raises(ValueError):
+            refs.staging_group(group, comparison=comparison, choices=choices)
+        return
+    extracted = refs.staging_group(group, comparison=comparison, choices=choices)
+    assert any(kind == "DOCUMENT" for kind, *_ in extracted) is document_exists
+    assert any(kind == group["parent_type"] and identifier == group["parent_id"]
+               for kind, identifier, _ in extracted) is (group["parent_id"] is not None)
+
+
+@pytest.mark.parametrize("damage", [
+    "missing-row", "duplicate-row", "wrong-kind", "wrong-row", "wrong-parent", "direct-id-mismatch",
+    "not-selected", "withdrawal", "missing-withdrawal", "invalid-plate", "invalid-row", "invalid-field", "unresolved-type",
+    "pending-version", "stored-existing-veh", "existing-version", "existing-parent-null", "existing-cp-null",
+    "missing-cp", "different-cp-choice", "unselected-cp", "cp-error",
+    "version-without-document", "document-without-version", "boolean-version", "replacement-new-doc",
+    "existing-file-new-doc",
+])
+def test_prepared_parent_requires_the_same_unambiguous_saved_choice(damage):
+    vehicle, group = vehicle_row(), {**document_group(), "parent_type": "VEH", "parent_key": "v:5"}
+    comparison, choices = {"vehicles": [vehicle]}, {"vehicles": {"v:5": {"include": True}}}
+    if damage == "missing-row":
+        comparison["vehicles"] = []
+    elif damage == "duplicate-row":
+        comparison["vehicles"].append(deepcopy(vehicle))
+    elif damage in ("wrong-kind", "wrong-row", "wrong-parent", "direct-id-mismatch"):
+        group.update({"wrong-kind": {"parent_type": "CP"}, "wrong-row": {"parent_key": "v:6"},
+                      "wrong-parent": {"parent_id": "VEH-000002"},
+                      "direct-id-mismatch": {"parent_key": "VEH-000002", "parent_id": "VEH-000001"}}[damage])
+    elif damage == "not-selected":
+        choices["vehicles"]["v:5"]["include"] = False
+    elif damage == "withdrawal":
+        vehicle["withdrawal"] = True
+    elif damage == "missing-withdrawal":
+        vehicle.pop("withdrawal")
+    elif damage == "invalid-plate":
+        vehicle["plate_number"] = 1
+    elif damage == "invalid-row":
+        vehicle["errors"] = ["Повтор госномера"]
+    elif damage in ("invalid-field", "unresolved-type"):
+        vehicle["fields"]["type_id"] = {"error": "Проверьте тип", "selected": damage == "invalid-field"}
+    elif damage == "pending-version":
+        vehicle["version"] = 1
+    elif damage in ("stored-existing-veh", "existing-version", "existing-parent-null"):
+        vehicle.update(id="VEH-000001", version=None if damage == "existing-version" else 1)
+        if damage == "existing-version":
+            group["parent_id"] = vehicle["id"]
+        if damage == "existing-parent-null":
+            choices["vehicles"]["v:5"]["include"] = False
+    elif damage in ("existing-cp-null", "missing-cp", "different-cp-choice", "unselected-cp", "cp-error"):
+        cp = cp_row("CP-000001" if damage == "existing-cp-null" else None)
+        group = document_group()
+        comparison = {} if damage == "missing-cp" else {"cp": cp}
+        choices = {"cp_target": "CP-000002" if damage == "different-cp-choice" else cp["target"],
+                   "cp_fields": [] if damage == "unselected-cp" else ["name", "type"]}
+        if damage == "cp-error":
+            cp["error"] = "Существующий контрагент"
+    else:
+        group.update({
+            "version-without-document": {"expected_version": 1},
+            "document-without-version": {"document_id": "DOCUMENT-000001"},
+            "boolean-version": {"document_id": "DOCUMENT-000001", "expected_version": True},
+            "replacement-new-doc": {"replacements": ["FILE-000001"]},
+            "existing-file-new-doc": {"files": [file_plan(existing=True)]},
+        }[damage])
+        vehicle.update(id="VEH-000001", version=1)
+        group["parent_id"] = vehicle["id"]
+    with pytest.raises((ValueError, KeyError)):
+        refs.staging_group(group, comparison=comparison, choices=choices)
 
 
 def test_vehicle_preview_distinguishes_absence_of_vehicle_unresolved_type_and_new_cp():
@@ -247,37 +362,42 @@ def test_vehicle_preview_distinguishes_absence_of_vehicle_unresolved_type_and_ne
     owner["proposed"] = ["CP", "$CP"]
     choices = {"cp_target": "new", "vehicles": {"v:5": {"include": True, "fields": ["type_id"], "type_id": ""}}}
     vehicle["fields"]["type_id"] = {"proposed": "Неизвестное название", "error": "Тип не распознан", "selected": True}
-    assert refs.questionnaire_selection(preview_row(vehicle=vehicle, choices=choices)) == []
+    def extract(**patch):
+        return refs.questionnaire_selection(preview_row(**({"cp": cp_row(), "vehicle": vehicle, "choices": choices} | patch)))
+
+    assert extract() == []
     for invalid in ([], {}, True, 123):
         vehicle["fields"]["type_id"]["proposed"] = invalid
         with pytest.raises(ValueError):
-            refs.questionnaire_selection(preview_row(vehicle=vehicle, choices=choices))
+            extract()
     vehicle["fields"]["type_id"] = {"proposed": "TYPE-000001", "error": None, "selected": True}
-    assert any(r[0] == "TYPE" for r in refs.questionnaire_selection(preview_row(vehicle=vehicle, choices=choices)))
+    assert any(r[0] == "TYPE" for r in extract())
     with pytest.raises(ValueError):
-        refs.questionnaire_selection(preview_row(vehicle=vehicle, choices={**choices, "cp_target": "CP-000001"}))
+        extract(cp=cp_row("CP-000001"), choices={**choices, "cp_target": "CP-000001"})
+    with pytest.raises(ValueError):
+        extract(cp={**cp_row(), "id": "CP-000001", "version": 1})
     owner["current"] = ["CP", "$CP"]
     with pytest.raises(ValueError):
-        refs.questionnaire_selection(preview_row(vehicle=vehicle, choices=choices))
+        extract()
     owner["current"] = None
     for patch in ({"id": ""}, {"id": "VEH-000001"}, {"version": 1}, {"id": "VEH-000001", "version": True}):
         with pytest.raises(ValueError):
-            refs.questionnaire_selection(preview_row(vehicle={**vehicle, **patch}, choices=choices))
+            extract(vehicle={**vehicle, **patch})
     vehicle.update(id="VEH-000001", version=1)
-    assert any(r[0] == "VEH" for r in refs.questionnaire_selection(preview_row(vehicle=vehicle, choices=choices)))
+    assert any(r[0] == "VEH" for r in extract())
     for field in ("id", "version"):
         damaged = {k: v for k, v in vehicle.items() if k != field}
         with pytest.raises(ValueError):
-            refs.questionnaire_selection(preview_row(vehicle=damaged, choices=choices))
+            extract(vehicle=damaged)
     for bad_type in ("Ошибка", "new", "CP-000001", {}):
         choices["vehicles"]["v:5"]["type_id"] = bad_type
         with pytest.raises(ValueError):
-            refs.questionnaire_selection(preview_row(vehicle=vehicle, choices=choices))
+            extract()
 
 
 def reserved_file_path(path, item):
     if path == "staging":
-        return refs.staging_group({**document_group(), "files": [item]})
+        return staging_with_cp({**existing_document_group(), "files": [item]}, existing_parent=True)
     if path == "prepared":
         return refs.questionnaire_upload(SimpleNamespace(prepared={str(uuid4()): [item]}))
     if path == "acceptance":
@@ -695,15 +815,19 @@ def test_completed_approval_remains_replayable_from_its_ledger(qa):
 def deletion_storage_snapshot(db, disk):
     tables = (
         "arm2_approval_requests", "arm2_approval_decisions", "arm2_approval_attempts",
+        "arm2_bulk_sessions", "arm2_bulk_receipts", "arm2_vehicle_types", "arm2_document_kinds",
         "arm2_organizations", "arm2_counterparties", "arm2_vehicles", "arm2_documents",
-        "arm2_document_files", "arm2_document_revisions", "arm2_document_file_acceptances",
+        "arm2_document_files", "arm2_document_file_stages", "arm2_document_revisions",
+        "arm2_document_revision_files", "arm2_document_revision_contexts", "arm2_document_file_acceptances",
         "arm2_questionnaire_drafts", "arm2_questionnaire_receipts", "arm2_questionnaire_uploads",
         "arm2_deletion_marks", "arm2_deletion_batches", "arm2_history_events", "arm2_background_operations",
     )
     with db.get_bind().connect() as conn:
         rows = {table: conn.exec_driver_sql(f"SELECT to_jsonb(r)::text FROM {table} r ORDER BY 1").scalars().all()
                 for table in tables}
-    return rows, [disk.location(path).read_bytes() for path in disk.uploads]
+    files = [{str(file.relative_to(root)): sha256(file.read_bytes()).hexdigest()
+              for file in root.rglob("*") if file.is_file()} for root in (disk.path, file_storage.zone())]
+    return rows, files
 
 
 def assert_registry_refuses(c, db, disk, keys, checked, path):
@@ -742,6 +866,67 @@ def test_null_response_file_id_stops_preview_and_stale_execute_without_losing_ap
     request.response_file_ids = []
     db.commit()
     assert ok(c.get(path)) == detail
+
+
+def unicode_id(identifier):
+    return identifier.translate(str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩"))
+
+
+@pytest.mark.parametrize("kind", ["TYPE", "CP"])
+def test_unicode_bulk_id_stops_preview_and_stale_execute_before_filtering(qa, kind):
+    c, db, _, parents, _, disk = qa
+    typ = ok(c.post("/api/arm2/types", json={
+        "name": "Синтетический тип для B4", "plate_category": "Автомобильный", "requires_sts": True,
+        "requires_calibration": False, "requires_wialon": False,
+    }), 201)["id"]
+    cp = parents["cp"]
+    draft = upload(c, f"а\tб\tв\tг\nА813ВС86\t{typ}\tCP\t{cp}")
+    draft = edit(c, draft, mapping=["plate_number", "type_id", "owner_kind", "owner_id"])
+    key = (kind, typ if kind == "TYPE" else cp)
+    mark(c, *key)
+    checked = preview(c, key)
+    assert checked["can_execute"]
+    field = "type_id" if kind == "TYPE" else "owner"
+    draft = edit(c, draft, decisions={draft["plans"][0]["key"]: {field: 0}})
+    assert not preview(c, key)["can_execute"]
+    row = db.get(BulkSession, draft["id"], populate_existing=True)
+    original = deepcopy(row.payload)
+    malformed = deepcopy(original)
+    option = malformed["plans"][0]["fields"][field][0]
+    assert option["value"] == (typ if kind == "TYPE" else ["CP", cp])
+    option["value"] = unicode_id(typ) if kind == "TYPE" else ["CP", unicode_id(cp)]
+    row.payload = malformed
+    db.commit()
+    assert_registry_refuses(c, db, disk, [key], checked, "arm2_bulk_sessions.payload.plans")
+    row.payload = original
+    db.commit()
+    assert not preview(c, key)["can_execute"]
+    assert reopen(c, draft)["decisions"] == draft["decisions"]
+
+
+@pytest.mark.parametrize("field", ["file_ids", "revision_id"])
+def test_unicode_file_or_revision_stops_preview_and_stale_execute(qa, field):
+    c, db, _, _, _, disk = qa
+    _, response = letter(c, prepare(qa)[:1])
+    identifier = ok(response, 201)["request_id"]
+    path = f"/api/arm2/approvals/{identifier}"
+    detail = ok(c.get(path))
+    keys = [("APPROVAL", identifier), ("APPROVAL-ITEM", detail["decisions"][0]["id"])]
+    for key in keys:
+        mark(c, *key)
+    checked = preview(c, *keys)
+    assert checked["can_execute"]
+    request = db.get(ApprovalRequest, identifier)
+    original = deepcopy(request.vehicles_snapshot)
+    malformed = deepcopy(original)
+    target = malformed[0][field]
+    malformed[0][field] = [unicode_id(target[0]), *target[1:]] if field == "file_ids" else unicode_id(target)
+    request.vehicles_snapshot = malformed
+    db.commit()
+    assert_registry_refuses(c, db, disk, keys, checked, "vehicles_snapshot/response_file_ids")
+    request.vehicles_snapshot = original
+    db.commit()
+    assert ok(c.get(path)) == detail and preview(c, *keys)["can_execute"]
 
 
 @pytest.mark.parametrize("damage", ["current_files", "replacements"])
@@ -785,6 +970,51 @@ def test_invalid_document_file_paths_stop_deletion_for_real_b5_draft(b5, damage)
     revision = bundle(c, url)["revisions"][0]
     file_id = revision["files"][0]["id"]
     assert c.get(f"{url}/revisions/{revision['id']}/files/{file_id}/download").content == original
+
+
+@pytest.mark.parametrize(("document_exists", "damage"), [
+    (True, {"parent_id": None}), (False, {"parent_id": None}), (False, {"parent_key": "VEH-999999"}),
+])
+def test_inconsistent_prepared_b5_parent_stops_preview_and_stale_execute(b5, document_exists, damage):
+    c, db, _, parents, _, disk = b5
+    kind = doc_kind(c)
+    url = f"/api/arm2/veh/{parents['veh']}/documents"
+    identifier = None
+    if document_exists:
+        identifier = ok(c.post(url, json={"kind_ref": kind, "name": "СТС"}), 201)["id"]
+        original_file = pdf("original prior to B5 replacement")
+        ok(accept(c, f"{url}/{identifier}", 1, [stage(c, f"{url}/{identifier}", original_file)]))
+    key, parent_key = ("ORG", parents["org"]), ("VEH", parents["veh"])
+    for identity in (key, parent_key):
+        mark(c, *identity)
+    checked = preview(c, key)
+    assert checked["can_execute"]
+    form = workbook(rows=[{"E": "А123ВС86", "P": "new.pdf"}])
+    draft = upload_questionnaire(c, transport(form, {"new.pdf": pdf("new")}), True)
+    draft = choose_questionnaire(c, draft, cp_target=parents["cp"], documents={"v:5:sts": {
+        "kind_id": kind, "document_id": identifier or "new", "accept": True,
+    }})
+    disk.fail_at = len(disk.uploads)
+    apply_questionnaire(c, draft, status=503)
+    disk.fail_at = None
+    row = db.get(QuestionnaireDraft, draft["id"], populate_existing=True)
+    valid_staging = deepcopy(row.staging)
+    group = valid_staging["groups"][0]
+    assert group["parent_id"] == parents["veh"] and group["parent_key"] == "v:5"
+    assert group["document_id"] == identifier
+    assert (group["expected_version"] is not None) is document_exists
+    assert not preview(c, parent_key)["can_execute"]
+    malformed = deepcopy(valid_staging)
+    malformed["groups"][0].update(damage)
+    row.staging = malformed
+    db.commit()
+    assert_registry_refuses(c, db, disk, [key], checked, "choices/preview/staging")
+    row.staging = valid_staging
+    db.commit()
+    assert reopen_questionnaire(c, draft)["choices"] == draft["choices"]
+    assert not preview(c, parent_key)["can_execute"]
+    assert ok(c.delete(f"/api/arm2/questionnaires/{draft['id']}"))["status"] == "CANCELLED"
+    assert preview(c, key)["can_execute"]
 
 
 def test_required_corrected_file_ref_blocks_deletion_via_the_common_registry(qa):
@@ -848,38 +1078,109 @@ def test_real_b3_empty_noop_can_reopen_without_revision(qa):
     assert ok(accept(c, url, 1, [], command)) == outcome
 
 
-def test_real_b5_new_parent_and_document_with_unresolved_type_elsewhere(b5):
+@pytest.mark.parametrize("partial", [False, True])
+def test_real_b5_new_parent_and_document_with_unresolved_type_elsewhere(b5, partial):
     c, db, _, _, _, disk = b5
     kind = doc_kind(c)
+    company_kind = doc_kind(c, "Карточка предприятия", "CP")
     original = pdf("new B5 original with no published IDs")
-    form = workbook({"B5": "ООО", "B12": "Синтетический новый контрагент"}, [
+    company_file = pdf("new company original with no published IDs")
+    form = workbook({"B5": "ООО", "B12": "Синтетический новый контрагент", "B28": "company.pdf"}, [
         {"I": "А812ВС86", "J": "Синтетическая новая машина", "P": "sts.pdf"},
         {"I": "А814ВС86", "H": "Неизвестный исходный тип"},
     ])
-    draft = choose_questionnaire(c, upload_questionnaire(c, transport(form, {"sts.pdf": original}), True),
+    draft = choose_questionnaire(c, upload_questionnaire(
+        c, transport(form, {"sts.pdf": original, "company.pdf": company_file}), True),
                                  cp_target="new", cp_fields=["type", "name"],
                                  vehicles={"v:5": {"include": True, "fields": ["name", "owner"]},
                                            "v:6": {"include": False, "fields": []}},
-                                 documents={"v:5:sts": {"kind_id": kind, "accept": True}})
+                                 documents={"company": {"kind_id": company_kind, "accept": True},
+                                            "v:5:sts": {"kind_id": kind, "accept": True}})
     row = db.get(QuestionnaireDraft, draft["id"])
     proposal = row.preview["vehicles"][1]["fields"]["type_id"]
     assert proposal["error"] and proposal["proposed"] == "Неизвестный исходный тип"
-    assert refs.questionnaire_selection(row) == [("DOC-KIND", kind, "choices.documents.kind_id"),
-                                                 ("DOC-KIND", kind, "preview.documents.kind_id")]
+    assert set(refs.questionnaire_selection(row)) == {
+        ("DOC-KIND", identifier, path) for identifier in (kind, company_kind)
+        for path in ("choices.documents.kind_id", "preview.documents.kind_id")
+    }
     db.rollback()
     disk.fail_at = 0
     _, command = apply_questionnaire(c, draft, status=503)
     disk.fail_at = None
     pending = db.get(QuestionnaireDraft, draft["id"], populate_existing=True)
-    prepared = pending.staging["groups"][0]
-    assert prepared["parent_id"] is None and prepared["document_id"] is None and prepared["expected_version"] is None
-    assert refs.staging_group(prepared) == [("DOC-KIND", kind, "staging.groups.kind_id")]
-    upload_row = db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == draft["id"])).one()
-    assert upload_row.prepared and refs.questionnaire_upload(upload_row) == []
+    assert {group["parent_type"] for group in pending.staging["groups"]} == {"CP", "VEH"}
+    for prepared in pending.staging["groups"]:
+        assert prepared["parent_id"] is None and prepared["document_id"] is None and prepared["expected_version"] is None
+        assert refs.staging_group(prepared, comparison=pending.preview, choices=pending.choices) == [
+            ("DOC-KIND", prepared["kind_id"], "staging.groups.kind_id")]
+    upload_rows = list(db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == draft["id"])))
+    assert len(upload_rows) == 2 and all(row.prepared and refs.questionnaire_upload(row) == [] for row in upload_rows)
     db.rollback()
+    if partial:
+        saved, _ = apply_questionnaire(c, draft, without_documents=True)
+        assert {entry["kind"] for entry in saved["objects"]} == {"CP", "VEH"}
+        pending = db.get(QuestionnaireDraft, draft["id"], populate_existing=True)
+        assert pending.staging == {} and pending.choices["cp_target"] == saved["cp_id"]
+        assert pending.preview["vehicles"][0]["id"] and pending.preview["vehicles"][0]["version"]
+        assert all(row.prepared for row in upload_rows)
+        db.rollback()
+        draft = choose_questionnaire(c, reopen_questionnaire(c, draft), documents=draft["choices"]["documents"])
+        disk.fail_at = 0
+        _, command = apply_questionnaire(c, draft, status=503)
+        disk.fail_at = None
+        pending = db.get(QuestionnaireDraft, draft["id"], populate_existing=True)
+        assert all(group["parent_id"] is not None for group in pending.staging["groups"])
+        assert {"CP", "VEH"} <= {ref[0] for ref in refs.questionnaire_selection(pending)}
+        group = next(group for group in pending.staging["groups"] if group["parent_type"] == "VEH")
+        inconsistent = deepcopy(pending.preview)
+        inconsistent["vehicles"][0].update(id=None, version=None)
+        choices = {**pending.choices, "vehicles": {"v:5": {"include": True}}}
+        with pytest.raises(ValueError, match="staging.groups"):
+            refs.staging_group({**group, "parent_id": None}, comparison=inconsistent, choices=choices,
+                               payload=pending.payload)
+        db.rollback()
     result, _ = apply_questionnaire(c, draft, body=command)
     receipt = db.get(QuestionnaireReceipt, command["command_id"])
-    assert {ref[0] for ref in refs.questionnaire_outcome(receipt)} == {"CP", "VEH", "DOCUMENT"}
-    assert {entry["kind"] for entry in result["objects"]} == {"CP", "VEH", "DOCUMENT"}
+    expected = {"DOCUMENT"} if partial else {"CP", "VEH", "DOCUMENT"}
+    assert {ref[0] for ref in refs.questionnaire_outcome(receipt)} == expected | {"CP"}
+    assert {entry["kind"] for entry in result["objects"]} == expected
     replay, _ = apply_questionnaire(c, draft, body=command)
-    assert replay == result and disk.location(disk.uploads[0]).read_bytes() == original
+    assert replay == result
+    closed = reopen_questionnaire(c, draft)
+    assert closed["status"] == "ACCEPTED" and closed["receipt"] == result
+    downloaded = set()
+    for entry in result["objects"]:
+        if entry["kind"] != "DOCUMENT":
+            continue
+        url = "/api" + entry["url"]
+        revision = bundle(c, url)["revisions"][0]
+        file_id = revision["files"][0]["id"]
+        original_response = c.get(f"{url}/revisions/{revision['id']}/files/{file_id}/download")
+        assert original_response.status_code == 200
+        downloaded.add(original_response.content)
+    assert downloaded == {original, company_file}
+
+
+def test_real_b5_direct_vehicle_binding_needs_no_workbook_row(b5):
+    c, db, _, parents, _, disk = b5
+    kind = doc_kind(c)
+    content = pdf("direct vehicle binding")
+    draft = upload_questionnaire(c, transport(workbook(), {"direct.pdf": content}), True)
+    attachment = draft["comparison"]["documents"][0]["key"]
+    assert attachment.startswith("unbound:")
+    draft = choose_questionnaire(c, draft, cp_target=parents["cp"], documents={attachment: {
+        "parent_key": parents["veh"], "kind_id": kind, "accept": True,
+    }})
+    disk.fail_at = 0
+    _, command = apply_questionnaire(c, draft, status=503)
+    disk.fail_at = None
+    pending = db.get(QuestionnaireDraft, draft["id"], populate_existing=True)
+    assert pending.preview["vehicles"] == []
+    group, = pending.staging["groups"]
+    assert group["parent_id"] == group["parent_key"] == parents["veh"]
+    assert ("VEH", parents["veh"], "staging.groups.parent_id") in refs.questionnaire_selection(pending)
+    db.rollback()
+    result, _ = apply_questionnaire(c, draft, body=command)
+    assert {entry["kind"] for entry in result["objects"]} == {"DOCUMENT"}
+    assert reopen_questionnaire(c, draft)["receipt"] == result
+    assert disk.location(disk.uploads[0]).read_bytes() == content

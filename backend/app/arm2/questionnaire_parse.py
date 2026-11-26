@@ -17,6 +17,7 @@ from xml.etree import ElementTree as ET
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
+from app.arm2.ids import id_body_pattern
 from app.config import settings
 
 MAX_COMPRESSED = 32 * 1024 * 1024
@@ -286,7 +287,7 @@ def _parse(data, filename):
             if not any(values.values()):
                 continue
             selector = values['B']
-            identifier = re.search(r'\bVEH-\d{6,}\b', selector)
+            identifier = re.search(rf'\b{id_body_pattern("VEH")}\b', selector)
             mode = values['C'].strip().upper()
             columns = ('I', 'H', 'J', 'K') if mode == 'НОВАЯ' else ('E', 'D', 'F', 'G')
             plate, typ, name, model = (values[c] for c in columns) if mode in {'НОВАЯ', 'ИЗ СПРАВОЧНИКА', 'ВЫБЫЛО'} else ('', '', '', '')

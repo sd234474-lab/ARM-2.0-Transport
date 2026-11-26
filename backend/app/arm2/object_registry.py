@@ -6,6 +6,7 @@ from typing import Any, Callable, Protocol
 from sqlalchemy import Table, inspect
 from sqlalchemy.orm import Mapper, Session
 
+from app.arm2.ids import is_canonical_id
 from app.permissions import Permission
 
 
@@ -93,9 +94,7 @@ class ObjectDefinition:
         return snapshot
 
     def validate_id(self, object_id: str) -> None:
-        prefix = self.id_prefix + "-"
-        number = object_id[len(prefix) :] if isinstance(object_id, str) and object_id.startswith(prefix) else ""
-        if len(number) < 6 or not number.isdigit():
+        if not is_canonical_id(self.id_prefix, object_id):
             raise ObjectRegistryError(f"Invalid {self.object_type} object_id")
 
     def apply_status(self, values: dict[str, Any]) -> dict[str, Any]:
