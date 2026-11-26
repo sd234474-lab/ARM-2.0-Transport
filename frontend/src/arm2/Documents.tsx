@@ -9,7 +9,8 @@ import { apiUrl } from '../workspace';
 import {openFilePreview} from './filePreviewWindow';
 import type { DocumentKind, DocumentListRecord, DocumentParent, DocumentRecord, RecordData, DocumentFile, EventDetail, FileBundle, FileStage } from './api';
 import type { Can } from './Workspace';
-import { CatalogHeader, ErrorMessage, History, Pagination, useAlive, useLoad } from './shared';
+import { DeletionMark } from './Deletion';
+import { CatalogHeader, ErrorMessage, History, Pagination, ReferenceLabel, useAlive, useLoad } from './shared';
 import { CatalogRow } from './CatalogRow';
 import { CatalogFilters } from './CatalogFilters';
 import { PartyPicker } from './Selectors';
@@ -168,7 +169,7 @@ function DocumentFiles({path, original, editable, blocked, calibration, draft, s
         {!draft && allowed && <button type="button" disabled={blocked || busy || result.loading} onClick={begin}>{current ? 'Изменить файлы' : '+ Добавить файл'}</button>}
         <button type="button" className="arm2-document-link" aria-expanded={fileHistory} onClick={()=>setFileHistory(value=>!value)}>{fileHistory?'Закрыть предыдущие редакции':'Предыдущие редакции'}</button>
       </div>
-      {fileHistory && result.data.revisions.filter(row => row.id !== result.data?.current_revision_id).map(revision => <details key={revision.id}><summary>Предыдущая редакция {revision.number} · {new Date(revision.occurred_at).toLocaleString('ru-RU')} · Автор {revision.author_id}</summary><p>{revision.id} · {revision.source === 'arm2-api-correct' ? 'Исправление ошибочной загрузки' : revision.source} · Родитель при создании: {revision.parent_id}</p>{fileRows(revision.files,revision.id)}</details>)}
+      {fileHistory && result.data.revisions.filter(row => row.id !== result.data?.current_revision_id).map(revision => <details key={revision.id}><summary>Предыдущая редакция {revision.number} · {new Date(revision.occurred_at).toLocaleString('ru-RU')} · Автор {revision.author_id}</summary><p>{revision.id} · {revision.source === 'arm2-api-correct' ? 'Исправление ошибочной загрузки' : revision.source} · Родитель при создании: <ReferenceLabel label={revision.parent_id??'Родитель'} current={revision.parent_current_object}/></p>{fileRows(revision.files,revision.id)}</details>)}
     </>}
 
   </section>;
@@ -338,7 +339,7 @@ function DocumentForm({initial, parent, ...scope}: Scope & {initial?: DocumentRe
   };
   const saveAction = canEdit && <button type="submit" form="arm2-document-form" className="arm2-document-save" disabled={busy || !!fileDraft || !!operationDraft}>{busy ? 'Сохраняем…' : error instanceof ApiError && error.status >= 500 ? 'Повторить сохранение' : 'Сохранить'}</button>;
   return <article className={calibration ? 'arm2-document arm2-calibration-document' : 'arm2-document'}><Link to={back}>{changed || fileDraft ? 'Отмена / к документам родителя' : '← К документам родителя'}</Link>
-    <header className="arm2-document-heading"><h2>{original ? 'Документ: ' + original.name : 'Добавить документ'}</h2>{original && <span className="arm2-document-state">{original.display_state}</span>}</header>
+    <header className="arm2-document-heading"><h2>{original ? 'Документ: ' + original.name : 'Добавить документ'}</h2>{original && <span className="arm2-document-state">{original.display_state}</span>}<DeletionMark kind="DOCUMENT" id={original?.id} version={original?.version} editable={edit(scope)}/></header>
     <div className="arm2-document-summary"><span>Родитель: <Link to={back}>{parent.name}</Link> · {scope.parentType}</span>{original && <span>{original.archive_state}</span>}</div>
     {!original && <p className="arm2-note">Сначала сохраните карточку, затем добавьте файлы.</p>}{!canEdit && <p role="status">Только просмотр — нет права редактирования</p>}
     <ErrorMessage error={error}/><ErrorMessage error={readError}/>{validation && <p role="alert" className="error">{validation}</p>}

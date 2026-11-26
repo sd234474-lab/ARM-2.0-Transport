@@ -3,7 +3,6 @@
 import hashlib
 import json
 import time
-from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select, text
@@ -21,6 +20,13 @@ from app.arm2.document_file_models import (
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_models import Document
 from app.arm2.document_store import ADAPTER, PARENTS, parent_access
+from app.arm2.file_read_guard import (
+    approval_attempt_key,
+    attempt_lease,
+    stage_attempt_key,
+    try_exclusive_file_access,
+    try_idle_attempt,
+)
 from app.arm2.ids import next_id
 from app.arm2.object_save import (
     ObjectAuthorizationError,
@@ -50,7 +56,7 @@ def document_access(db, user, parent_type, parent_id, document_id, *, edit=False
     return record
 
 
-def owned_stage(db, user, session_hash, document_id, stage_id, *, ready=True):
+def owned_stage(db, user, session_hash, document_id, stage_id, *, ready=True, valid_at=None):
     stage = db.get(FileStage, stage_id, populate_existing=True)
     if (
         stage is None
@@ -59,7 +65,7 @@ def owned_stage(db, user, session_hash, document_id, stage_id, *, ready=True):
         or stage.session_hash != session_hash
     ):
         raise ObjectAuthorizationError("Нет доступа к временному файлу")
-    if stage.expires_at <= instant() or stage.state == "consumed":
+    if stage.expires_at <= (valid_at or instant()) or stage.state == "consumed":
         raise ValueError("Срок действия временного файла истёк; выберите файл снова")
     if ready and stage.state != "ready":
         raise ValueError("Временный файл ещё не загружен")
@@ -115,7 +121,9 @@ def public_file(row, position, correction=None, *, download_name=None):
     } if correction else None)}
 
 
-def bundles(db, document, include_history=True):
+def bundles(db, document, include_history=True, *, user):
+    from app.arm2.deletion_service import resolve_reference
+
     revisions = []
     for revision in db.scalars(
         select(DocumentRevision)
@@ -126,13 +134,16 @@ def bundles(db, document, include_history=True):
         snapshot = db.get(DocumentRevisionContext, revision.id)
         if snapshot is None:
             raise ValueError("Историческая привязка редакции не найдена")
+        parent = resolve_reference(db, user, snapshot.parent_type, snapshot.parent_id)
+        parent.pop("version", None)  # The revision retains its own historical version.
         revisions.append(
             {
                 "id": revision.id,
                 "number": revision.number,
                 "document_id": document.id,
                 "parent_type": snapshot.parent_type,
-                "parent_id": snapshot.parent_id,
+                "parent_id": snapshot.parent_id if parent["state"] != "RESTRICTED" else None,
+                "parent_current_object": parent,
                 "author_id": revision.author_id,
                 "occurred_at": revision.occurred_at.isoformat(),
                 "source": revision.source,
@@ -154,19 +165,6 @@ def bundles(db, document, include_history=True):
     }
 
 
-@contextmanager
-def attempt_lease(db, key):
-    # Session advisory lock spans network IO, not a business/row transaction.
-    with db.get_bind().connect().execution_options(isolation_level="AUTOCOMMIT") as lock:
-        acquired = lock.scalar(text("SELECT pg_try_advisory_lock(hashtextextended(:key,6365))"), {"key": key})
-        if not acquired:
-            raise ObjectVersionConflictError("Запрос уже выполняется; повторите с тем же ключом")
-        try:
-            yield
-        finally:
-            lock.execute(text("SELECT pg_advisory_unlock(hashtextextended(:key,6365))"), {"key": key})
-
-
 def reauthorize(db, user, session_hash, ptype, pid, docid):
     session = db.get(LoginSession, session_hash, populate_existing=True)
     if session is None or session.expires_at <= instant():
@@ -174,16 +172,20 @@ def reauthorize(db, user, session_hash, ptype, pid, docid):
     return document_access(db, user, ptype, pid, docid, edit=True)
 
 
-def prepare(db, user, session_hash, document, expected_version, key, selection, correction=None):
-    request = {"document": document.id, "expected_version": expected_version, "files": selection}
+def acceptance_fingerprint(document_id, expected_version, selection, correction=None):
+    request = {"document": document_id, "expected_version": expected_version, "files": selection}
     if correction is not None:
         request["correction"] = correction
-    fingerprint = hashlib.sha256(
+    return hashlib.sha256(
         json.dumps(
             request,
             sort_keys=True,
         ).encode()
     ).hexdigest()
+
+
+def prepare(db, user, session_hash, document, expected_version, key, selection, correction=None):
+    fingerprint = acceptance_fingerprint(document.id, expected_version, selection, correction)
     attempt = db.get(FileAcceptance, key, populate_existing=True)
     if attempt:
         if (attempt.document_id, attempt.principal_id, attempt.session_hash) != (
@@ -310,8 +312,26 @@ def prepare(db, user, session_hash, document, expected_version, key, selection, 
 
 
 def accept(db, user, session_hash, ptype, pid, docid, expected_version, key, selection, correction=None):
-    document = reauthorize(db, user, session_hash, ptype, pid, docid)
+    from app.arm2.deletion_service import deleted_reference, resolve_reference, retired_command
+
     with attempt_lease(db, key):
+        started_at = instant()
+        retired = retired_command(db, FileAcceptance, key)
+        if retired is not None:
+            if retired.get("principal_id") != user.id or retired.get("document_id") != docid:
+                raise ObjectAuthorizationError("Ключ принятия принадлежит другому запросу")
+            if retired["fingerprint"] != acceptance_fingerprint(docid, expected_version, selection, correction):
+                raise ObjectVersionConflictError("Ключ уже связан с другим составом")
+            current = resolve_reference(db, user, "DOCUMENT", docid, edit=True)
+            if current["state"] == "RESTRICTED":
+                raise ObjectAuthorizationError("Нет доступа к протоколу операции")
+            if current["state"] != "DELETED" or not retired.get("result"):
+                raise ObjectVersionConflictError("Команда уже закрыта. Откройте протокол удаления")
+            _, snapshot = deleted_reference(db, "DOCUMENT", docid)
+            if snapshot["scope"] != {"parent_type": ptype, "parent_id": pid}:
+                raise ObjectAuthorizationError("Документ не принадлежит указанному родителю")
+            return {**retired["result"], "current_object": current}
+        document = reauthorize(db, user, session_hash, ptype, pid, docid)
         attempt = prepare(db, user, session_hash, document, expected_version, key, selection, correction)
         if attempt.state == "accepted":
             return attempt.result
@@ -330,7 +350,7 @@ def accept(db, user, session_hash, ptype, pid, docid, expected_version, key, sel
             if not files.verify_remote(type("FileMetadata", (), item), provider):
                 if not item["stage_id"]:
                     raise files.StorageUnavailable("Оригинал недоступен; текущая редакция не изменена")
-                stage = owned_stage(db, user, session_hash, docid, item["stage_id"])
+                stage = owned_stage(db, user, session_hash, docid, item["stage_id"], valid_at=started_at)
                 path = files.verified_stage(stage)
                 db.commit()
                 try:
@@ -425,10 +445,14 @@ def accept(db, user, session_hash, ptype, pid, docid, expected_version, key, sel
 
 def cleanup_expired_staging(db):
     """Bounded, local-only cleanup; never remove a remote/accepted original or its ledger."""
+    if not try_exclusive_file_access(db):
+        return
     files.cleanup_reads()
     for stage in db.scalars(
         select(FileStage).where(FileStage.expires_at < instant()).limit(100).with_for_update(skip_locked=True)
     ):
+        if not try_idle_attempt(db, stage_attempt_key(stage.id)):
+            continue
         try:
             files.private_path(stage.id).unlink(missing_ok=True)
         except PermissionError:
@@ -439,6 +463,8 @@ def cleanup_expired_staging(db):
         ApprovalAttempt.action.in_(['letter', 'response-stage']),
         ApprovalAttempt.created_at < instant() - timedelta(seconds=files.STAGE_SECONDS))
         .limit(100).with_for_update(skip_locked=True)):
+        if not try_idle_attempt(db, approval_attempt_key(attempt.id)):
+            continue
         plans = attempt.plan.get('files', []) if attempt.action == 'letter' else [attempt.plan['file']]
         for plan in plans:
             try:

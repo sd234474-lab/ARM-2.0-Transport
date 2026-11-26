@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../api';
 import type { DocumentKind, DocumentParent } from './api';
+import { DeletionMark } from './Deletion';
 import { CatalogHeader, ErrorMessage, History, useAlive, useLoad } from './shared';
 
 const base = '/arm2/document-kinds';
@@ -110,7 +111,7 @@ function KindForm({initial, editable, back}: {initial?: DocumentKind; editable: 
     } catch (error) {if (alive.current) {setError(error); if (error instanceof ApiError && error.status === 403) setDenied(true);}}
     finally {saving.current = false; if (alive.current) setBusy(false);}
   };
-  return <article className="arm2-document-kind"><Link to={back}>{changed ? 'Отмена / к типам документов' : '← К типам документов'}</Link><h2>{original ? 'Тип документа: ' + original.name : 'Создание типа документа'}</h2>
+  return <article className="arm2-document-kind"><Link to={back}>{changed ? 'Отмена / к типам документов' : '← К типам документов'}</Link><header className="arm2-actions"><h2>{original ? 'Тип документа: ' + original.name : 'Создание типа документа'}</h2><DeletionMark kind="DOC-KIND" id={original?.id} version={original?.version} editable={editable}/></header>
     {original && <p>Постоянный ID: {original.id} · Версия: {original.version}</p>}{!canEdit && <p role="status">Только просмотр — нет права редактирования</p>}
     <ErrorMessage error={error}/><ErrorMessage error={readError}/>{validation && <p role="alert" className="error">{validation}</p>}
     {error instanceof ApiError && error.status === 409 && original && <div className="arm2-actions"><button type="button" onClick={() => void readFresh(false)}>Сравнить с сервером</button><button type="button" onClick={() => void readFresh(true)}>Перезагрузить карточку</button></div>}

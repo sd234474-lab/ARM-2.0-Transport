@@ -3,7 +3,7 @@
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import Field, StrictFloat, StrictInt
 from sqlalchemy import select
 
@@ -12,6 +12,7 @@ from app.arm2 import document_file_storage as files
 from app.arm2.approval_models import ApprovalRequest
 from app.arm2.document_file_models import DocumentFile
 from app.arm2.document_file_routes import protected_response, translated
+from app.arm2.file_read_guard import protected_read
 from app.arm2.http_limits import bounded_route
 from app.arm2.object_save import ObjectAuthorizationError, ObjectNotFoundError
 from app.arm2.vehicle_models import Vehicle
@@ -115,7 +116,7 @@ def requests(db: Db, user: CurrentUser, offset: int = 0):
     return translated(db, operation)
 
 
-@router.post("/approvals/letter", status_code=201)
+@router.post("/approvals/letter", status_code=201, dependencies=[Depends(protected_read, scope="request")])
 def letter(body: Letter, request: Request, db: Db, user: CurrentUser):
     return translated(
         db,
@@ -130,7 +131,7 @@ def detail(request_id: str, db: Db, user: CurrentUser):
     return translated(db, lambda: store.describe(db, user, request_id))
 
 
-@router.put("/approvals/{request_id}/response-stages/{stage_id}")
+@router.put("/approvals/{request_id}/response-stages/{stage_id}", dependencies=[Depends(protected_read, scope="request")])
 async def stage(request_id: str, stage_id: UUID, request: Request, db: Db, user: CurrentUser, name: str):
     data = await request.body()
     return translated(
@@ -141,7 +142,7 @@ async def stage(request_id: str, stage_id: UUID, request: Request, db: Db, user:
     )
 
 
-@router.post("/approvals/{request_id}/response")
+@router.post("/approvals/{request_id}/response", dependencies=[Depends(protected_read, scope="request")])
 def response(request_id: str, body: Response, request: Request, db: Db, user: CurrentUser):
     return translated(
         db,
@@ -151,7 +152,8 @@ def response(request_id: str, body: Response, request: Request, db: Db, user: Cu
     )
 
 
-@router.get("/approvals/{request_id}/response-stages/{stage_id}/{action}")
+@router.get("/approvals/{request_id}/response-stages/{stage_id}/{action}",
+            dependencies=[Depends(protected_read, scope="request")])
 def staged_file(
     request_id: str,
     stage_id: UUID,
@@ -179,7 +181,8 @@ def staged_file(
     return translated(db, operation)
 
 
-@router.get("/approvals/{request_id}/files/{file_id}/{action}")
+@router.get("/approvals/{request_id}/files/{file_id}/{action}",
+            dependencies=[Depends(protected_read, scope="request")])
 def original(
     request_id: str, file_id: str, action: Literal["preview", "download"], db: Db, user: CurrentUser
 ):

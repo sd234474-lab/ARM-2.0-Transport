@@ -13,6 +13,7 @@ from app.arm2.document_file_models import DocumentFile
 from app.arm2.document_file_store import revision_files
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_models import Document
+from app.arm2.ids import is_canonical_id
 from app.arm2.object_save import ObjectAuthorizationError
 from app.arm2.organization_models import Organization
 from app.arm2.questionnaire_models import QuestionnaireUpload
@@ -147,7 +148,7 @@ def build(db, principal, draft):
     reasons = []
     if cp:
         if cp_hint and cp_hint not in (cp.id, cp.name):
-            hinted = db.get(Counterparty, cp_hint) if re.fullmatch(r'CP-\d{6,}', cp_hint) else None
+            hinted = db.get(Counterparty, cp_hint) if is_canonical_id('CP', cp_hint) else None
             reasons.append({'field': 'counterparty', 'label': 'Контрагент', 'current': cp.name,
                             'proposed': hinted.name if hinted else 'В анкете указан другой контрагент'})
         if cp_values.get('inn') and cp.inn and cp_values['inn'] != cp.inn:
@@ -172,7 +173,7 @@ def build(db, principal, draft):
         lookup_id = rep_id if rep_id and rep_id != 'new' else hint if cp else None
         rep = db.get(CounterpartyRepresentative, lookup_id, populate_existing=True) if lookup_id else None
         error = None
-        if hint and cp and (not re.fullmatch(r'CPREP-\d{6,}', hint) or
+        if hint and cp and (not is_canonical_id('CPREP', hint) or
                 db.scalar(select(CounterpartyRepresentative.id).where(CounterpartyRepresentative.id == hint,
                     CounterpartyRepresentative.parent_id == cp.id)) is None):
             error = 'REP-ID не принадлежит выбранному CP или отсутствует; сопоставьте исходные данные'
@@ -225,6 +226,8 @@ def build(db, principal, draft):
             plate = normalize_plate_number(re.sub(r'\s+', '', raw['plate_number']))
             by_plate = db.scalar(select(Vehicle).where(Vehicle.plate_number == plate).execution_options(populate_existing=True))
             by_id = db.get(Vehicle, raw['id'], populate_existing=True) if raw['id'] else None
+            if raw['id'] and by_id is None:
+                raise ValueError('VEH-ID не найден. Уточните сопоставление в исходной анкете')
             if by_id and by_id.plate_number != plate:
                 raise ValueError('VEH-ID и госномер не совпадают; исправьте исходную строку')
             current = by_id or by_plate
@@ -461,11 +464,16 @@ def document_plan(db, user, draft, attachment, key, parent_key, role, cp, rows):
                    f['parent_type'] == ptype and f['parent_id'] == pid), None)
     if signed:
         original = db.get(DocumentFile, signed['file_id'])
+        signed_invalid = original is None or original.document_id != signed['document_id']
         if original is None or original.document_id != signed['document_id']:
             signed = None  # SHA or a signed filename alone cannot establish a different parent/DOCUMENT.
+    else:
+        signed_invalid = False
     doc_id = choice.get('document_id') or (signed['document_id'] if signed else None)
     doc = db.get(Document, doc_id, populate_existing=True) if doc_id and doc_id != 'new' and allowed else None
     error = attachment.error
+    if signed_invalid and not choice.get('document_id'):
+        error = error or 'Исходный FILE из анкеты недоступен. Проверьте привязку вложения'
     if not allowed:
         error = 'Нет прав на документы выбранного родителя'
     if not parent_key:

@@ -9,6 +9,7 @@ from sqlalchemy import case, func, literal, or_, select, true
 from app.arm2.counterparty_models import Counterparty
 from app.arm2.counterparty_rules import PERSON, counterparty_response
 from app.arm2.document_kind_models import DocumentKind
+from app.arm2.ids import id_pattern
 from app.arm2.organization_models import Organization
 from app.arm2.schemas import (
     CounterpartyResponse,
@@ -98,9 +99,9 @@ def _missing(column):
 @router.get('/vehicles/search', response_model=VehiclePage)
 def search_vehicles(
     db: Db, user: CurrentUser, q: TextQuery = '', limit: Limit = 100, offset: Offset = 0,
-    type_id: Annotated[str | None, Query(pattern=r'^TYPE-[0-9]{6,}$')] = None,
+    type_id: Annotated[str | None, Query(pattern=id_pattern("TYPE"))] = None,
     owner_kind: Literal['CP', 'ORG', 'NONE'] | None = None,
-    owner_id: Annotated[str | None, Query(pattern=r'^(CP|ORG)-[0-9]{6,}$')] = None,
+    owner_id: Annotated[str | None, Query(pattern=id_pattern("CP", "ORG"))] = None,
     state: Literal['Действующая', 'Архивная'] | None = None,
     sort: Literal['name', 'plate_number', 'type', 'owner', 'accounting_state'] = 'name',
     direction: Direction = 'asc',

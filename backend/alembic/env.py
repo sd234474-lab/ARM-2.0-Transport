@@ -6,6 +6,7 @@ from app.arm2 import (
     approval_models,  # noqa: F401
     bulk_models,  # noqa: F401
     counterparty_models,  # noqa: F401
+    deletion_models,  # noqa: F401
     history_models,  # noqa: F401
     operation_models,  # noqa: F401
     organization_models,  # noqa: F401

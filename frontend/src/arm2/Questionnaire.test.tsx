@@ -214,6 +214,19 @@ it('receipt displays actual before/after fields and a direct card link',async()=
   expect(table.querySelector('a')!.getAttribute('href')).toBe('/arm2/cp/CP-000001');
 });
 
+it('reopens historical questionnaire results without navigating to a deleted record',async()=>{
+  applied=true;
+  const current_object={state:'DELETED' as const,event_id:19};
+  receipt.cp_id=null;
+  receipt.cp_current_object=current_object;
+  receipt.changes=[{kind:'CP',id:'CP-000001',operation:'UPDATED',current_object,
+    fields:{phone:{before:'old phone',after:'accepted phone'}}}];
+  await mount('/arm2/questionnaires?draft='+draft.id);
+  expect(host.textContent).toContain('Объект удалён');
+  expect(host.textContent).toContain('accepted phone');
+  expect(host.querySelector('a[href="/arm2/cp/CP-000001"]')).toBeNull();
+});
+
 it('V3 signer conflict needs an explicit source and a separate field approval; no access controls',async()=>{
   draft.comparison!.representatives=[{key:'0',id:'CPREP-000001',target:'CPREP-000001',version:1,error:null,signer:false,
     source_id:'CPREP-000001',source_comment:'Synthetic review note',signer_hint:true,conflicts:{name:{passport:'Passport name',list:'List name'}},sources:{},

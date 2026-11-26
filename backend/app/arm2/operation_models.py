@@ -20,6 +20,7 @@ class BackgroundOperation(Base):
     payload: Mapped[dict] = mapped_column(JSONB)
     progress: Mapped[dict] = mapped_column(JSONB)
     failure: Mapped[dict | None] = mapped_column(JSONB)
+    not_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

@@ -54,6 +54,27 @@ async function change(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelect
 }
 async function paste() {await change(element.querySelector('textarea')!, 'Номер\tИмя\nА123ВС86\tИмя'); await click('Открыть вставленную таблицу');}
 
+it('reopens an unchanged import outcome with a link to the authorised deletion event', async () => {
+  const receipt = {command_id: 'command', vehicle_id: 'VEH-000013', event_id: 2, version_after: 1,
+    status: 'SAVED', fields: [], at: '2026-11-24T04:00:00Z', current_object: {state: 'DELETED', event_id: 3}};
+  vi.mocked(api).mockImplementation(async path => {
+    if (path === `/arm2/bulk/protocols?session_id=${sid}`) return [{id: sid, source: 'Техника.xlsx', results: [receipt]}];
+    if (path === '/arm2/history/events/3') return {changes: {version: {before: 1, after: null}}};
+    throw Error(path);
+  });
+  await act(async () => {
+    root.render(<MemoryRouter initialEntries={[`/arm2/veh/bulk?protocol=${sid}&receipt=command`]}>
+      <BulkVehicles/>
+    </MemoryRouter>);
+    await tick();
+  });
+  expect(element.textContent).toContain('Объект удалён');
+  expect(element.textContent).toContain('Сохранено VEH: 1');
+  expect(element.querySelector('a[href="/arm2/veh/VEH-000013"]')).toBeNull();
+  await click('История удаления');
+  expect(vi.mocked(api)).toHaveBeenCalledWith('/arm2/history/events/3', 'GET', undefined, expect.any(AbortSignal));
+});
+
 it('loads an editable source without SAVE; accepts valid fields and a chosen duplicate alternative only after confirmation', async () => {
   await mount(); await paste();
   expect(element.textContent).toContain('Тип не найден'); expect(element.textContent).toContain('строки 2, 3');

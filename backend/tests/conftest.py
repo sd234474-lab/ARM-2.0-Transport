@@ -54,7 +54,7 @@ def database_url():
 
 
 @pytest.fixture
-def isolated_arm2_database_url():
+def isolated_arm2_database_url(request):
     from pathlib import Path
     from re import fullmatch
     from uuid import uuid4
@@ -98,7 +98,7 @@ def isolated_arm2_database_url():
         settings.cache_clear()
         try:
             config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
-            command.upgrade(config, "head")
+            command.upgrade(config, getattr(request, "param", "head"))
         finally:
             if previous is None:
                 os.environ.pop("DATABASE_URL", None)

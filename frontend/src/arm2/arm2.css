@@ -203,3 +203,4 @@
 @media(max-width:760px){.arm2 .arm2-actions:has(>h2){flex-wrap:wrap}.arm2 .arm2-create{margin-left:auto}}
 
 .arm2-document .arm2-file-list li:has(.arm2-file-more):not(:has(.arm2-file-more[open])) > .arm2-file-technical { display:none; }
+.arm2 .arm2-deletion-link { text-decoration:underline; }

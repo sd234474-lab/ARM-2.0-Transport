@@ -2,15 +2,16 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, ApiError } from '../api';
 import { apiUrl } from '../workspace';
+import type { CurrentObject } from './api';
 import { labels } from './model';
-import { ErrorMessage, HistoryDetail } from './shared';
+import { ErrorMessage, HistoryDetail, ReferenceLabel, useLoad } from './shared';
 
 const base = '/arm2/bulk';
 const columns: Record<string, string> = {id: 'VEH-ID', plate_number: 'Госномер', name: 'Рабочее имя', model: 'Модель', type_id: 'TYPE — ID', type_name: 'TYPE — наименование', owner_kind: 'Владелец — категория CP/ORG', owner_id: 'Владелец — ID', owner_name: 'Владелец — наименование', owner_cp_id: 'Владелец CP — ID', owner_org_id: 'Владелец ORG — ID', accounting_state: 'Учётное состояние', wialon_unit_id: 'Wialon ID', version: 'Техническая версия (служебная)'};
 const clearable: Record<string, string> = {type_id: 'Тип техники', owner: 'Операционный владелец CP/ORG', model: 'Модель', wialon_unit_id: 'Wialon ID'};
 type Option = {value: unknown; label: string; current: unknown; current_label: string; original: unknown; has_original: boolean; error: string | null; conflict: boolean; clear: boolean; sources: number[]};
 type Plan = {key: string; vehicle_id?: string; sources: number[]; action: string; errors: string[]; has_snapshot?: boolean; matched?: {name: string; plate_number: string}; similar?: {id: string; plate: string}[]; fields: Record<string, Option[]>};
-type Outcome = {command_id: string; row_key: string; vehicle_id: string; event_id: number | null; version_after: number; status: string; fields: string[]; at: string};
+type Outcome = {command_id: string; row_key: string; vehicle_id: string; event_id: number | null; current_object?: CurrentObject; version_after: number; status: string; fields: string[]; at: string};
 export type BulkWorkspace = {id: string; source: string; revision: number; headers: string[]; rows: string[][]; mapping: string[]; excluded: number[]; clears: Record<string, string[]>; decisions: Record<string, Record<string, number>>; confirmations: Record<string, Record<string, boolean>>; warning: string; failures?: Record<string, {row_key: string; status: number; message: string}>; plans: Plan[]; preview_id: string; results: Outcome[]; blocked: boolean; approval_reset: boolean};
 type Workspace = BulkWorkspace;
 type Session = {id: string; source: string; revision: number; created_at: string};
@@ -36,10 +37,35 @@ function Results({results}: {results: Outcome[]}) {
   const [event, setEvent] = useState<number>();
   const committed = results.filter(r => r.status === 'SAVED');
   return <section aria-label="Фактические результаты"><h3>Фактические результаты</h3><p>Сохранено VEH: {new Set(committed.map(r => r.vehicle_id)).size} · Записей HIST: {committed.length} · Без изменений: {results.filter(r => r.status === 'SKIP').length} · Неопределённо: {results.filter(r => r.status === 'UNKNOWN').length}</p>
-    <ul>{results.map(r => <li key={r.command_id}>{r.status} · <Link to={`/arm2/veh/${r.vehicle_id}`}>{r.vehicle_id}</Link> · версия {r.version_after} · {r.fields.map(f => labels[f] || clearable[f] || f).join(', ')} · {r.event_id ? <button onClick={() => setEvent(r.event_id!)}>HIST {r.event_id}</button> : 'Без нового HIST'} · {new Date(r.at).toLocaleString('ru-RU')}</li>)}</ul>{event && <HistoryDetail id={event}/>}</section>;
+    <ul>{results.map(r => <li key={r.command_id}>
+      {r.status === 'SAVED' ? 'Сохранено' : r.status === 'SKIP' ? 'Без изменений' : 'Результат не подтверждён'} ·{' '}
+      <ReferenceLabel label={r.vehicle_id} current={r.current_object} path={`/arm2/veh/${r.vehicle_id}`}/>
+      {' · версия '}{r.version_after} · {r.fields.map(f => labels[f] || clearable[f] || f).join(', ')} ·{' '}
+      {r.event_id ? <button onClick={() => setEvent(r.event_id!)}>HIST {r.event_id}</button> : 'Без нового HIST'}
+      {' · '}{new Date(r.at).toLocaleString('ru-RU')}
+    </li>)}</ul>{event && <HistoryDetail id={event}/>}</section>;
 }
 
 export default function BulkVehicles({admin = false}: {admin?: boolean}) {
+  const [params] = useSearchParams();
+  const id = params.get('protocol');
+  return id ? <BulkProtocol id={id} command={params.get('receipt')}/> : <BulkWorkspaceView admin={admin}/>;
+}
+
+function BulkProtocol({id, command}: {id: string; command: string | null}) {
+  const result = useLoad(signal => api<Protocol[]>(`${base}/protocols?session_id=${encodeURIComponent(id)}`,
+    'GET', undefined, signal), [id]);
+  const item = result.data?.find(row => row.id === id);
+  const rows = item?.results.filter(row => !command || row.command_id === command);
+  return <article><Link to="/arm2/veh/bulk">← К табличному обмену</Link><h2>Протокол импорта техники</h2>
+    <ErrorMessage error={result.error} retry={result.reload}/>
+    {result.loading && <p role="status">Открываем протокол…</p>}
+    {rows?.length ? <><p>{item?.source}</p><Results results={rows}/></>
+      : result.data && <p>Протокол недоступен.</p>}
+  </article>;
+}
+
+function BulkWorkspaceView({admin}: {admin: boolean}) {
   const [params, setParams] = useSearchParams();
   const [sessions, setSessions] = useState<Session[]>([]), [protocols, setProtocols] = useState<Protocol[]>([]), [cleanup, setCleanup] = useState<Cleanup[]>();
   const [current, setCurrent] = useState<Workspace>(), [error, setError] = useState<unknown>(), [busy, setBusy] = useState(false), [pending, setPending] = useState(0);

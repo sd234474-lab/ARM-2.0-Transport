@@ -11,7 +11,6 @@ from app.arm2 import document_file_storage as files
 from app.arm2.approval_models import ApprovalAttempt, ApprovalDecision, ApprovalRequest
 from app.arm2.document_file_models import DocumentFile, DocumentFileCorrection
 from app.arm2.document_file_store import (
-    attempt_lease,
     document_access,
     instant,
     revision_files,
@@ -20,6 +19,7 @@ from app.arm2.document_file_store import (
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_models import Document
 from app.arm2.document_store import lock_kind, parent_access
+from app.arm2.file_read_guard import approval_attempt_key, attempt_lease
 from app.arm2.ids import next_id
 from app.arm2.object_registry import OBJECT_REGISTRY, ObjectReference
 from app.arm2.object_save import (
@@ -147,6 +147,8 @@ def access(db, user, request_id, *, edit=False):
 
 
 def attempt(db, user, key, action, target_id, payload):
+    from app.arm2.deletion_service import retired_command
+
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     old = db.get(ApprovalAttempt, str(key), populate_existing=True)
     if old:
@@ -154,7 +156,20 @@ def attempt(db, user, key, action, target_id, payload):
             raise ObjectAuthorizationError("Команда принадлежит другому пользователю")
         if (old.action, old.target_id, old.fingerprint) != (action, target_id, digest):
             raise ObjectVersionConflictError("Ключ команды уже связан с другими данными")
+    elif retired_command(db, ApprovalAttempt, str(key)) is not None:
+        raise ObjectVersionConflictError("Команда уже закрыта. Используйте сохранённый протокол")
     return old, digest
+
+
+def historic_approval_result(db, user, kind, identifier, result):
+    from app.arm2.deletion_service import resolve_reference
+
+    resolved = resolve_reference(db, user, kind, identifier, edit=True)
+    if resolved["state"] == "RESTRICTED":
+        raise ObjectAuthorizationError("Нет доступа к протоколу операции")
+    if resolved["state"] == "UNKNOWN":
+        raise ObjectVersionConflictError("Не удалось подтвердить историю операции")
+    return {**result, "current_object": resolved} if resolved["state"] == "DELETED" else result
 
 
 def receipt(db, user, key, action, target, digest, result):
@@ -282,13 +297,13 @@ def save_calibration_proof(db, user, vehicle, document, volume, save_context):
 
 def confirm_calibration(db, user, session_hash, vehicle_id, command):
     session_access(db, user, session_hash)
-    vehicle_access(db, user, vehicle_id, edit=True)
     payload = dict(command)
     key = payload.pop("command_id")
-    with attempt_lease(db, "approval-" + key):
+    with attempt_lease(db, approval_attempt_key(key)):
         old, digest = attempt(db, user, key, "calibration", vehicle_id, payload)
         if old and old.result:
-            return old.result
+            return historic_approval_result(db, user, "VEH", vehicle_id, old.result)
+        vehicle_access(db, user, vehicle_id, edit=True)
         document, originals = calibration_document(
             db, user, vehicle_id, payload["document_id"], edit=True, lock=True
         )
@@ -425,11 +440,10 @@ def issue_letter(db, user, session_hash, command):
     if any(not number or len(number) > 160 or any(ord(c) < 32 for c in number) for number in numbers):
         raise ValueError("Укажите оба номера контрактов (до 160 символов)")
     session_access(db, user, session_hash)
-    with attempt_lease(db, "approval-" + key):
+    with attempt_lease(db, approval_attempt_key(key)):
         old, digest = attempt(db, user, key, "letter", "", payload)
         if old and old.result:
-            access(db, user, old.result["request_id"], edit=True)
-            return old.result
+            return historic_approval_result(db, user, "APPROVAL", old.result["request_id"], old.result)
         snapshots, originals = selected_snapshots(db, user, payload["vehicles"])
         if old is None:
             letter_path, package_path = files.fresh_path(), files.fresh_path()
@@ -542,7 +556,7 @@ def stage_response(db, user, session_hash, request_id, key, name, data):
     if not 0 < len(data) <= MAX_RESPONSE_BYTES:
         raise ValueError("Ответ должен быть не больше 2 МиБ")
     payload = {"name": name, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
-    with attempt_lease(db, "approval-" + key):
+    with attempt_lease(db, approval_attempt_key(key)):
         old, digest = attempt(db, user, key, "response-stage", request_id, payload)
         if old:
             response_stage(db, user, session_hash, request_id, key)
@@ -598,11 +612,11 @@ def apply_response(db, user, session_hash, request_id, command):
     payload = dict(command)
     key = payload.pop("command_id")
     session_access(db, user, session_hash)
-    access(db, user, request_id, edit=True)
-    with attempt_lease(db, "approval-" + key):
+    with attempt_lease(db, approval_attempt_key(key)):
         old, digest = attempt(db, user, key, "response", request_id, payload)
         if old and old.result:
-            return old.result
+            return historic_approval_result(db, user, "APPROVAL", request_id, old.result)
+        access(db, user, request_id, edit=True)
         staged = response_stage(db, user, session_hash, request_id, payload["stage_id"])
         plan = staged.plan["file"]
         request = access(db, user, request_id, edit=True)

@@ -3,8 +3,10 @@ from dataclasses import field as dataclass_field
 from datetime import datetime
 from typing import Any, Callable, Protocol
 
-from sqlalchemy.orm import Session
+from sqlalchemy import Table, inspect
+from sqlalchemy.orm import Mapper, Session
 
+from app.arm2.ids import is_canonical_id
 from app.permissions import Permission
 
 
@@ -92,9 +94,7 @@ class ObjectDefinition:
         return snapshot
 
     def validate_id(self, object_id: str) -> None:
-        prefix = self.id_prefix + "-"
-        number = object_id[len(prefix) :] if isinstance(object_id, str) and object_id.startswith(prefix) else ""
-        if len(number) < 6 or not number.isdigit():
+        if not is_canonical_id(self.id_prefix, object_id):
             raise ObjectRegistryError(f"Invalid {self.object_type} object_id")
 
     def apply_status(self, values: dict[str, Any]) -> dict[str, Any]:
@@ -121,9 +121,44 @@ class ObjectDefinition:
         return result
 
 
+@dataclass(frozen=True)
+class DeletionPolicy:
+    model: type
+    order: int
+    clear_fields: tuple[str, ...] = ()
+
+    def validate(self, *, logical_object: bool = False) -> None:
+        mapper = inspect(self.model, raiseerr=False)
+        if (not isinstance(mapper, Mapper) or not isinstance(mapper.local_table, Table)
+                or mapper.persist_selectable is not mapper.local_table or not mapper.local_table.primary_key.columns
+                or type(self.order) is not int or self.order < 1):
+            raise ObjectRegistryError("Не определена политика удаления для зарегистрированной модели")
+        table = mapper.local_table
+        if logical_object and (list(table.primary_key.columns.keys()) != ["id"] or "version" not in table.c):
+            raise ObjectRegistryError(f"У {table.name} отсутствуют ID или версия объекта")
+        if not isinstance(self.clear_fields, tuple) or any(not isinstance(name, str) for name in self.clear_fields):
+            raise ObjectRegistryError(f"Некорректная политика разрыва внутренних связей {table.name}")
+        if len(set(self.clear_fields)) != len(self.clear_fields) or any(
+            name not in table.c or not table.c[name].nullable or table.c[name].primary_key
+            for name in self.clear_fields
+        ):
+            raise ObjectRegistryError(f"Некорректная политика разрыва внутренних связей {table.name}")
+
+
+@dataclass(frozen=True)
+class DeletionType(DeletionPolicy):
+    collection: str = ""
+
+    def validate(self, *, logical_object: bool = True) -> None:
+        super().validate(logical_object=logical_object)
+        if not isinstance(self.collection, str) or not (self.collection == "/arm2" or self.collection.startswith("/arm2/")):
+            raise ObjectRegistryError("Не указан маршрут карточки зарегистрированного объекта")
+
+
 class ObjectRegistry:
     def __init__(self) -> None:
         self._definitions: dict[str, ObjectDefinition] = {}
+        self._deletion: dict[str, DeletionType] = {}
 
     def register(self, definition: ObjectDefinition) -> None:
         if definition.object_type in self._definitions:
@@ -169,6 +204,38 @@ class ObjectRegistry:
             return self._definitions[object_type]
         except KeyError as error:
             raise ObjectRegistryError(f"Unknown object_type: {object_type}") from error
+
+    def register_deletion(self, definitions: dict[str, DeletionType]) -> None:
+        if self._deletion:
+            raise ObjectRegistryError("Политики удаления уже зарегистрированы")
+        self._validate_deletion(definitions)
+        self._deletion = definitions.copy()
+
+    def _validate_deletion(self, definitions: dict[str, DeletionType]) -> None:
+        if set(definitions) != set(self._definitions):
+            raise ObjectRegistryError("Не для всех типов объектов определена политика удаления")
+        tables = set()
+        for definition in definitions.values():
+            if not isinstance(definition, DeletionType):
+                raise ObjectRegistryError("Не определена политика удаления для зарегистрированного типа")
+            definition.validate()
+            table = definition.model.__table__.key
+            if table in tables:
+                raise ObjectRegistryError(f"Конфликт политик удаления для {table}")
+            tables.add(table)
+
+    def deletion_definitions(self) -> dict[str, DeletionType]:
+        self._validate_deletion(self._deletion)
+        return self._deletion.copy()
+
+    def deletion_type_for(self, model: type) -> str | None:
+        return next((kind for kind, definition in self._deletion.items() if definition.model is model), None)
+
+    def deletion_definition(self, object_type: str) -> DeletionType:
+        self.require(object_type)
+        if object_type not in self._deletion:
+            raise ObjectRegistryError(f"Не определена политика удаления для {object_type}")
+        return self._deletion[object_type]
 
     def validate_references(
         self,

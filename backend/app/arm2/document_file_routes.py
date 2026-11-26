@@ -6,7 +6,7 @@ import secrets
 from datetime import timedelta
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ConfigDict, Field, StrictInt
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -24,7 +24,6 @@ from app.arm2.document_file_models import (
 from app.arm2.document_file_store import (
     StagingQuotaExceeded,
     accept,
-    attempt_lease,
     bundles,
     document_access,
     export_name,
@@ -32,8 +31,9 @@ from app.arm2.document_file_store import (
     owned_stage,
     staging_quota,
 )
+from app.arm2.file_read_guard import attempt_lease, protected_read, stage_attempt_key
 from app.arm2.http_errors import CONTROLLED_ERRORS, controlled_error, rollback
-from app.arm2.ids import next_id
+from app.arm2.ids import id_pattern, next_id
 from app.arm2.object_save import ObjectAuthorizationError, ObjectNotFoundError, ObjectVersionConflictError
 from app.auth import CurrentUser, Db
 from app.schemas import StrictModel
@@ -51,7 +51,7 @@ class StageInput(StrictModel):
 
 class Candidate(StrictModel):
     stage_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
-    file_id: str | None = Field(default=None, pattern=r"^FILE-[0-9]{6,}$")
+    file_id: str | None = Field(default=None, pattern=id_pattern("FILE"))
 
 
 class AcceptInput(StrictModel):
@@ -63,7 +63,7 @@ class AcceptInput(StrictModel):
 class CorrectInput(StrictModel):
     expected_version: StrictInt = Field(gt=0)
     idempotency_key: str = Field(pattern=r"^[0-9a-f-]{36}$")
-    file_id: str = Field(pattern=r"^FILE-[0-9]{6,}$")
+    file_id: str = Field(pattern=id_pattern("FILE"))
     stage_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
@@ -104,7 +104,7 @@ def stage_data(stage, db=None, document=None):
 @router.get(base + "/files")
 def get_files(parent_type: Token, parent_id: str, document_id: str, db: Db, user: CurrentUser, history: bool = True):
     return translated(
-        db, lambda: bundles(db, document_access(db, user, parent_type.upper(), parent_id, document_id), history)
+        db, lambda: bundles(db, document_access(db, user, parent_type.upper(), parent_id, document_id), history, user=user)
     )
 
 
@@ -183,7 +183,8 @@ async def upload_stage(
     path = files.private_path(stage.id)
     owns_file = False
     try:
-        with attempt_lease(db, "stage-" + stage.id):
+        with attempt_lease(db, stage_attempt_key(stage.id)):
+            document_access(db, user, parent_type.upper(), parent_id, document_id, edit=True)
             stage = owned_stage(
                 db, user, request.state.login_session.token_hash, document_id, stage_id, ready=False
             )
@@ -253,7 +254,7 @@ def protected_response(path, name, media, preview, *, temporary=False):
     )
 
 
-@router.get(base + "/stages/{stage_id}/{action}")
+@router.get(base + "/stages/{stage_id}/{action}", dependencies=[Depends(protected_read, scope="request")])
 def preview_stage(
     parent_type: Token,
     parent_id: str,
@@ -275,7 +276,7 @@ def preview_stage(
     return translated(db, operation)
 
 
-@router.post(base + "/accept")
+@router.post(base + "/accept", dependencies=[Depends(protected_read, scope="request")])
 def accept_files(
     parent_type: Token,
     parent_id: str,
@@ -304,7 +305,8 @@ def accept_files(
     )
 
 
-@router.get(base + "/revisions/{revision_id}/files/{file_id}/{action}")
+@router.get(base + "/revisions/{revision_id}/files/{file_id}/{action}",
+            dependencies=[Depends(protected_read, scope="request")])
 def read_file(
     parent_type: Token,
     parent_id: str,
@@ -337,7 +339,7 @@ def read_file(
     return translated(db, operation)
 
 
-@router.post(base + "/corrections")
+@router.post(base + "/corrections", dependencies=[Depends(protected_read, scope="request")])
 def correct_file(parent_type: Token, parent_id: str, document_id: str, body: CorrectInput,
                  request: Request, db: Db, user: CurrentUser):
     return translated(db, lambda: accept(db, user, request.state.login_session.token_hash,

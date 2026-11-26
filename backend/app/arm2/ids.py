@@ -1,3 +1,5 @@
+import re
+
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -15,6 +17,22 @@ _NEXT_VALUE = {
     "CPREP": text("SELECT nextval('arm2_cprep_id_seq')"),
     "ORGREP": text("SELECT nextval('arm2_orgrep_id_seq')"),
 }
+
+
+def id_body_pattern(prefix: str, *alternatives: str) -> str:
+    """Display and validate the same ASCII ID format as the PostgreSQL checks."""
+    escaped = re.escape(prefix)
+    if alternatives:
+        escaped = "(?:" + "|".join([escaped, *map(re.escape, alternatives)]) + ")"
+    return escaped + r"-[0-9]{6,}"
+
+
+def id_pattern(prefix: str, *alternatives: str) -> str:
+    return "^" + id_body_pattern(prefix, *alternatives) + "$"
+
+
+def is_canonical_id(prefix: str, value: object) -> bool:
+    return isinstance(value, str) and re.fullmatch(id_body_pattern(prefix), value) is not None
 
 
 def next_id(db: Session, prefix: str) -> str:

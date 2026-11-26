@@ -49,7 +49,7 @@ def test_upgrade_downgrade_roundtrip_preserves_legacy_objects_history_and_ids(is
     settings.cache_clear()
     engine = create_engine(isolated_arm2_database_url, poolclass=NullPool)
     try:
-        assert ScriptDirectory.from_config(configuration()).get_heads() == ["0074"]
+        assert ScriptDirectory.from_config(configuration()).get_heads() == ["0076"]
         # This test exercises the historical B3 migration boundary. New TYPE
         # categories and their guarded downgrade have their own B4 tests.
         command.downgrade(configuration(), "0064")
@@ -99,6 +99,7 @@ def test_upgrade_downgrade_roundtrip_preserves_legacy_objects_history_and_ids(is
 
 
 @pytest.mark.parametrize("existing", ["row", "event", "reference"])
+@pytest.mark.parametrize("isolated_arm2_database_url", ["0062"], indirect=True)
 def test_downgrade_refuses_existing_document_kind_data_without_deleting_it(isolated_arm2_database_url, monkeypatch, existing):
     monkeypatch.setenv("DATABASE_URL", isolated_arm2_database_url)
     settings.cache_clear()
@@ -106,18 +107,16 @@ def test_downgrade_refuses_existing_document_kind_data_without_deleting_it(isola
     try:
         with engine.begin() as conn:
             if existing == "row":
-                conn.execute(text("INSERT INTO arm2_document_kinds (id,name,applicable_object_types) "
-                                  "VALUES ('DOC-KIND-000001','Сохранить','[\"CP\",\"ORG\",\"VEH\"]'::jsonb)"))
+                conn.execute(text("INSERT INTO arm2_document_kinds (id,name) VALUES ('DOC-KIND-000001','Сохранить')"))
         if existing != "row":
             with Session(engine) as db:
                 if existing == "event":
-                    append_history_event(
-                        db, object_type="DOC-KIND", object_id="DOC-KIND-000001", operation="CREATED",
+                    db.add(HistoryEvent(
+                        object_type="DOC-KIND", object_id="DOC-KIND-000001", operation="CREATED",
                         actor_kind="HUMAN", actor_id="1", source="migration-test", version_after=1,
-                        changes={"name": {"before": None, "after": "Сохранить"}, "version": {"before": None, "after": 1},
-                                 "applicable_object_types": {"before": None, "after": ["CP", "ORG", "VEH"]},
-                                 "max_current_documents": {"before": None, "after": None}, "file_naming_template": {"before": None, "after": None}},
-                    )
+                        changes={"name": {"before": None, "after": "Сохранить"}, "version": {"before": None, "after": 1}},
+                        related_objects=[],
+                    ))
                 else:
                     append_history_event(
                         db, object_type="VEH", object_id="VEH-000001", operation="UPDATED", actor_kind="HUMAN",
@@ -127,12 +126,12 @@ def test_downgrade_refuses_existing_document_kind_data_without_deleting_it(isola
                     )
                 db.commit()
         before = snapshot(engine)
-        with pytest.raises(RuntimeError, match="downgrade refused without deleting data"):
+        with pytest.raises(RuntimeError, match="DOC-KIND data/history exists"):
             command.downgrade(configuration(), "0061")
         assert snapshot(engine) == before
         assert "arm2_document_kinds" in inspect(engine).get_table_names()
         with engine.connect() as conn:
-            assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0074"
+            assert conn.scalar(text("SELECT version_num FROM alembic_version")) == "0062"
             if existing == "row":
                 assert conn.scalar(text("SELECT name FROM arm2_document_kinds")) == "Сохранить"
     finally:

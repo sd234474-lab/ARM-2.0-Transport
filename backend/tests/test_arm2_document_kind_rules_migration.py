@@ -71,6 +71,7 @@ def test_0062_existing_row_backfill_and_safe_roundtrip_preserve_old_data_and_eve
 
 
 @pytest.mark.parametrize("reason", ["parents", "maximum", "history"])
+@pytest.mark.parametrize("isolated_arm2_database_url", ["0075"], indirect=True)
 def test_0063_downgrade_refuses_settings_or_new_history_without_losses(isolated_arm2_database_url, monkeypatch, reason):
     monkeypatch.setenv("DATABASE_URL", isolated_arm2_database_url)
     settings.cache_clear()
@@ -97,7 +98,7 @@ def test_0063_downgrade_refuses_settings_or_new_history_without_losses(isolated_
             command.downgrade(config(), "0062")
         assert snapshots(engine) == old
         with engine.connect() as db:
-            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0074"
+            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0075"
             assert db.execute(text("SELECT row_to_json(d)::text FROM arm2_document_kinds d")).scalars().all() == before
     finally:
         engine.dispose()

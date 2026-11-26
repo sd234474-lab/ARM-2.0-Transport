@@ -74,6 +74,7 @@ def test_0064_roundtrip_typed_parent_fks_and_loss_guard(isolated_arm2_database_u
 
 
 @pytest.mark.parametrize("related_only", [False, True])
+@pytest.mark.parametrize("isolated_arm2_database_url", ["0064"], indirect=True)
 def test_0064_refuses_history_without_document_and_preserves_it(
     isolated_arm2_database_url, monkeypatch, related_only
 ):
@@ -107,10 +108,10 @@ def test_0064_refuses_history_without_document_and_preserves_it(
                 .scalars()
                 .all()
             )
-        with pytest.raises(RuntimeError, match="downgrade refused"):
+        with pytest.raises(RuntimeError, match="DOCUMENT data/history exists"):
             command.downgrade(cfg, "0063")
         with engine.connect() as db:
-            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0074"
+            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "0064"
             assert (
                 db.execute(text("SELECT row_to_json(h)::text FROM arm2_history_events h ORDER BY event_id"))
                 .scalars()

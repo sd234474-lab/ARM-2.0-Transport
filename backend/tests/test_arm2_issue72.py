@@ -181,6 +181,7 @@ def test_i05_full_query_counts_pagination_empty_and_permissions(b5):
     assert check(c.get('/api/arm2/vehicles/search?q=Count%20fixture'))['without_owner'] == sum(r.owner_cp_id is None for r in expected)
 
 
+@pytest.mark.parametrize('isolated_arm2_database_url', ['0075'], indirect=True)
 def test_i06_offline_reset_identity_recovery_bootstrap_and_new_v4(b5, monkeypatch):
     from alembic.config import Config
 

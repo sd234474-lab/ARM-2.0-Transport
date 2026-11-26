@@ -170,6 +170,20 @@ def test_invalid_or_incomplete_permission_sets_rejected(admin, db, permissions):
     assert operator.permissions == DEFAULT_OPERATOR_PERMISSIONS
 
 
+def test_arm2_deletion_permissions_meta_preserves_names_and_prerequisite(admin):
+    response = admin.get("/api/meta")
+    assert response.status_code == 200
+    catalog = {item["code"]: item for item in response.json()["permission_catalog"]}
+    assert catalog["arm2_delete_mark"] == {
+        "code": "arm2_delete_mark", "name": "Пометка объектов на удаление",
+        "group": "АРМ 2.0", "requires": [], "default_operator": False,
+    }
+    assert catalog["arm2_delete_execute"] == {
+        "code": "arm2_delete_execute", "name": "Удаление помеченных объектов",
+        "group": "АРМ 2.0", "requires": ["arm2_delete_mark"], "default_operator": False,
+    }
+
+
 def test_no_permissions_leaves_only_account_and_denies_all_function_endpoints(client, users, db, photo):
     restrict(db, [])
     assert sign_in(client)["permissions"] == []

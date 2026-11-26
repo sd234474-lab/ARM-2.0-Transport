@@ -72,6 +72,23 @@ it('pages candidates by the shared 100-row contract and preserves an explicit se
   expect(host.querySelector<HTMLInputElement>('input[type=checkbox]')!.checked).toBe(true);
 });
 
+it('shows the retained letter outcome and deletion event when the server replays a completed command', async () => {
+  vi.mocked(api).mockImplementation(async path => {
+    if (path.includes('/candidates')) return [ready];
+    if (path.endsWith('/letter')) return {request_id: request.id, current_object:{state:'DELETED',event_id:6}};
+    if (path.endsWith('/history/events/6')) return {changes:{version:{before:1,after:null}}};
+    throw Error(path);
+  });
+  await mount(<NewApproval/>);
+  const inputs = host.querySelectorAll<HTMLInputElement>('input:not([type=checkbox])');
+  await change(inputs[0], 'К-1'); await change(inputs[1], 'К-2');
+  await act(async () => {host.querySelector<HTMLInputElement>('input[type=checkbox]')!.click(); await tick();});
+  await click('Выпустить PDF и ZIP');
+  expect(host.textContent).toContain(request.id+' · Объект удалён');
+  await click('История удаления');
+  expect(api).toHaveBeenCalledWith('/arm2/history/events/6','GET',undefined,expect.any(AbortSignal));
+});
+
 it('saves explicit per-machine decisions with one bounded original and reopens through the platform viewer', async () => {
   let saved = false;
   const candidate = {navigate: vi.fn(), close: vi.fn()};

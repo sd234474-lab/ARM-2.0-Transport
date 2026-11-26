@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.arm2 import document_file_storage as files
 from app.arm2 import questionnaire_store as store
-from app.arm2.document_file_store import attempt_lease
+from app.arm2.file_read_guard import attempt_lease, protected_background_work
 from app.arm2.http_errors import CONTROLLED_ERRORS, controlled_error, rollback
 from app.arm2.object_save import ObjectAuthorizationError, ObjectVersionConflictError
 from app.arm2.operation_models import BackgroundOperation
@@ -19,19 +19,21 @@ from app.models import LoginSession, User
 log = logging.getLogger(__name__)
 
 
-def receipt_for(db, job):
+def receipt_for(db, job, *, user=None):
     receipt = db.get(QuestionnaireReceipt, job.payload['command_id'])
-    return receipt.result if receipt and receipt.author_id == job.author_id and receipt.draft_id == job.resource_id else None
+    if receipt and receipt.author_id == job.author_id and receipt.draft_id == job.resource_id:
+        return store.present_receipt(db, user, receipt) if user else receipt.result
+    return None
 
 
-def status(db, job, draft, *, detail=False):
-    receipt = receipt_for(db, job) if detail else None
+def status(db, job, draft, *, user=None):
+    receipt = receipt_for(db, job, user=user)
     return {
         'id': job.id, 'draft_id': job.resource_id, 'filename': draft.filename, 'revision': job.payload['revision'],
         'state': 'SUCCEEDED' if receipt else job.state, 'progress': job.progress,
         'failure': None if receipt else job.failure, 'updated_at': job.updated_at.isoformat(),
         'without_documents': job.payload['without_documents'],
-        **({'receipt': receipt} if detail else {}),
+        **({'receipt': receipt} if user else {}),
     }
 
 
@@ -44,7 +46,7 @@ def latest(db, identifier):
 def state_for(db, user, identifier):
     draft = store.owned(db, user, identifier, open_only=False, lock=False)
     job = latest(db, identifier)
-    return status(db, job, draft, detail=True) if job else None
+    return status(db, job, draft, user=user) if job else None
 
 
 def journal(db, user):
@@ -75,15 +77,15 @@ def enqueue(db, user, identifier, operation_id, revision, preview_id, session_ha
         return store.active_apply(db, identifier)
 
     if job := existing():
-        return status(db, job, draft, detail=True)
+        return status(db, job, draft, user=user)
     try:
         with attempt_lease(db, 'B5:' + identifier):
             draft = store.owned(db, user, identifier, open_only=False)
             if job := existing():
-                return status(db, job, draft, detail=True)
+                return status(db, job, draft, user=user)
             previous = latest(db, identifier)
             if draft.status == 'ACCEPTED' and previous and receipt_for(db, previous):
-                return status(db, previous, draft, detail=True)
+                return status(db, previous, draft, user=user)
             if (draft.status != 'OPEN' or draft.revision != revision or not draft.preview
                     or store.review_hash(draft.preview, draft.choices) != preview_id):
                 raise ObjectVersionConflictError('Сверка изменилась. Откройте её и проверьте решения заново')
@@ -96,17 +98,17 @@ def enqueue(db, user, identifier, operation_id, revision, preview_id, session_ha
                 progress={'phase': 'QUEUED'})
             db.add(job)
             db.commit()
-            return status(db, job, draft, detail=True)
+            return status(db, job, draft, user=user)
     except ObjectVersionConflictError:
         # The worker or a second tab may have started after the initial lookup.
         db.rollback()
         if job := existing():
-            return status(db, job, draft, detail=True)
+            return status(db, job, draft, user=user)
         raise
 
 
 def apply_job(database, job, report):
-    with Session(database, expire_on_commit=False) as db:
+    with protected_background_work(database), Session(database, expire_on_commit=False) as db:
         if receipt_for(db, job):
             return None
         payload = job.payload

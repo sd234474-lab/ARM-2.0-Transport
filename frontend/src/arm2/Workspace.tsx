@@ -19,6 +19,7 @@ import Representatives from './Representatives';
 import {PartyFields,person,legal,rawParty} from './PartyFields';
 import { OwnerPicker, TypePicker } from './Selectors';
 import { emptyRecord, isParty, labels, missingRequirements, payload, repFields, requirementLabel, requirements } from './model';
+import Deletion, { DeletionMark, DeletionNavigation, DeletionPermissions } from './Deletion';
 import { CatalogHeader, display, ErrorMessage, Field, History, Pagination, SaveForm, Tabs, Unavailable, useAlive, useLoad } from './shared';
 
 export type Can = (permission: string) => boolean;
@@ -31,7 +32,8 @@ export default function Workspace({can, userLookupAllowed = false}: {can: Can; u
   const docView = can('arm2_doc_kind_view');
   const docEdit = docView && can('arm2_doc_kind_edit');
   const visible = kinds.filter(kind => can(catalogs[kind].permission + '_view'));
-  return <DraftScope><OwnerDraftContext.Provider value={ownerDrafts}><UserLookupAllowed.Provider value={userLookupAllowed}><section className="panel arm2"><h1>АРМ 2.0</h1><CatalogNavigation can={can}/><Routes>
+  return <DraftScope><DeletionPermissions.Provider value={can}><OwnerDraftContext.Provider value={ownerDrafts}><UserLookupAllowed.Provider value={userLookupAllowed}><section className="panel arm2"><h1>АРМ 2.0</h1><CatalogNavigation can={can}/><DeletionNavigation/><Routes>
+    {can('arm2_delete_mark') && <Route path="deletion" element={<Deletion/>}/>}
     {visible.map(kind => <Route key={kind} path={kind.toLowerCase()}><Route index element={<Catalog key={kind} kind={kind} can={can}/>}/><Route path=":id" element={<CardRoute kind={kind} can={can}/>}/>{kind !== 'TYPE' && <Route path=":parentId/documents/:id" element={<DocumentRoute parentType={kind} can={can}/>}/>}{isParty(kind) && <Route path=":parentId/representatives/:id" element={<RepRoute kind={kind} can={can}/>}/>}</Route>)}
     {can('arm2_veh_view') && can('arm2_veh_edit') && <Route path="veh/bulk" element={<BulkVehicles admin={userLookupAllowed}/>}/>}
     {can('arm2_cp_view') && <Route path="questionnaires" element={<Questionnaire can={can}/>}/>}
@@ -40,7 +42,7 @@ export default function Workspace({can, userLookupAllowed = false}: {can: Can; u
     {can('arm2_veh_view') && can('arm2_document_view') && <><Route path="approvals" element={<Approvals editable={can('arm2_veh_edit')&&can('arm2_document_edit')}/>}/><Route path="approvals/:id" element={<ApprovalRoute editable={can('arm2_veh_edit')&&can('arm2_document_edit')}/>}/>{can('arm2_veh_edit')&&can('arm2_document_edit')&&<Route path="approvals/new" element={<NewApproval/>}/>}</>}
     {docView && <Route path="document-kinds/*" element={<DocumentKinds editable={docEdit}/>}/>}
     <Route path="*" element={visible[0] ? <Navigate to={link(visible[0])} replace/> : docView ? <Navigate to="/arm2/document-kinds" replace/> : <p>Нет прав на просмотр справочников АРМ 2.0</p>}/>
-  </Routes></section></UserLookupAllowed.Provider></OwnerDraftContext.Provider></DraftScope>;
+  </Routes></section></UserLookupAllowed.Provider></OwnerDraftContext.Provider></DeletionPermissions.Provider></DraftScope>;
 }
 function Catalog({kind, can}: {kind: Kind; can: Can}) {
   return kind === 'TYPE' ? <TypeCatalog kind={kind} can={can}/> : <SearchCatalog kind={kind} can={can}/>;
@@ -98,7 +100,7 @@ function Card({kind, initial, can, reload}: {kind: Kind; initial: RecordData; ca
   const change = (field: string, value: Scalar) => {if(['type','legal_form'].includes(field))setIdentityConfirmed(false);setDraft(current => ({...current, ...(kind==='CP'&&field==='type'&&current.type===person&&value===legal?{full_name:rawParty(current,'full_name')??null,short_name:rawParty(current,'short_name')??null}:{}), [field]: value}));};
   const fields = (keys: string[]) => <div className="arm2-grid">{keys.map(field => <Field key={field} field={field} value={draft[field]} change={value => change(field, value)} required={field === 'name' || field === 'plate_number'}/>)}</div>;
   const tabs = isParty(kind) ? ['Основное', 'Контакты', 'Банковские счета', 'Документы', 'Техника'] : kind === 'TYPE' ? ['Основное', 'Виды работ'] : ['Основное', 'Документы'];
-  return <article><header className="arm2-actions"><h2>{catalogs[kind].singular}: {original.id ? original.name : 'создание'}</h2>{original.id&&<button type="button" aria-expanded={history} onClick={()=>setHistory(x=>!x)}>{history?'Закрыть историю':'История'}</button>}</header>{kind === 'TYPE' && <div className="arm2-card-status"><p role="status">Состояние описания: {original.id ? original.status === 'CONFIRMED' ? 'Описание заполнено (CONFIRMED)' : 'Описание не завершено (REVIEW)' : 'будет рассчитано при сохранении'}</p><details><summary>Условия полного описания</summary>{isParty(kind) ? <p>Нужны рабочее имя, полное наименование и юридический адрес. Заполненные реквизиты проверяются сервером. Не заполнено: {['name', 'full_name', 'legal_address'].filter(key => !draft[key]).map(key => labels[key]).join(', ') || 'основные поля заполнены'}.</p> : <p>Не заполнено: {missingRequirements(draft) || 'все требования заполнены'}. Тип REVIEW нельзя вновь назначить машине.</p>}</details></div>}
+  return <article><header className="arm2-actions"><h2>{catalogs[kind].singular}: {original.id ? original.name : 'создание'}</h2><DeletionMark kind={kind} id={original.id} version={original.version} editable={can(catalogs[kind].permission + '_edit')}/>{original.id&&<button type="button" aria-expanded={history} onClick={()=>setHistory(x=>!x)}>{history?'Закрыть историю':'История'}</button>}</header>{kind === 'TYPE' && <div className="arm2-card-status"><p role="status">Состояние описания: {original.id ? original.status === 'CONFIRMED' ? 'Описание заполнено (CONFIRMED)' : 'Описание не завершено (REVIEW)' : 'будет рассчитано при сохранении'}</p><details><summary>Условия полного описания</summary>{isParty(kind) ? <p>Нужны рабочее имя, полное наименование и юридический адрес. Заполненные реквизиты проверяются сервером. Не заполнено: {['name', 'full_name', 'legal_address'].filter(key => !draft[key]).map(key => labels[key]).join(', ') || 'основные поля заполнены'}.</p> : <p>Не заполнено: {missingRequirements(draft) || 'все требования заполнены'}. Тип REVIEW нельзя вновь назначить машине.</p>}</details></div>}
     <Tabs tabs={tabs} active={tab} setActive={value => {if(ownerGuard.current){if(!window.confirm('Несохранённые изменения связи или карточки будут потеряны. Перейти на другую вкладку?'))return;ownerGuard.current=false;discardOwnerDraft();}setTab(value); setTabParams(current => {const next = new URLSearchParams(current); if (value === 'Документы') next.set('tab', 'documents'); else if(value==='Техника')next.set('tab','vehicles');else next.delete('tab'); return next;}, {replace: true});}}/>
     {kind==='CP'&&original.id&&<QuestionnaireExport cpId={original.id}/>}
     <SaveForm resource={`${catalogs[kind].path}/${encodeURIComponent(original.id)}`} original={original} allowed={can(catalogs[kind].permission + '_edit')} showSubmit={!['Документы', 'Виды работ', 'Техника'].includes(tab)&&!(kind==='VEH'&&ownerChoice)} reload={()=>{ownerGuard.current=false;ownerDrafts.delete(key);reload();}} submit={async () => {
@@ -221,7 +223,7 @@ function RepCard({kind, can, initial, path, parentId, reload}: {kind: Kind; can:
   const alive = useAlive();
   const [original, setOriginal] = useState(initial), [draft, setDraft] = useState(initial), [history, setHistory] = useState(false);
   const navigate = useNavigate();
-  return <article><h2>Представитель: {original.id ? original.name : 'создание'}</h2><p>Связанная учётная запись: {display(original.user_id)}. Информационная связь не предоставляет права доступа.</p><SaveForm resource={`${path}/${encodeURIComponent(original.id)}`} original={original} allowed={can(catalogs[kind].permission + '_edit')} reload={reload} submit={async () => {
+  return <article><header className="arm2-actions"><h2>Представитель: {original.id ? original.name : 'создание'}</h2><DeletionMark kind={kind === 'CP' ? 'CPREP' : 'ORGREP'} id={original.id} version={original.version} editable={can(catalogs[kind].permission + '_edit')}/></header><p>Связанная учётная запись: {display(original.user_id)}. Информационная связь не предоставляет права доступа.</p><SaveForm resource={`${path}/${encodeURIComponent(original.id)}`} original={original} allowed={can(catalogs[kind].permission + '_edit')} reload={reload} submit={async () => {
     const saved = await save(`${path}${original.id ? '/' + encodeURIComponent(original.id) : ''}`, payload('REP', draft, original), !!original.id);
     if (!alive.current) return;
     setOriginal(saved); setDraft(saved); if (!original.id) navigate(`${link(kind, parentId)}/representatives/${encodeURIComponent(saved.id)}`, {replace: true});

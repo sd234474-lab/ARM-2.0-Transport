@@ -4,7 +4,7 @@ import base64
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -23,8 +23,10 @@ from app.arm2.bulk_tables import (
     suggest,
     xlsx,
 )
+from app.arm2.file_read_guard import protected_read
 from app.arm2.history_models import HistoryEvent
 from app.arm2.http_limits import bounded_route
+from app.arm2.ids import id_pattern
 from app.arm2.object_save import (
     ObjectAuthorizationError,
     ObjectVersionConflictError,
@@ -32,6 +34,7 @@ from app.arm2.object_save import (
     create_object,
     update_object,
 )
+from app.arm2.reference_paths import BULK_SCHEMA, bulk_references
 from app.arm2.vehicle_models import Vehicle
 from app.auth import AdminUser, CurrentUser, Db
 from app.models import User
@@ -48,9 +51,9 @@ class Command(BaseModel):
 
 class ExportQuery(Command):
     q: Annotated[str, Field(max_length=200, pattern=r"^[^\x00]*$")] = ""
-    type_id: Annotated[str | None, Field(pattern=r"^TYPE-[0-9]{6,}$")] = None
+    type_id: Annotated[str | None, Field(pattern=id_pattern("TYPE"))] = None
     owner_kind: Literal["CP", "ORG", "NONE"] | None = None
-    owner_id: Annotated[str | None, Field(pattern=r"^(CP|ORG)-[0-9]{6,}$")] = None
+    owner_id: Annotated[str | None, Field(pattern=id_pattern("CP", "ORG"))] = None
     state: Literal["Действующая", "Архивная"] | None = None
     wialon: Literal["missing"] | None = None
     sort: Literal["name", "plate_number", "type", "owner", "accounting_state"] = "name"
@@ -112,24 +115,35 @@ def workspace(db, user, session_id):
         raise HTTPException(404, "Рабочий набор не найден")
     if record.user_id != user.id:
         raise HTTPException(403, "Продолжать загрузку может только её автор")
+    validate_payload(record.payload)
     return record
 
 
+def validate_payload(payload):
+    try:
+        bulk_references(payload)
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(409, "Неизвестная форма рабочего набора. Черновик сохранён без изменений") from None
+
+
 def receipts(db, user, session_id):
+    from app.arm2.deletion_service import resolve_reference
+
     result = []
     records = db.scalars(select(BulkReceipt).where(BulkReceipt.session_id == str(session_id), BulkReceipt.user_id == user.id)
                          .order_by(BulkReceipt.at, BulkReceipt.command_id)).all()
     for record in records:
-        vehicle = db.get(Vehicle, record.vehicle_id, populate_existing=True)
+        current = resolve_reference(db, user, "VEH", record.vehicle_id)
         event = db.get(HistoryEvent, record.event_id) if record.event_id else None
-        verified = vehicle is not None and vehicle.version >= record.version_after
+        verified = current.get("version", 0) >= record.version_after
         if record.event_id:
             verified &= (event is not None and event.correlation_id == record.command_id and event.object_type == "VEH"
                          and event.object_id == record.vehicle_id and event.version_after == record.version_after
                          and event.actor_id == str(user.id) and event.source == "arm2-table")
         result.append({"command_id": record.command_id, "row_key": record.row_key, "vehicle_id": record.vehicle_id,
                        "event_id": record.event_id, "version_after": record.version_after, "fields": record.fields,
-                       "at": record.at.isoformat(), "status": "UNKNOWN" if not verified else "SAVED" if event else "SKIP"})
+                       "at": record.at.isoformat(), "status": "UNKNOWN" if not verified else "SAVED" if event else "SKIP",
+                       **({"current_object": current} if current["state"] != "LIVE" else {})})
     return result
 
 
@@ -138,8 +152,10 @@ def checked(db, user, record):
     plans = preview(db, user, record.payload)
     preview_id = str(uuid4())
     reset = record.payload.get("plans") is not None and fingerprint(record.payload["plans"]) != fingerprint(plans)
-    record.payload = {**record.payload, "plans": plans, "preview_id": preview_id,
-                      **({"decisions": {}, "confirmations": {}} if reset else {})}
+    payload = {**record.payload, "schema": BULK_SCHEMA, "plans": plans, "preview_id": preview_id,
+               **({"decisions": {}, "confirmations": {}} if reset else {})}
+    validate_payload(payload)
+    record.payload = payload
     db.commit()
     return {"id": record.id, "source": record.source, "revision": record.revision,
             **{k: record.payload.get(k) for k in ("headers", "rows", "mapping", "excluded", "clears", "decisions", "confirmations", "warning", "failures")},
@@ -153,7 +169,7 @@ def export(db: Db, user: CurrentUser, filters: Annotated[ExportQuery, Query()]):
                     headers={"Content-Disposition": 'attachment; filename="vehicles.xlsx"'})
 
 
-@router.post("/sessions", status_code=201)
+@router.post("/sessions", status_code=201, dependencies=[Depends(protected_read, scope="request")])
 async def upload(request: Request, db: Db, user: CurrentUser,
                  filename: Annotated[str, Query(max_length=200)] = "paste.tsv",
                  sheet: Annotated[str | None, Query(max_length=100)] = None):
@@ -183,12 +199,12 @@ def sessions(db: Db, user: CurrentUser):
             for s in db.scalars(select(BulkSession).where(BulkSession.user_id == user.id).order_by(BulkSession.created_at.desc()))]
 
 
-@router.get("/sessions/{session_id}")
+@router.get("/sessions/{session_id}", dependencies=[Depends(protected_read, scope="request")])
 def reopen(session_id: UUID, db: Db, user: CurrentUser):
     return checked(db, user, workspace(db, user, session_id))
 
 
-@router.put("/sessions/{session_id}")
+@router.put("/sessions/{session_id}", dependencies=[Depends(protected_read, scope="request")])
 def edit(session_id: UUID, body: Draft, db: Db, user: CurrentUser):
     record = workspace(db, user, session_id)
     if record.revision != body.revision:
@@ -200,7 +216,7 @@ def edit(session_id: UUID, body: Draft, db: Db, user: CurrentUser):
     return checked(db, user, record)
 
 
-@router.post("/sessions/{session_id}/apply")
+@router.post("/sessions/{session_id}/apply", dependencies=[Depends(protected_read, scope="request")])
 def apply(session_id: UUID, body: Apply, db: Db, user: CurrentUser):
     record = workspace(db, user, session_id)
     user = permissions(db, user, edit=True)  # Repeat after any workspace row-lock wait.
@@ -280,13 +296,13 @@ def apply(session_id: UUID, body: Apply, db: Db, user: CurrentUser):
         status = 409 if isinstance(error, (ObjectVersionConflictError, IntegrityError)) else 403 if isinstance(error, ObjectAuthorizationError) else 422
         message = "Госномер уже занят; повторите сравнение" if isinstance(error, IntegrityError) else str(error)
         failures = {**record.payload.get("failures", {}), command_id: {"row_key": body.row_key, "status": status, "message": message}}
-        record.payload = {**record.payload, "failures": failures}
+        record.payload = {**record.payload, "schema": BULK_SCHEMA, "failures": failures}
         db.commit()
         raise HTTPException(status, message) from None
     return next(r for r in receipts(db, user, record.id) if r["command_id"] == command_id)
 
 
-@router.post("/sessions/{session_id}/finish")
+@router.post("/sessions/{session_id}/finish", dependencies=[Depends(protected_read, scope="request")])
 def finish(session_id: UUID, body: Finish, db: Db, user: CurrentUser):
     record = workspace(db, user, session_id)
     if record.revision != body.revision:
@@ -319,12 +335,12 @@ def rejection_report(db, user, record, plans=None):
     return xlsx(["Строка", *record.payload["headers"], "Результат / причина"], rows)
 
 
-@router.get("/sessions/{session_id}/report")
+@router.get("/sessions/{session_id}/report", dependencies=[Depends(protected_read, scope="request")])
 def download_report(session_id: UUID, db: Db, user: CurrentUser):
     record = workspace(db, user, session_id)
     plans, outcomes = preview(db, user, record.payload), receipts(db, user, record.id)
     report = rejection_report(db, user, record, plans)
-    record.payload = {**record.payload, "report_revision": record.revision,
+    record.payload = {**record.payload, "schema": BULK_SCHEMA, "report_revision": record.revision,
                       "report_fingerprint": fingerprint({"plans": plans, "results": outcomes})}
     db.commit()
     return Response(report, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -332,10 +348,12 @@ def download_report(session_id: UUID, db: Db, user: CurrentUser):
 
 
 @router.get("/protocols")
-def protocols(db: Db, user: CurrentUser):
+def protocols(db: Db, user: CurrentUser, session_id: UUID | None = None):
     permissions(db, user)
-    ids = db.execute(select(BulkReceipt.session_id, BulkReceipt.source).where(BulkReceipt.user_id == user.id)
-                     .group_by(BulkReceipt.session_id, BulkReceipt.source).limit(100)).all()
+    query = select(BulkReceipt.session_id, BulkReceipt.source).where(BulkReceipt.user_id == user.id)
+    if session_id is not None:
+        query = query.where(BulkReceipt.session_id == str(session_id))
+    ids = db.execute(query.group_by(BulkReceipt.session_id, BulkReceipt.source).limit(100)).all()
     return [{"id": sid, "source": source, "author": user.id, "results": receipts(db, user, sid)} for sid, source in ids]
 
 
