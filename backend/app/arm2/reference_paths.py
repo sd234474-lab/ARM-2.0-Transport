@@ -16,10 +16,10 @@ BULK_MATCH = {"vehicle_id", "version", "matched", "similar", "has_snapshot"}
 BULK_OPTION = {"value", "label", "current", "current_label", "original", "has_original", "error",
                "conflict", "clear", "sources"}
 FILE_METADATA = {"id", "original_upload_name", "stored_name", "storage_ref", "size", "sha256", "media_type", "extension"}
-DOCUMENT_CHOICE = {"upload_id", "parent_key", "kind_id", "document_id", "replace_file_id", "append", "accept"}
-DOCUMENT_PREVIEW = DOCUMENT_CHOICE - {"accept"} | {
-    "key", "name", "role", "parent_type", "parent_id", "version", "kind_version", "revision_id", "selected",
-    "equal", "error", "sha256", "media_type", "attachment_options", "candidates", "current_files",
+DOCUMENT_CHOICE = {"upload_id", "parent_key", "kind_id", "document_id", "revision_id", "replace_file_id", "append", "accept"}
+SHORT_DOCUMENT_PREVIEW = {"key", "name", "role", "parent_key", "selected", "error", "attachment_options"}
+DOCUMENT_PREVIEW = (DOCUMENT_CHOICE - {"accept"}) | SHORT_DOCUMENT_PREVIEW | {
+    "parent_type", "parent_id", "version", "kind_version", "equal", "sha256", "media_type", "candidates", "current_files",
 }
 VEHICLE_CHOICE = {"fields", "type_id", "without_type", "confirm_owner", "include", "edits", "volume"}
 VEHICLE_PREVIEW_FIELDS = {"name", "model", "type_id", "accounting_state", "owner"}
@@ -44,8 +44,10 @@ def items(value):
     return value
 
 
-def records(value, field):
-    return (record(item) for item in items(record(value).get(field, [])))
+def records(value, field, *, optional=False):
+    row = record(value)
+    collection = row.get(field, []) if optional else row[field]
+    return (record(item) for item in items(collection))
 
 
 def reference_id(kind, identifier, path):
@@ -58,11 +60,18 @@ def reference_id(kind, identifier, path):
         OBJECT_REGISTRY.require(kind).validate_id(identifier)
 
 
-def typed(result, kind, identifier, path, *, placeholders=()):
-    if identifier is None or identifier in placeholders:
+def typed(result, kind, identifier, path, *, nullable=False, placeholders=()):
+    if (nullable and identifier is None) or (isinstance(identifier, str) and identifier in placeholders):
         return
     reference_id(kind, identifier, path)
     result.append((kind, identifier, path))
+
+
+def typed_list(kind, value, path):
+    result = []
+    for identifier in items(value):
+        typed(result, kind, identifier, path)
+    return result
 
 
 def typed_owner(result, value, path, *, new_cp=False):
@@ -70,10 +79,8 @@ def typed_owner(result, value, path, *, new_cp=False):
         return
     if not isinstance(value, list) or len(value) != 2 or value[0] not in ("CP", "ORG"):
         raise ValueError(f"Некорректная ссылка владельца в {path}")
-    if new_cp and value == ["CP", "$CP"]:
-        return
-    reference_id(*value, path)
-    result.append((*value, path))
+    kind, identifier = value
+    typed(result, kind, identifier, path, placeholders=("$CP",) if new_cp and kind == "CP" else ())
 
 
 def all_items(value, check, path):
@@ -113,7 +120,7 @@ def bulk_option(name, value, row_count):
         path = f"payload.plans.fields.{name}"
         found = []
         if name == "type_id":
-            typed(found, "TYPE", field, path)
+            typed(found, "TYPE", field, path, nullable=True)
         elif name == "owner":
             typed_owner(found, field, path)
         elif not nullable_string(field):
@@ -136,7 +143,7 @@ def bulk_plan(raw, row_count):
     refs = []
     if expanded:
         identifier, version, matched = (plan[name] for name in ("vehicle_id", "version", "matched"))
-        typed(refs, "VEH", identifier, "payload.plans.vehicle_id")
+        typed(refs, "VEH", identifier, "payload.plans.vehicle_id", nullable=True)
         if identifier is None:
             if version is not None or matched is not None or action == "UPDATE":
                 raise ValueError("Некорректная цель плана создания")
@@ -219,7 +226,7 @@ def bulk_selection(row):
     return bulk_references(row.payload)
 
 
-def add_document(result, document, path):
+def add_document(result, document, path, *, choice=False):
     parent = document.get("parent_id")
     if parent is not None:
         kind = document.get("parent_type")
@@ -232,8 +239,8 @@ def add_document(result, document, path):
     ):
         placeholders = ("", "new") if field == "document_id" else ("",)
         typed(result, kind, document.get(field), path + "." + field,
-              placeholders=placeholders if path == "choices.documents" else ())
-    for file in records(document, "current_files"):
+              nullable=True, placeholders=placeholders if choice else ())
+    for file in records(document, "current_files", optional=choice or document.keys() <= SHORT_DOCUMENT_PREVIEW):
         shape(file, path + ".current_files", {"id", "name", "sha256"}, required={"id"})
         typed(result, "FILE", file["id"], path + ".current_files.id")
 
@@ -245,13 +252,20 @@ def selected_flag(row, key):
     return value
 
 
-def document_parent(result, key, path):
-    if key in (None, "", "CP"):
+def document_parent(result, key, path, *, nullable=False):
+    if key == "CP" or (nullable and key in (None, "")):
         return
     if string(key) and key.startswith("VEH-"):
         typed(result, "VEH", key, path)
     elif not string(key) or not re.fullmatch(r"v:[0-9]+", key):
         raise ValueError(f"Некорректная привязка в {path}")
+
+
+def check_reference_version(identifier, version, path):
+    if identifier is None and version is None:
+        return
+    if identifier is None or type(version) is not int or version < 1:
+        raise ValueError(f"Некорректная версия в {path}")
 
 
 def planned_file(value, path, extra, *, required=()):
@@ -281,69 +295,90 @@ def questionnaire_selection(row):
     result = []
     vehicle_choices = record(choices.get("vehicles", {}))
     document_choices = record(choices.get("documents", {}))
-    typed(result, "CP", choices.get("cp_target"), "choices.cp_target", placeholders=("new", ""))
+    cp_target = choices.get("cp_target")
+    typed(result, "CP", cp_target, "choices.cp_target", nullable=True, placeholders=("new", ""))
     for choice in record(choices.get("representatives", {})).values():
         shape(choice, "choices.representatives", {"target", "fields", "signer", "sources", "edits"})
-        typed(result, "CPREP", choice.get("target"), "choices.representatives.target", placeholders=("new", ""))
+        typed(result, "CPREP", choice.get("target"), "choices.representatives.target", nullable=True, placeholders=("new", ""))
     document_rows = set()
     for choice in document_choices.values():
         shape(choice, "choices.documents", DOCUMENT_CHOICE)
         parent = choice.get("parent_key")
         selected = selected_flag(choice, "accept")
         refs = []
-        document_parent(refs, parent, "choices.documents.parent_key")
-        add_document(refs, choice, "choices.documents")
+        document_parent(refs, parent, "choices.documents.parent_key", nullable=True)
+        add_document(refs, choice, "choices.documents", choice=True)
         if selected:
             document_rows.add(parent)
             result.extend(refs)
-    for document in records(comparison, "documents"):
+    for document in records(comparison, "documents", optional=True):
         shape(document, "preview.documents", DOCUMENT_PREVIEW, required={"key", "parent_key", "selected"})
         refs = []
-        document_parent(refs, document["parent_key"], "preview.documents.parent_key")
+        document_parent(refs, document["parent_key"], "preview.documents.parent_key", nullable=True)
         add_document(refs, document, "preview.documents")
         if selected_flag(document, "selected"):
             document_rows.add(document.get("parent_key"))
             result.extend(refs)
-    for vehicle in records(comparison, "vehicles"):
+    for vehicle in records(comparison, "vehicles", optional=True):
         shape(vehicle, "preview.vehicles", {"key", "row", "id", "plate_number", "version", "fields", "errors",
                                            "withdrawal", "confirm_owner", "without_type", "source", "type_version",
                                            "volume_proposal", "volume_notice", "legacy_hint", "diagnostic_hint",
-                                           "calibration"}, required={"key", "id", "fields"})
+                                           "calibration"}, required={"key", "id", "version", "fields"})
         key = vehicle["key"]
         choice = record(vehicle_choices.get(key, {}))
         refs = []
-        typed(refs, "VEH", vehicle["id"], "preview.vehicles.id")
+        typed(refs, "VEH", vehicle["id"], "preview.vehicles.id", nullable=True)
+        check_reference_version(vehicle["id"], vehicle["version"], "preview.vehicles.version")
         fields = shape(vehicle["fields"], "preview.vehicles.fields", VEHICLE_PREVIEW_FIELDS)
         comparison_field = {"current", "proposed", "selected", "error", "equal", "current_display", "proposed_display"}
         owner = shape(fields.get("owner", {}), "preview.vehicles.owner", comparison_field)
-        for name in ("current", "proposed"):
-            typed_owner(refs, owner.get(name), "preview.vehicles.owner", new_cp=True)
+        typed_owner(refs, owner.get("current"), "preview.vehicles.owner.current")
+        typed_owner(refs, owner.get("proposed"), "preview.vehicles.owner.proposed", new_cp=cp_target == "new")
         type_choice = shape(fields.get("type_id", {}), "preview.vehicles.type_id", comparison_field)
         type_refs = []
-        typed(type_refs, "TYPE", type_choice.get("proposed"), "preview.vehicles.type_id")
+        type_error, proposed_type = type_choice.get("error"), type_choice.get("proposed")
+        if not nullable_string(type_error) or (type_error and not nullable_string(proposed_type)):
+            raise ValueError("Некорректная диагностика в preview.vehicles.type_id")
+        if not type_error:
+            typed(type_refs, "TYPE", proposed_type, "preview.vehicles.type_id.proposed", nullable=True)
+        type_selected = selected_flag(type_choice, "selected")
         included = selected_flag(choice, "include")
         if included or key in document_rows:
             result.extend(refs)
-        if included and selected_flag(type_choice, "selected") and not type_choice.get("error"):
+        if included and type_selected:
             result.extend(type_refs)
     for choice in vehicle_choices.values():
         shape(choice, "choices.vehicles", VEHICLE_CHOICE)
         refs = []
-        typed(refs, "TYPE", choice.get("type_id"), "choices.vehicles.type_id", placeholders=("",))
+        typed(refs, "TYPE", choice.get("type_id"), "choices.vehicles.type_id", nullable=True, placeholders=("",))
         if selected_flag(choice, "include") and "type_id" in items(choice.get("fields", [])):
             result.extend(refs)
-    for group in records(staging, "groups"):
-        group_shape = {"parent_type", "parent_id", "parent_key", "kind_id", "document_id", "document_name",
-                       "expected_version", "replacements", "files"}
-        shape(group, "staging.groups", group_shape, required=group_shape)
-        document_parent(result, group["parent_key"], "staging.groups.parent_key")
-        add_document(result, group, "staging.groups")
-        for file_id in items(group.get("replacements", [])):
-            typed(result, "FILE", file_id, "staging.groups.replacements")
-        for file in records(group, "files"):
-            planned_file(file, "staging.groups.files", {"existing", "upload_id"}, required={"existing"})
-            if file["existing"]:
-                typed(result, "FILE", file["id"], "staging.groups.files.id")
+    for group in records(staging, "groups", optional=not staging):
+        result.extend(staging_group(group))
+    return result
+
+
+def staging_group(group):
+    path = "staging.groups"
+    keys = {"parent_type", "parent_id", "parent_key", "kind_id", "document_id", "document_name",
+            "expected_version", "replacements", "files"}
+    shape(group, path, keys, required=keys)
+    result = []
+    document_parent(result, group["parent_key"], path + ".parent_key")
+    parent_type, parent_id = group["parent_type"], group["parent_id"]
+    if parent_type not in ("CP", "ORG", "VEH"):
+        raise ValueError(f"Неизвестный тип родителя в {path}.parent_type")
+    parent_pending = (parent_type == "CP" and group["parent_key"] == "CP"
+                      or parent_type == "VEH" and group["parent_key"].startswith("v:"))
+    typed(result, parent_type, parent_id, path + ".parent_id", nullable=parent_pending)
+    typed(result, "DOC-KIND", group["kind_id"], path + ".kind_id")
+    typed(result, "DOCUMENT", group["document_id"], path + ".document_id", nullable=True)
+    check_reference_version(group["document_id"], group["expected_version"], path + ".expected_version")
+    result.extend(typed_list("FILE", group["replacements"], path + ".replacements"))
+    for file in records(group, "files"):
+        planned_file(file, path + ".files", {"existing", "upload_id"}, required={"existing"})
+        if file["existing"]:
+            typed(result, "FILE", file["id"], path + ".files.id")
     return result
 
 
@@ -354,24 +389,27 @@ def snapshot_references(snapshots, path):
                 "document_version", "revision_id", "file_ids"}
         snapshot = shape(raw, path, keys, required=keys)
         for kind, key in (("VEH", "vehicle_id"), ("DOCUMENT", "document_id"), ("DOCUMENT-REV", "revision_id")):
-            reference_id(kind, snapshot[key], path + "." + key)
-            result.append((kind, snapshot[key], path + "." + key))
-        for identifier in items(snapshot["file_ids"]):
-            reference_id("FILE", identifier, path + ".file_ids")
-            result.append(("FILE", identifier, path + ".file_ids"))
+            typed(result, kind, snapshot[key], path + "." + key)
+        result.extend(typed_list("FILE", snapshot["file_ids"], path + ".file_ids"))
     return result
 
 
 def approval_snapshot(row):
     result = snapshot_references(row.vehicles_snapshot, "vehicles_snapshot")
-    for identifier in items(row.response_file_ids):
-        typed(result, "FILE", identifier, "response_file_ids")
+    result.extend(typed_list("FILE", row.response_file_ids, "response_file_ids"))
     return result
+
+
+def require_letter_target(row):
+    if row.target_id != "":
+        raise ValueError("Некорректная служебная цель выпуска письма")
 
 
 def approval_attempt(row):
     plan = record(row.plan)
+    result = []
     if row.action == "letter":
+        require_letter_target(row)
         keys = {"snapshots", "files", "created_at"}
         shape(plan, "plan.letter", keys, required=keys)
         for file in records(plan, "files"):
@@ -379,17 +417,20 @@ def approval_attempt(row):
         return snapshot_references(plan["snapshots"], "plan.snapshots")
     if row.action == "calibration":
         shape(plan, "plan.calibration", set())
-        return (("VEH", row.target_id, "target_id"),)
-    if row.action == "response":
+        typed(result, "VEH", row.target_id, "target_id")
+    elif row.action == "response":
         shape(plan, "plan.response", set())
-        return (("APPROVAL", row.target_id, "target_id"),)
-    if row.action == "response-stage":
+        typed(result, "APPROVAL", row.target_id, "target_id")
+    elif row.action == "response-stage":
         keys = {"file", "session_hash"}
         shape(plan, "plan.response-stage", keys, required=keys)
         identifier = planned_file(plan["file"], "plan.response-stage.file", {"token", "generated_bundle"},
                                   required={"token"})["id"]
-        return (("APPROVAL", row.target_id, "target_id"), ("FILE", identifier, "plan.file.id"))
-    raise ValueError("Неизвестная операция согласования")
+        typed(result, "APPROVAL", row.target_id, "target_id")
+        typed(result, "FILE", identifier, "plan.file.id")
+    else:
+        raise ValueError("Неизвестная операция согласования")
+    return result
 
 
 def questionnaire_upload(row):
@@ -407,7 +448,12 @@ def file_acceptance(row):
     result = []
     keys = {"revision_id", "number", "noop", "files", "uploaded", "correction"}
     plan = shape(row.plan, "plan.acceptance", keys, required=keys - {"correction"})
-    if plan["revision_id"] is not None:
+    if not boolean(plan["noop"]):
+        raise ValueError("Некорректный признак no-op в plan.acceptance")
+    if plan["revision_id"] is None:
+        if not plan["noop"] or plan["files"] != [] or plan["uploaded"] != [] or plan.get("correction") is not None:
+            raise ValueError("Отсутствует обязательный ID редакции в plan.acceptance")
+    else:
         reference_id("DOCUMENT-REV", plan["revision_id"], "plan.revision_id")
     for file in records(plan, "files"):
         planned_file(file, "plan.files", {"existing", "stage_id"}, required={"existing", "stage_id"})
@@ -417,18 +463,34 @@ def file_acceptance(row):
     if correction is not None:
         shape(correction, "plan.correction", {"file_id", "stage_id"}, required={"file_id"})
         typed(result, "FILE", correction["file_id"], "plan.correction.file_id")
-    for identifier in items(plan["uploaded"]):
-        reference_id("FILE", identifier, "plan.uploaded")
+    typed_list("FILE", plan["uploaded"], "plan.uploaded")  # Reserved uploads alone do not establish a dependency.
     return result
+
+
+def receipt_kind(entry, path):
+    kind = entry["kind"]
+    if kind not in ("CP", "CPREP", "VEH", "DOCUMENT"):
+        raise ValueError(f"Неизвестный тип записи в {path}")
+    return kind
 
 
 def questionnaire_outcome(row):
     result = []
     stored = record(row.result)
-    for section in ("objects", "changes"):
-        for entry in records(stored, section):
-            typed(result, entry["kind"], entry.get("id") or entry.get("document_id"), f"result.{section}")
-    typed(result, "CP", stored.get("cp_id"), "result.cp_id")
+    for entry in records(stored, "objects"):
+        path = "result.objects"
+        kind = receipt_kind(entry, path)
+        if "document_id" in entry:
+            if kind != "DOCUMENT":
+                raise ValueError(f"Поле document_id допустимо только для документа в {path}")
+            typed(result, kind, entry["document_id"], path + ".document_id")
+            if "id" in entry and entry["id"] != entry["document_id"]:
+                raise ValueError(f"Не совпадают ID документа в {path}")
+        else:
+            typed(result, kind, entry["id"], path + ".id")
+    for entry in records(stored, "changes"):
+        typed(result, receipt_kind(entry, "result.changes"), entry["id"], "result.changes.id")
+    typed(result, "CP", stored["cp_id"], "result.cp_id", nullable=True)
     return result
 
 
@@ -439,14 +501,19 @@ def questionnaire_pending_targets(row):
 
 
 def approval_outcome(row):
-    result = record(row.result)
+    stored = record(row.result)
+    result = []
     if row.action == "calibration":
-        return (("VEH", result["vehicle_id"], "result.vehicle_id"),)
-    if row.action in ("letter", "response"):
-        return (("APPROVAL", result["request_id"], "result.request_id"),)
-    if row.action == "response-stage":
-        return (("APPROVAL", row.target_id, "target_id"),)
-    raise ValueError("Неизвестный результат согласования")
+        typed(result, "VEH", stored["vehicle_id"], "result.vehicle_id")
+    elif row.action in ("letter", "response"):
+        if row.action == "letter":
+            require_letter_target(row)
+        typed(result, "APPROVAL", stored["request_id"], "result.request_id")
+    elif row.action == "response-stage":
+        typed(result, "APPROVAL", row.target_id, "target_id")
+    else:
+        raise ValueError("Неизвестный результат согласования")
+    return result
 
 
 def questionnaire_job(row):
