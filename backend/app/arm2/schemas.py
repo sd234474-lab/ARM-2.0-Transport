@@ -1,11 +1,12 @@
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import ConfigDict, Field, StrictBool, StrictInt
+from pydantic import ConfigDict, Field, StrictBool, StrictInt, StringConstraints
 
 from app.schemas import StrictModel
 
 PositiveVersion = Annotated[int, Field(strict=True, gt=0)]
+RawReference = Annotated[str, StringConstraints(strip_whitespace=False)]
 HistoryObjectType = Literal["TYPE", "VEH", "CP", "ORG", "CPREP", "ORGREP", "DOC-KIND", "DOCUMENT", "APPROVAL", "APPROVAL-ITEM"]
 
 
@@ -50,9 +51,9 @@ class DocumentListResponse(DocumentResponse):
 
 class DocumentOperation(StrictModel):
     expected_version: PositiveVersion
-    kind_ref: str | None = None
+    kind_ref: RawReference | None = None
     target_type: Literal["CP", "ORG", "VEH"] | None = None
-    target_id: str | None = None
+    target_id: RawReference | None = None
 
 
 class DocumentKindCreate(StrictModel):
@@ -62,7 +63,7 @@ class DocumentKindCreate(StrictModel):
     name: str
     applicable_object_types: list[str]
     max_current_documents: StrictInt | None
-    file_naming_template: Literal["DOCUMENT_NAME", "PARENT_AND_KIND", "VEH_CALIBRATION"] | None = None
+    file_naming_template: Literal["DOCUMENT_NAME", "PARENT_AND_DOCUMENT", "PARENT_AND_KIND", "VEH_CALIBRATION"] | None = None
 
 
 class DocumentKindUpdate(DocumentKindCreate):
@@ -70,7 +71,7 @@ class DocumentKindUpdate(DocumentKindCreate):
 
 
 class DocumentKindResponse(StrictModel):
-    file_naming_template: Literal["DOCUMENT_NAME", "PARENT_AND_KIND", "VEH_CALIBRATION"] | None
+    file_naming_template: Literal["DOCUMENT_NAME", "PARENT_AND_DOCUMENT", "PARENT_AND_KIND", "VEH_CALIBRATION"] | None
     id: str
     name: str
     applicable_object_types: list[str]
@@ -111,24 +112,24 @@ class VehicleTypeResponse(StrictModel):
 class VehicleCreate(StrictModel):
     name: str
     plate_number: str
-    type_id: str | None = None
+    type_id: RawReference | None = None
     accounting_state: Literal["Действующая", "Архивная"] = "Действующая"
     model: str | None = None
     wialon_unit_id: str | None = None
-    owner_cp_id: str | None = None
-    owner_org_id: str | None = None
+    owner_cp_id: RawReference | None = None
+    owner_org_id: RawReference | None = None
 
 
 class VehicleUpdate(StrictModel):
     expected_version: PositiveVersion
     name: str
     plate_number: str
-    type_id: str | None
+    type_id: RawReference | None
     accounting_state: Literal["Действующая", "Архивная"]
     model: str | None
     wialon_unit_id: str | None
-    owner_cp_id: str | None = None
-    owner_org_id: str | None = None
+    owner_cp_id: RawReference | None = None
+    owner_org_id: RawReference | None = None
 
 
 class VehicleResponse(StrictModel):
@@ -156,12 +157,12 @@ class VehicleResponse(StrictModel):
 class OperationalOwnerCommand(StrictModel):
     expected_version: PositiveVersion
     target_kind: Literal["CP", "ORG"] | None
-    target_id: str | None
+    target_id: RawReference | None
     expected_owner_kind: Literal["CP", "ORG"] | None
-    expected_owner_id: str | None
+    expected_owner_id: RawReference | None
     confirm_reassignment: StrictBool = False
     initiator_kind: Literal["CP", "ORG"] | None = None
-    initiator_id: str | None = None
+    initiator_id: RawReference | None = None
 
 
 class OperationalOwnerResponse(VehicleResponse):
@@ -203,7 +204,7 @@ class PartyUpdate(StrictModel):
     bik: str | None = None
     settlement_account: str | None = None
     correspondent_account: str | None = None
-    primary_signer_id: str | None = None
+    primary_signer_id: RawReference | None = None
 
 
 class PartyResponse(StrictModel):

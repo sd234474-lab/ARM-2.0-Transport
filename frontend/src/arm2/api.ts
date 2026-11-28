@@ -72,7 +72,7 @@ export type DocumentListRecord = Pick<DocumentRecord, 'id' | 'kind_name' | 'name
   preview_files?: Pick<DocumentFile, 'id' | 'original_upload_name'>[];
 };
 export type DocumentParent = 'CP' | 'ORG' | 'VEH';
-export type FileNamingPreset = 'DOCUMENT_NAME' | 'PARENT_AND_KIND' | 'VEH_CALIBRATION';
+export type FileNamingPreset = 'DOCUMENT_NAME' | 'PARENT_AND_DOCUMENT' | 'PARENT_AND_KIND' | 'VEH_CALIBRATION';
 export interface DocumentKind {id: string; name: string; applicable_object_types: DocumentParent[]; max_current_documents: number | null; version: number; file_naming_template?: FileNamingPreset | null}
 export interface DocumentFile {download_name?: string; id: string; original_upload_name: string; stored_name: string; size: number; sha256: string; media_type: string; extension: string; position: number; correction?: {operation: 'CORRECT'; reason_code: 'incorrect_upload'; actor_id: number; occurred_at: string; history_event_id: number} | null}
 export interface DocumentRevision {id: string; number: number; document_id: string; parent_type: DocumentParent; parent_id: string | null; parent_current_object?: CurrentObject; author_id: number; occurred_at: string; source: string; files: DocumentFile[]}

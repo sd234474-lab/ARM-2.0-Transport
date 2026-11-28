@@ -17,6 +17,8 @@ _NEXT_VALUE = {
     "CPREP": text("SELECT nextval('arm2_cprep_id_seq')"),
     "ORGREP": text("SELECT nextval('arm2_orgrep_id_seq')"),
 }
+_ID_INTENT = re.compile(r"\b(?:" + "|".join(re.escape(prefix) for prefix in _NEXT_VALUE) + r")-",
+                        re.IGNORECASE | re.ASCII)
 
 
 def id_body_pattern(prefix: str, *alternatives: str) -> str:
@@ -33,6 +35,11 @@ def id_pattern(prefix: str, *alternatives: str) -> str:
 
 def is_canonical_id(prefix: str, value: object) -> bool:
     return isinstance(value, str) and re.fullmatch(id_body_pattern(prefix), value) is not None
+
+
+def explicit_id(value: str) -> str:
+    """Keep an ID candidate verbatim, including candidates of the wrong registered type."""
+    return value if _ID_INTENT.search(value) else ""
 
 
 def next_id(db: Session, prefix: str) -> str:

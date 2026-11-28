@@ -162,9 +162,11 @@ def _type_response(record: VehicleType) -> dict[str, Any]:
 
 
 def _document_kind_response(record: DocumentKind) -> dict[str, Any]:
-    return {field: getattr(record, field) for field in (
-        "id", "name", "applicable_object_types", "max_current_documents", "version", "file_naming_template",
-    )}
+    from app.arm2.document_file_storage import public_naming_template
+
+    return {**{field: getattr(record, field) for field in (
+        "id", "name", "applicable_object_types", "max_current_documents", "version",
+    )}, "file_naming_template": public_naming_template(record.file_naming_template)}
 
 
 def _vehicle_response(record: Vehicle) -> dict[str, Any]:

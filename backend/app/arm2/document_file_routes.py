@@ -50,6 +50,7 @@ class StageInput(StrictModel):
 
 
 class Candidate(StrictModel):
+    model_config = ConfigDict(str_strip_whitespace=False)
     stage_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     file_id: str | None = Field(default=None, pattern=id_pattern("FILE"))
 
@@ -61,6 +62,7 @@ class AcceptInput(StrictModel):
 
 
 class CorrectInput(StrictModel):
+    model_config = ConfigDict(str_strip_whitespace=False)
     expected_version: StrictInt = Field(gt=0)
     idempotency_key: str = Field(pattern=r"^[0-9a-f-]{36}$")
     file_id: str = Field(pattern=id_pattern("FILE"))

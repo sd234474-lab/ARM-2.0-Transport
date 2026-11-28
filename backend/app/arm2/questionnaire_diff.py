@@ -9,14 +9,15 @@ from sqlalchemy import or_, select
 from app.arm2.counterparty_models import Counterparty
 from app.arm2.counterparty_rules import LEGAL, PERSON, inapplicable_fields, official_names, transition_clears
 from app.arm2.counterparty_store import COUNTERPARTY_ADAPTER, PARTY_FIELDS
-from app.arm2.document_file_models import DocumentFile
-from app.arm2.document_file_store import revision_files
+from app.arm2.document_file_models import DocumentFileCorrection
+from app.arm2.document_file_store import revision_files, verified_revision_files
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_models import Document
-from app.arm2.ids import is_canonical_id
+from app.arm2.ids import explicit_id, is_canonical_id
 from app.arm2.object_save import ObjectAuthorizationError
 from app.arm2.organization_models import Organization
-from app.arm2.questionnaire_models import QuestionnaireUpload
+from app.arm2.questionnaire_models import QuestionnaireReceipt, QuestionnaireUpload
+from app.arm2.reference_paths import questionnaire_receipt_bindings
 from app.arm2.representative_models import CounterpartyRepresentative
 from app.arm2.representative_store import CPREP_ADAPTER, representative_values
 from app.arm2.vehicle_models import Vehicle
@@ -82,8 +83,10 @@ def build(db, principal, draft):
     if cp_values.get('inn') or cp_values.get('name') or cp_hint:
         candidates = [{'id': r.id, 'name': r.name, 'inn': r.inn} for r in db.scalars(select(Counterparty).where(or_(
             Counterparty.inn == cp_values.get('inn') if cp_values.get('inn') else False,
-            Counterparty.name == cp_values.get('name'), Counterparty.id == cp_hint,
-            Counterparty.name == cp_hint)).order_by(Counterparty.id).limit(100))]
+            Counterparty.name == cp_values.get('name'),
+            Counterparty.id == cp_hint if is_canonical_id('CP', cp_hint) else False,
+            Counterparty.name == cp_hint if not explicit_id(cp_hint or '') else False
+        )).order_by(Counterparty.id).limit(100))]
     if target == 'new' and candidates:
         cp_error = 'Найден совпадающий контрагент; выберите существующую карточку вместо создания дубля'
     cp_errors, normalized = dict(payload.get('cp_errors', {})), {}
@@ -170,7 +173,7 @@ def build(db, principal, draft):
         signed_rep = next((r for r in (payload.get('manifest') or {}).get('representatives', [])
                            if r['index'] == index and cp and r['parent_id'] == cp.id), None)
         hint = meta.get('id') if 'representative_meta' in payload else signed_rep['id'] if signed_rep else None
-        lookup_id = rep_id if rep_id and rep_id != 'new' else hint if cp else None
+        lookup_id = rep_id if rep_id and rep_id != 'new' else hint if cp and is_canonical_id('CPREP', hint) else None
         rep = db.get(CounterpartyRepresentative, lookup_id, populate_existing=True) if lookup_id else None
         error = None
         if hint and cp and (not is_canonical_id('CPREP', hint) or
@@ -214,19 +217,30 @@ def build(db, principal, draft):
             'candidates': [{'id': r.id, 'name': r.name} for r in db.scalars(select(CounterpartyRepresentative).where(
                 CounterpartyRepresentative.parent_id == cp.id).order_by(CounterpartyRepresentative.id))] if cp else []})
     rows, seen = [], {}
+    bound_rows = {}
+    if payload.get('_documents_pending'):
+        receipts = db.scalars(select(QuestionnaireReceipt).where(
+            QuestionnaireReceipt.draft_id == draft.id, QuestionnaireReceipt.author_id == draft.author_id,
+            QuestionnaireReceipt.result['without_documents'].as_boolean().is_(True),
+        ).order_by(QuestionnaireReceipt.accepted_at, QuestionnaireReceipt.command_id))
+        for receipt in receipts:
+            bound_rows.update(questionnaire_receipt_bindings(receipt))
     type_view = has_permission(user, Permission.ARM2_TYPE_VIEW)
     veh_view = has_permission(user, Permission.ARM2_VEH_VIEW)
     for raw in payload.get('vehicles', []):
+        identifier = bound_rows.get(raw['key'], raw.get('input_id', raw['id']))
         choice = choices.get('vehicles', {}).get(raw['key'], {})
         errors = [raw['status_error']] if raw.get('status_error') else []
         current, plate = None, None
         try:
             if not veh_view:
                 raise ValueError('Нет прав просмотра техники')
+            if identifier and not is_canonical_id('VEH', identifier):
+                raise ValueError('Некорректный VEH-ID. Исправьте исходную строку')
             plate = normalize_plate_number(re.sub(r'\s+', '', raw['plate_number']))
             by_plate = db.scalar(select(Vehicle).where(Vehicle.plate_number == plate).execution_options(populate_existing=True))
-            by_id = db.get(Vehicle, raw['id'], populate_existing=True) if raw['id'] else None
-            if raw['id'] and by_id is None:
+            by_id = db.get(Vehicle, identifier, populate_existing=True) if identifier else None
+            if identifier and by_id is None:
                 raise ValueError('VEH-ID не найден. Уточните сопоставление в исходной анкете')
             if by_id and by_id.plate_number != plate:
                 raise ValueError('VEH-ID и госномер не совпадают; исправьте исходную строку')
@@ -243,8 +257,11 @@ def build(db, principal, draft):
         hint = raw.get('type_hint')
         type_choice = choice.get('type_id')
         if type_view and (hint or type_choice):
-            typ = db.get(VehicleType, type_choice, populate_existing=True) if type_choice else \
-                db.scalar(select(VehicleType).where(or_(VehicleType.id == hint, VehicleType.name == hint)))
+            identifier = type_choice or explicit_id(hint or '')
+            if identifier:
+                typ = db.get(VehicleType, identifier, populate_existing=True) if is_canonical_id('TYPE', identifier) else None
+            else:
+                typ = db.scalar(select(VehicleType).where(VehicleType.name == hint))
             if choice.get('without_type'):
                 # An incomplete historic link is never removed by a blanket "without TYPE" choice.
                 typ = None
@@ -460,24 +477,31 @@ def document_plan(db, user, draft, attachment, key, parent_key, role, cp, rows):
         pid = target.id if target else None
     allowed = has_permission(user, Permission.ARM2_DOCUMENT_VIEW) and has_permission(user, Permission('arm2_' + ptype.lower() + '_view'))
     manifest = draft.payload.get('manifest') or {}
-    signed = next((f for f in manifest.get('files', []) if f['name'] == attachment.name and
-                   f['parent_type'] == ptype and f['parent_id'] == pid), None)
-    if signed:
-        original = db.get(DocumentFile, signed['file_id'])
-        signed_invalid = original is None or original.document_id != signed['document_id']
-        if original is None or original.document_id != signed['document_id']:
-            signed = None  # SHA or a signed filename alone cannot establish a different parent/DOCUMENT.
-    else:
-        signed_invalid = False
+    signed = next((f for f in manifest.get('files', []) if f['name'] == attachment.name), None)
+    signed_invalid = False
+    if signed and allowed:
+        if (signed['parent_type'], signed['parent_id']) != (ptype, pid):
+            signed_invalid = True
+        else:
+            try:
+                originals = verified_revision_files(db, signed['document_id'], signed['revision_id'])
+                signed_invalid = not any(f.id == signed['file_id'] and f.sha256 == signed['sha256'] for f in originals)
+                signed_invalid |= db.get(DocumentFileCorrection, signed['file_id']) is not None
+            except ValueError:
+                signed_invalid = True
+    if signed_invalid or not allowed:
+        signed = None
     doc_id = choice.get('document_id') or (signed['document_id'] if signed else None)
     doc = db.get(Document, doc_id, populate_existing=True) if doc_id and doc_id != 'new' and allowed else None
     error = attachment.error
-    if signed_invalid and not choice.get('document_id'):
-        error = error or 'Исходный FILE из анкеты недоступен. Проверьте привязку вложения'
+    if signed_invalid:
+        error = error or 'Подписанная привязка FILE к родителю и редакции не подтверждена'
     if not allowed:
         error = 'Нет прав на документы выбранного родителя'
     if not parent_key:
         error = error or 'Выберите допустимого родителя и тип документа'
+    if signed and doc_id != signed['document_id']:
+        error = error or 'Подписанный FILE относится к другому DOCUMENT'
     if doc_id and doc_id != 'new' and (doc is None or doc.parent_type != ptype or doc.parent_id != pid):
         error = 'DOCUMENT не принадлежит выбранному родителю'
     role_kinds = list(db.scalars(select(DocumentKind).where(DocumentKind.name == role))) if allowed and has_permission(user, Permission.ARM2_DOC_KIND_VIEW) else []

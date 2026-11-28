@@ -15,6 +15,7 @@ from app.arm2.document_file_routes import protected_response, translated
 from app.arm2.file_read_guard import protected_read
 from app.arm2.http_limits import bounded_route
 from app.arm2.object_save import ObjectAuthorizationError, ObjectNotFoundError
+from app.arm2.schemas import RawReference
 from app.arm2.vehicle_models import Vehicle
 from app.auth import CurrentUser, Db, check_permission
 from app.permissions import Permission
@@ -27,15 +28,15 @@ PAGE_SIZE = 100  # Same contract as the shared ARM2 Pagination component.
 class Confirmation(StrictModel):
     command_id: UUID
     vehicle_version: StrictInt = Field(gt=0)
-    document_id: str
+    document_id: RawReference
     document_version: StrictInt = Field(gt=0)
-    revision_id: str
+    revision_id: RawReference
     plate_number: str
     volume_m3: StrictFloat = Field(gt=0, allow_inf_nan=False)
 
 
 class Selection(StrictModel):
-    vehicle_id: str
+    vehicle_id: RawReference
     vehicle_version: StrictInt = Field(gt=0)
 
 
@@ -47,7 +48,7 @@ class Letter(StrictModel):
 
 
 class Decision(StrictModel):
-    vehicle_id: str
+    vehicle_id: RawReference
     expected_version: StrictInt = Field(gt=0)
     state: Literal["APPROVED", "REJECTED"]
 

@@ -262,7 +262,7 @@ def apply(session_id: UUID, body: Apply, db: Db, user: CurrentUser):
                 if before["owner"] and before["owner"] != chosen["owner"] and not body.confirm_owner:
                     raise ValueError("Отдельно подтвердите прежнего → нового операционного владельца")
             if vehicle and "plate_number" in chosen and chosen["plate_number"] != vehicle.plate_number:
-                if not body.confirm_plate or not any(record.payload["mapping"][i] == "id" and record.payload["rows"][s-2][i].strip() == vehicle.id
+                if not body.confirm_plate or not any(record.payload["mapping"][i] == "id" and record.payload["rows"][s-2][i] == vehicle.id
                                                      for s in plan["sources"] for i in range(len(record.payload["mapping"]))):
                     raise ValueError("Смена номера требует однозначного VEH-ID и отдельного подтверждения")
             values = {f: v for f, v in chosen.items() if f != "owner"}

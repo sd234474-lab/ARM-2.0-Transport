@@ -15,7 +15,7 @@ from starlette.responses import FileResponse
 from app.arm2 import document_file_storage as files
 from app.arm2 import questionnaire_jobs as jobs
 from app.arm2 import questionnaire_store as store
-from app.arm2.file_read_guard import protected_read
+from app.arm2.file_read_guard import protected_file_read, protected_read
 from app.arm2.http_errors import CONTROLLED_ERRORS, controlled_error, rollback
 from app.arm2.http_limits import bounded_route
 from app.arm2.questionnaire_diff import authorized
@@ -165,7 +165,8 @@ def cleanup_candidates(db: Db, user: CurrentUser):
         return [{'id': d.id, 'filename': d.filename, 'status': d.status} for d in db.scalars(
             select(QuestionnaireDraft).join(QuestionnaireUpload, QuestionnaireUpload.draft_id == QuestionnaireDraft.id)
             .where(QuestionnaireDraft.author_id == user.id, QuestionnaireDraft.status != 'OPEN',
-                   QuestionnaireUpload.state.not_in(['ACCEPTED', 'DISCARDED'])).distinct().order_by(QuestionnaireDraft.id))]
+                   QuestionnaireUpload.prepared['cleanup_v1']['complete'].as_boolean().is_not(True))
+            .distinct().order_by(QuestionnaireDraft.id))]
     return translated(db, operation)
 
 
@@ -197,12 +198,18 @@ def edit(identifier: UUID, body: Edit, db: Db, user: CurrentUser):
     return translated(db, lambda: store.edit(db, user, str(identifier), body.revision, body.choices.model_dump()))
 
 
-@router.post('/{identifier}/apply', dependencies=[Depends(protected_read, scope="request")])
+@router.post('/{identifier}/apply')
 def apply(identifier: UUID, body: Apply, request: Request, db: Db, user: CurrentUser):
-    session = getattr(request.state, 'login_session', None)
-    return translated(db, lambda: store.apply(db, user, str(identifier), str(body.command_id), body.revision,
-        body.preview_id, session_hash=session.token_hash if session else None,
-        without_documents=body.without_documents), questionnaire_apply=True)
+    def operation():
+        session = getattr(request.state, 'login_session', None)
+        with protected_file_read(db.get_bind()):
+            result = store.apply(db, user, str(identifier), str(body.command_id), body.revision,
+                body.preview_id, session_hash=session.token_hash if session else None,
+                without_documents=body.without_documents)
+        if not body.without_documents:
+            store.cleanup(db, user, str(identifier))
+        return result
+    return translated(db, operation, questionnaire_apply=True)
 
 
 @router.get('/{identifier}/operation')
@@ -231,10 +238,10 @@ def cleanup(identifier: UUID, db: Db, user: CurrentUser):
     return translated(db, lambda: store.cleanup(db, user, str(identifier)))
 
 
-@router.get('/{identifier}/files/{upload_id}/preview')
+@router.get('/{identifier}/files/{upload_id}/preview', dependencies=[Depends(protected_read, scope='function')])
 def preview(identifier: UUID, upload_id: str, db: Db, user: CurrentUser):
     def operation():
-        store.owned(db, user, str(identifier))
+        store.owned(db, user, str(identifier), lock=False)
         authorized(db, user, 'arm2_document_view')
         stage = db.get(QuestionnaireUpload, upload_id)
         if stage is None or stage.draft_id != str(identifier) or stage.error:

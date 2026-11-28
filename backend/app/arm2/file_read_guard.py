@@ -38,10 +38,16 @@ def try_idle_attempt(db, key):
     return db.scalar(text(f"SELECT pg_try_advisory_xact_lock({ATTEMPT_LOCK})"), {"key": key})
 
 
-def protected_read():
-    with Session(engine()) as db:
+@contextmanager
+def protected_file_read(database):
+    with Session(database) as db:
         if not db.scalar(text("SELECT pg_try_advisory_xact_lock_shared(:key)"), {"key": READ_KEY}):
             raise HTTPException(409, "Выполняется удаление объектов. Повторите операцию")
+        yield
+
+
+def protected_read():
+    with protected_file_read(engine()):
         yield
 
 

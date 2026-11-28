@@ -30,6 +30,7 @@ from app.arm2.object_save import (
     create_object,
     update_object,
 )
+from app.arm2.reference_paths import verify_approval_snapshots
 from app.arm2.vehicle_models import Vehicle
 from app.arm2.vehicle_models import calibration_matches_document as _confirmed_proof
 from app.arm2.vehicle_type_models import VehicleType
@@ -79,6 +80,8 @@ DECISION_ADAPTER = _Adapter(ApprovalDecision, "APPROVAL-ITEM")
 
 
 def _request_relations(db, current, values):
+    if not verify_approval_snapshots(db, values["vehicles_snapshot"]) and current is None:
+        raise ValueError("История редакции для нового письма не подтверждена")
     if current:
         immutable = set(OBJECT_REGISTRY.require("APPROVAL").command_fields) - {
             "response_file_ids",

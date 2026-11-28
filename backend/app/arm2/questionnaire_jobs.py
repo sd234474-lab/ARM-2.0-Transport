@@ -14,14 +14,20 @@ from app.arm2.object_save import ObjectAuthorizationError, ObjectVersionConflict
 from app.arm2.operation_models import BackgroundOperation
 from app.arm2.questionnaire_diff import authorized
 from app.arm2.questionnaire_models import QuestionnaireDraft, QuestionnaireReceipt
+from app.arm2.reference_paths import questionnaire_job
 from app.models import LoginSession, User
 
 log = logging.getLogger(__name__)
 
 
 def receipt_for(db, job, *, user=None):
-    receipt = db.get(QuestionnaireReceipt, job.payload['command_id'])
-    if receipt and receipt.author_id == job.author_id and receipt.draft_id == job.resource_id:
+    questionnaire_job(job)
+    p = job.payload
+    receipt = db.get(QuestionnaireReceipt, p['command_id'])
+    signature = store.apply_fingerprint(job.resource_id, p['command_id'], p['revision'],
+                                        p['preview_id'], p['without_documents'])
+    if (receipt and receipt.author_id == job.author_id and receipt.draft_id == job.resource_id
+            and receipt.fingerprint == signature):
         return store.present_receipt(db, user, receipt) if user else receipt.result
     return None
 
@@ -84,7 +90,9 @@ def enqueue(db, user, identifier, operation_id, revision, preview_id, session_ha
             if job := existing():
                 return status(db, job, draft, user=user)
             previous = latest(db, identifier)
-            if draft.status == 'ACCEPTED' and previous and receipt_for(db, previous):
+            if (draft.status == 'ACCEPTED' and previous
+                    and all(previous.payload[key] == value for key, value in selection.items())
+                    and receipt_for(db, previous)):
                 return status(db, previous, draft, user=user)
             if (draft.status != 'OPEN' or draft.revision != revision or not draft.preview
                     or store.review_hash(draft.preview, draft.choices) != preview_id):
@@ -108,6 +116,20 @@ def enqueue(db, user, identifier, operation_id, revision, preview_id, session_ha
 
 
 def apply_job(database, job, report):
+    result = run_apply(database, job, report)
+    if result is None and not job.payload['without_documents']:
+        with Session(database) as db:
+            user = db.get(User, job.author_id)
+            if user:
+                store.cleanup(db, user, job.resource_id, operation_id=job.id)
+    return result
+
+
+def run_apply(database, job, report):
+    try:
+        questionnaire_job(job)
+    except (TypeError, KeyError, ValueError):
+        return {'code': 'REVIEW', 'message': 'Неизвестная форма команды приёмки анкеты', 'retryable': False}
     with protected_background_work(database), Session(database, expire_on_commit=False) as db:
         if receipt_for(db, job):
             return None

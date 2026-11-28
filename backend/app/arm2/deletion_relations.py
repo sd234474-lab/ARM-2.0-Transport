@@ -47,6 +47,9 @@ from app.arm2.reference_paths import (
     questionnaire_selection,
     questionnaire_upload,
     reference_id,
+    verify_approval_request,
+    verify_file_acceptance,
+    verify_questionnaire_staging,
 )
 from app.arm2.representative_models import CounterpartyRepresentative, OrganizationRepresentative
 from app.arm2.vehicle_models import Vehicle
@@ -160,6 +163,7 @@ class ReferencePolicy:
     active: Callable | None = None
     retire: Callable | None = None
     origin: Callable | None = None
+    verify: Callable | None = None
 
     def signature(self):
         return (self.source.__tablename__, self.columns, self.target.__tablename__, self.target_columns)
@@ -234,16 +238,18 @@ LOGICAL = (
                     url=lambda row: f"/arm2/veh/bulk?session={row.id}", permissions=("arm2_veh_edit",)),
     ReferencePolicy(QuestionnaireDraft, Purpose.OPEN_OPERATION, path="choices/preview/staging",
                     extract=questionnaire_selection, conditions=(QuestionnaireDraft.status == "OPEN",),
+                    verify=verify_questionnaire_staging,
                     label="Черновик анкеты контрагента", author="author_id", date="uploaded_at",
                     url=lambda row: f"/arm2/questionnaires?draft={row.id}", permissions=("arm2_cp_view",)),
     ReferencePolicy(ApprovalRequest, Purpose.ACTIVE_DOMAIN, path="vehicles_snapshot/response_file_ids",
-                    extract=approval_snapshot),
+                    extract=approval_snapshot, verify=verify_approval_request),
     ReferencePolicy(ApprovalAttempt, Purpose.OPEN_OPERATION, path="plan/target_id", extract=approval_attempt,
                     conditions=(ApprovalAttempt.result.is_(None),), label="Незавершённое согласование",
                     author="principal_id", date="created_at", permissions=("arm2_veh_view", "arm2_document_view"),
                     active=is_active_attempt, retire=lambda row: row.action == "letter",
                     url=lambda row: f"/arm2/approvals/{row.target_id}" if row.target_id.startswith("APPROVAL-") else None),
     ReferencePolicy(FileAcceptance, Purpose.OPEN_OPERATION, path="plan.files/plan.correction", extract=file_acceptance,
+                    verify=verify_file_acceptance,
                     conditions=(FileAcceptance.state != "accepted",), active=is_active_acceptance,
                     label="Приёмка комплекта", author="principal_id", permissions=("arm2_document_view",)),
     ReferencePolicy(BulkReceipt, Purpose.HISTORY, path="vehicle_id",
@@ -510,6 +516,8 @@ def incoming_logical(db, targets):
                 retired = not active and policy.retire is not None and policy.retire(row)
                 if not (active or retired):
                     continue
+                if policy.verify is not None:
+                    policy.verify(db, row)
                 for kind, identifier, field in refs:
                     if not isinstance(field, str):
                         raise ValueError("Некорректный формат логической ссылки")

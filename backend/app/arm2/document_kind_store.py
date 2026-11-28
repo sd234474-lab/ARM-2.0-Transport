@@ -35,7 +35,9 @@ class _DocumentKindAdapter:
         preset = values["file_naming_template"]
         from app.arm2.document_file_storage import validate_naming_template
         validate_naming_template(preset, name, [parent for parent in connected if parent in parents])
-        return {"file_naming_template": preset, "name": name, "applicable_object_types": [parent for parent in connected if parent in parents],
+        # Retain the persisted token and existing constraint and history.
+        stored = "PARENT_AND_KIND" if preset == "PARENT_AND_DOCUMENT" else preset
+        return {"file_naming_template": stored, "name": name, "applicable_object_types": [parent for parent in connected if parent in parents],
                 "max_current_documents": maximum}
 
     def create_record(self, db, values):

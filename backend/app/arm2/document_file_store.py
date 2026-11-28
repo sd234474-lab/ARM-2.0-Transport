@@ -87,6 +87,19 @@ def revision_files(db, document_id, revision_id):
     )
 
 
+def verified_revision_files(db, document_id, revision_id):
+    """Confirm the persisted revision and its ordered membership under one DOCUMENT."""
+    if revision_id is None:
+        return []
+    revision = db.get(DocumentRevision, revision_id)
+    if revision is None or revision.document_id != document_id:
+        raise ValueError("Сохранённая редакция принадлежит другому DOCUMENT или отсутствует")
+    rows = revision_files(db, document_id, revision_id)
+    if [row.id for row in rows] != revision.file_ids or any(row.document_id != document_id for row in rows):
+        raise ValueError("Состав сохранённой редакции не подтверждён")
+    return rows
+
+
 def display_state(db, document, *, current_files=None):
     if document.archive_state == "Архивный":
         return "Архивный"
@@ -313,6 +326,7 @@ def prepare(db, user, session_hash, document, expected_version, key, selection, 
 
 def accept(db, user, session_hash, ptype, pid, docid, expected_version, key, selection, correction=None):
     from app.arm2.deletion_service import deleted_reference, resolve_reference, retired_command
+    from app.arm2.reference_paths import verify_file_acceptance
 
     with attempt_lease(db, key):
         started_at = instant()
@@ -335,6 +349,9 @@ def accept(db, user, session_hash, ptype, pid, docid, expected_version, key, sel
         attempt = prepare(db, user, session_hash, document, expected_version, key, selection, correction)
         if attempt.state == "accepted":
             return attempt.result
+        if document.version != expected_version:
+            raise ObjectVersionConflictError("Документ изменён; черновик и прежняя редакция сохранены")
+        verify_file_acceptance(db, attempt)
         plan = attempt.plan
         if plan["files"]:
             root = files.document_root() + "/"
