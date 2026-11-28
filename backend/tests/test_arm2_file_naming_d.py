@@ -61,7 +61,7 @@ def test_names_before_after_confirm_only_emitted_name_changes_and_b5_roundtrip(b
     revision = before['revisions'][0]
     source = file_snapshot(db)
     for file in revision['files']:
-        assert 'НЕТ ДАННЫХ' in file['stored_name'] and 'Е679РН186' in file['stored_name']
+        assert 'НЕТ ОБЪЕМА' in file['stored_name'] and 'Е679РН186' in file['stored_name']
         response = c.get(path + f"/revisions/{revision['id']}/files/{file['id']}/download")
         assert response.status_code == 200
         assert name(response) == file['download_name'] == file['stored_name']
@@ -87,7 +87,7 @@ def test_names_before_after_confirm_only_emitted_name_changes_and_b5_roundtrip(b
     confirm(c, vehicle_id, path, 27.5)
     assert file_snapshot(db) == source
     current = bundle(c, path)['revisions'][0]['files']
-    assert all('27_5м3' in file['download_name'] and 'НЕТ ДАННЫХ' in file['stored_name'] for file in current)
+    assert all('27_5м3' in file['download_name'] and 'НЕТ ОБЪЕМА' in file['stored_name'] for file in current)
     # Working name is independent of plate and volume, and changing it does not rewrite a FILE.
     record = ok(c.get('/api/arm2/vehicles/' + vehicle_id))
     ok(c.put('/api/arm2/vehicles/' + vehicle_id, json={**{k: record[k] for k in
@@ -133,8 +133,8 @@ def test_b5_explicit_existing_vehicle_binding_without_row_uses_same_plate_and_mi
     previous_ids = {f['id'] for f in original['revisions'][0]['files']}
     new = [f for f in after['revisions'][0]['files'] if f['id'] not in previous_ids]
     assert len(new) == 1
-    assert 'Е679РН186' in new[0]['stored_name'] and 'НЕТ ДАННЫХ' in new[0]['stored_name']
-    assert all('НЕТ ДАННЫХ' in f['download_name'] for f in after['revisions'][0]['files'])
+    assert 'Е679РН186' in new[0]['stored_name'] and 'НЕТ ОБЪЕМА' in new[0]['stored_name']
+    assert all('НЕТ ОБЪЕМА' in f['download_name'] for f in after['revisions'][0]['files'])
 
 
 @pytest.mark.parametrize('parents,label', [(['CP'], 'Тарировка'), (['ORG'], 'Тарировка'),
@@ -163,10 +163,10 @@ def test_absent_and_revoked_rights_do_not_expose_download_or_configuration(qa):
 
 @pytest.mark.parametrize('preset,document,parent,kind,expected', [
     ('DOCUMENT_NAME', '', 'Parent', 'Kind', 'НЕТ ДАННЫХ'),
-    ('PARENT_AND_KIND', 'Doc', None, 'Kind', 'НЕТ ДАННЫХ Kind'),
-    ('PARENT_AND_KIND', 'Doc', 'Parent', '', 'Parent НЕТ ДАННЫХ'),
+    ('PARENT_AND_DOCUMENT', 'Doc', None, 'Different kind', 'НЕТ ДАННЫХ Doc'),
+    ('PARENT_AND_DOCUMENT', '', 'Parent', 'Kind', 'Parent НЕТ ДАННЫХ'),
     ('DOCUMENT_NAME', 'Original A_', '', '', 'Original A'),
-    ('PARENT_AND_KIND', '', 'A_', '_B', 'A_ _B'),
+    ('PARENT_AND_KIND', '_B', 'A_', 'Other kind', 'A_ _B'),
 ])
 def test_old_presets_and_general_missing_parameters(preset, document, parent, kind, expected):
     result = files.safe_name(preset, SimpleNamespace(name=document), SimpleNamespace(name=parent),
@@ -189,7 +189,7 @@ def test_no_positive_volume_from_absent_invalid_or_stale_proof(change):
     doc = SimpleNamespace(id='doc', parent_type='VEH', current_revision_id='rev')
     kind = SimpleNamespace(name='Тарировка', applicable_object_types=['VEH'])
     emitted = files.safe_name('VEH_CALIBRATION', doc, parent, kind, 'FILE-000001', 'pdf')
-    assert 'НЕТ ДАННЫХ' in emitted and '25м3' not in emitted
+    assert 'НЕТ ОБЪЕМА' in emitted and '25м3' not in emitted
 
 
 def test_new_revision_does_not_inherit_old_confirmation_and_preserves_old_file(qa):
@@ -204,11 +204,11 @@ def test_new_revision_does_not_inherit_old_confirmation_and_preserves_old_file(q
     ok(accept(c, path, old['document_version'], [candidate]))
     after = bundle(c, path)
     assert after['current_revision_id'] != old['current_revision_id']
-    assert all('НЕТ ДАННЫХ' in f['stored_name'] and 'НЕТ ДАННЫХ' in f['download_name']
+    assert all('НЕТ ОБЪЕМА' in f['stored_name'] and 'НЕТ ОБЪЕМА' in f['download_name']
                for r in after['revisions'] for f in r['files'])
     assert c.get(old_url).content == old_bytes
     confirm(c, vehicle_id, path, 27)
-    assert 'НЕТ ДАННЫХ' in name(c.get(old_url))
+    assert 'НЕТ ОБЪЕМА' in name(c.get(old_url))
     assert '27м3' in bundle(c, path)['revisions'][0]['files'][0]['download_name']
 
 

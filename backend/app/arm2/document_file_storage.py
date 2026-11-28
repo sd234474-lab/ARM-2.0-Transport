@@ -23,11 +23,12 @@ STAGE_SECONDS = 7200
 # Closed platform catalogue: registered fields, not user formulas or B5-specific masks.
 NAMING_TEMPLATES = {
     "DOCUMENT_NAME": ("", ("DOCUMENT.name",)),
-    "PARENT_AND_KIND": ("", ("PARENT.name", "DOC-KIND.name")),
+    "PARENT_AND_DOCUMENT": ("", ("PARENT.name", "DOCUMENT.name")),
     "VEH_CALIBRATION": ("Тарировка", ("VEH.plate_number", "VEH.calibration_m3")),
 }
 PRESETS = tuple(NAMING_TEMPLATES)
 MISSING_NAME_VALUE = "НЕТ ДАННЫХ"
+MISSING_CALIBRATION_VOLUME = "НЕТ ОБЪЕМА"
 CURRENT_REVISION = object()
 
 
@@ -218,7 +219,12 @@ def content_type(path):
     )
 
 
+def public_naming_template(preset):
+    return "PARENT_AND_DOCUMENT" if preset == "PARENT_AND_KIND" else preset
+
+
 def validate_naming_template(preset, name, parents):
+    preset = public_naming_template(preset)
     if preset not in (None, *PRESETS):
         raise ValueError("Unsupported document file naming template")
     if preset == "VEH_CALIBRATION" and (name.strip().casefold() != "тарировка" or parents != ["VEH"]):
@@ -236,6 +242,7 @@ def safe_filename_stem(value, *, punctuation=" -_", max_bytes=180):
 
 def safe_name(preset, document, parent, kind, file_id, extension, *, generated_bundle=False,
               revision_id=CURRENT_REVISION):
+    preset = public_naming_template(preset)
     if (
         preset not in PRESETS
         or not is_canonical_id("FILE", file_id)
@@ -257,9 +264,8 @@ def safe_name(preset, document, parent, kind, file_id, extension, *, generated_b
     parameters = {
         'DOCUMENT.name': getattr(document, 'name', None),
         'PARENT.name': getattr(parent, 'name', None),
-        'DOC-KIND.name': getattr(kind, 'name', None),
         'VEH.plate_number': getattr(parent, 'plate_number', None),
-        'VEH.calibration_m3': (str(volume).removesuffix('.0') + 'м3') if volume is not None else None,
+        'VEH.calibration_m3': (str(volume).removesuffix('.0') + 'м3') if volume is not None else MISSING_CALIBRATION_VOLUME,
     }
     literal, fields = NAMING_TEMPLATES[preset]
     values = [str(parameters[field]) if parameters[field] is not None and str(parameters[field]).strip()

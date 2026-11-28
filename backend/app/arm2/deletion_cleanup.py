@@ -8,6 +8,7 @@ from app.arm2.document_file_models import DocumentFile, FileAcceptance
 from app.arm2.file_read_guard import protected_cleanup
 from app.arm2.ids import is_canonical_id
 from app.arm2.questionnaire_models import QuestionnaireDraft, QuestionnaireUpload
+from app.arm2.reference_paths import questionnaire_preparations
 
 
 def still_referenced(db, path):
@@ -27,7 +28,7 @@ def still_referenced(db, path):
     for prepared in db.scalars(select(QuestionnaireUpload.prepared).join(QuestionnaireDraft).where(
         QuestionnaireDraft.status == "OPEN",
     )):
-        if any(item["storage_ref"] == path for plan in prepared.values() for item in plan):
+        if any(item["storage_ref"] == path for _, item in questionnaire_preparations(prepared)):
             return True
     return False
 

@@ -16,6 +16,7 @@ from app.permissions import Permission, has_permission
 
 MODELS = {"TYPE": VehicleType, "CP": Counterparty, "ORG": Organization}
 CLEARABLE = {"type_id", "owner", "wialon_unit_id", "model"}
+ID_FIELDS = {"id", "type_id", "owner_id", "owner_cp_id", "owner_org_id"}
 
 
 def state(record):
@@ -151,7 +152,9 @@ def preview(db, user, payload):
         if index in payload.get("excluded", []):
             continue
         source = index + 2
-        raw = {field: cells[c].strip() for c, field in enumerate(mapping) if field and cells[c].strip()}
+        values = {field: cells[c] if field in ID_FIELDS else cells[c].strip()
+                  for c, field in enumerate(mapping) if field}
+        raw = {field: value for field, value in values.items() if value}
         plate, identifier = raw.get("plate_number"), raw.get("id")
         try:
             if plate:

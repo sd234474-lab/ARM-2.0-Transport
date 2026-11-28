@@ -530,7 +530,7 @@ def test_only_letter_accepts_empty_target_and_job_ids_are_service_keys():
         with pytest.raises(ValueError):
             refs.approval_outcome(data)
     job = SimpleNamespace(resource_id=str(uuid4()), payload={"command_id": str(uuid4()), "revision": 1,
-                          "preview_id": "preview", "without_documents": False, "session_hash": None})
+                          "preview_id": "0" * 64, "without_documents": False, "session_hash": None})
     assert refs.questionnaire_job(job) == ()
     job.payload["command_id"] = "VEH-000001"
     with pytest.raises(ValueError):

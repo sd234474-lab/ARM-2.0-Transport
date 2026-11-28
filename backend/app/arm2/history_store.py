@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 from datetime import date, datetime
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.arm2.history_models import HistoryEvent
@@ -13,6 +14,31 @@ class HistoryValidationError(ValueError):
 
 _DELETION_OPERATIONS = {"MARKED", "UNMARKED", "DELETED"}
 _OPERATIONS = {"CREATED", "UPDATED"} | _DELETION_OPERATIONS
+
+
+def fields_at_version(db, object_type, object_id, version, fields):
+    """Read a witnessed historical scope. Missing or ambiguous history proves nothing."""
+    events = db.scalars(select(HistoryEvent).where(
+        HistoryEvent.object_type == object_type, HistoryEvent.object_id == object_id,
+        HistoryEvent.operation.in_(("CREATED", "UPDATED")), HistoryEvent.version_after <= version,
+    ).order_by(HistoryEvent.event_id))
+    state = dict.fromkeys(fields)
+    previous = None
+    for event in events:
+        current = 1 if previous is None else previous + 1
+        if (event.operation != ("CREATED" if previous is None else "UPDATED")
+                or (event.version_before, event.version_after) != (previous, current)
+                or event.changes.get("version") != {"before": previous, "after": current}):
+            return None
+        for field in fields:
+            change = event.changes.get(field)
+            if change is None and previous is not None:
+                continue
+            if not isinstance(change, dict) or set(change) != {"before", "after"} or change["before"] != state[field]:
+                return None
+            state[field] = change["after"]
+        previous = current
+    return state if previous == version else None
 
 
 def _required_text(value: str, field: str) -> str:

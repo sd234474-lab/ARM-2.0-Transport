@@ -4,10 +4,16 @@ import re
 from enum import Enum, auto
 from uuid import UUID
 
+from app.arm2 import document_file_storage as file_storage
 from app.arm2.bulk_diff import CLEARABLE
 from app.arm2.bulk_tables import FIELDS, LABELS
+from app.arm2.document_file_models import DocumentFile, DocumentRevision, FileStage
+from app.arm2.document_file_store import verified_revision_files
+from app.arm2.document_models import Document
+from app.arm2.history_store import fields_at_version
 from app.arm2.ids import is_canonical_id
 from app.arm2.object_registry import OBJECT_REGISTRY
+from app.arm2.questionnaire_models import QuestionnaireUpload
 
 BULK_SCHEMA = "ARM_BULK_V1"
 BULK_TABLE = {"headers", "rows", "mapping", "excluded", "clears", "decisions", "confirmations"}
@@ -450,6 +456,85 @@ def staging_group(group, *, comparison, choices, payload=None):
     return result
 
 
+def questionnaire_document_key(plan):
+    return plan["document_id"] or (plan["parent_key"], plan["kind_id"])
+
+
+def verify_questionnaire_staging(db, draft, comparison=None):
+    """Prove the ordered prepared FILE set against the saved decision and upload ledger."""
+    if not draft.staging:
+        return
+    comparison = draft.preview if comparison is None else comparison
+    from app.arm2.questionnaire_store import apply_fingerprint, review_hash
+
+    command = draft.staging["command_id"]
+    if draft.staging["fingerprint"] != apply_fingerprint(
+        draft.id, command, draft.revision, review_hash(comparison, draft.choices), False
+    ):
+        raise ValueError("Подготовленный комплект не соответствует сохранённой сверке")
+    documents = {}
+    for plan in records(comparison, "documents"):
+        if plan["selected"]:
+            documents.setdefault(questionnaire_document_key(plan), []).append(plan)
+    groups = list(records(draft.staging, "groups"))
+    keys = [questionnaire_document_key(group) for group in groups]
+    if len(keys) != len(documents) or set(keys) != documents.keys():
+        raise ValueError("Подготовленные документы не совпадают с выбранными")
+    for group, key in zip(groups, keys, strict=True):
+        plans = documents[key]
+        first = plans[0]
+        shared_fields = ("document_id", "parent_type", "parent_id", "kind_id")
+        if (group["parent_key"] != first["parent_key"] or any(
+            any(group[field] != plan[field] for field in shared_fields)
+            or group["expected_version"] != plan["version"] or first["revision_id"] != plan["revision_id"]
+            or first["current_files"] != plan["current_files"] for plan in plans
+        )):
+            raise ValueError("Не совпадают сохранённые родитель, DOCUMENT, редакция или версия")
+        current_files = verified_revision_files(db, group["document_id"], first["revision_id"])
+        wanted = [{**{field: getattr(file, field) for field in FILE_METADATA}, "existing": True} for file in current_files]
+        if [(f["id"], f["sha256"]) for f in wanted] != [(f["id"], f["sha256"]) for f in first["current_files"]]:
+            raise ValueError("Состав сохранённой редакции изменён")
+        replacements = []
+        for plan in plans:
+            stage = db.get(QuestionnaireUpload, plan["upload_id"])
+            if (stage is None or stage.draft_id != draft.id or stage.error
+                    or stage.sha256 != plan["sha256"] or stage.media_type != plan["media_type"]):
+                raise ValueError("Временный файл не соответствует выбранному вложению")
+            entries = [f for f in stage.prepared.get(command, ()) if f.get("upload_id") == stage.id]
+            candidates = [f for f in entries if f["existing"] and (file := db.get(DocumentFile, f["id"]))
+                          and group["document_id"] is not None and file.document_id == group["document_id"]
+                          and all(getattr(file, field) == f[field] for field in FILE_METADATA)]
+            if not candidates:
+                candidates = [f for f in entries if not f["existing"] and f in group["files"]]
+            if not candidates and plan["replace_file_id"] is None and any(
+                f["sha256"] == stage.sha256 for f in wanted
+            ):
+                continue
+            if len(candidates) != 1:
+                raise ValueError("Подготовленный FILE не принадлежит выбранному вложению и DOCUMENT")
+            item = candidates[0]
+            if (item["sha256"], item["size"], item["media_type"], item["extension"]) != (
+                stage.sha256, stage.size, stage.media_type, stage.extension
+            ):
+                raise ValueError("Реквизиты подготовленного FILE не совпадают с вложением")
+            if not item["existing"]:
+                tail = ["questionnaires", draft.id, command, item["id"], item["stored_name"]]
+                if (item["storage_ref"].split("/")[-len(tail):] != tail
+                    or item["original_upload_name"] != file_storage.original_name(stage.name.rsplit("/", 1)[-1])):
+                    raise ValueError("Путь и исходное имя FILE не соответствуют вложению")
+            replace = plan["replace_file_id"]
+            if replace:
+                indices = [i for i, f in enumerate(wanted) if f["id"] == replace]
+                if len(indices) != 1 or replace in replacements:
+                    raise ValueError("Заменяемый FILE отсутствует в сохранённой редакции")
+                replacements.append(replace)
+                wanted[indices[0]] = item
+            elif all(f["sha256"] != item["sha256"] for f in wanted):
+                wanted.append(item)
+        if group["files"] != wanted or group["replacements"] != replacements:
+            raise ValueError("Подготовленные FILE не совпадают с сохранённым составом редакции")
+
+
 def snapshot_references(snapshots, path):
     result = []
     for raw in items(snapshots):
@@ -466,6 +551,32 @@ def approval_snapshot(row):
     result = snapshot_references(row.vehicles_snapshot, "vehicles_snapshot")
     result.extend(typed_list("FILE", row.response_file_ids, "response_file_ids"))
     return result
+
+
+def verify_approval_snapshots(db, snapshots):
+    """Validate physical membership and saved scope even if the current parent moved."""
+    snapshot_references(snapshots, "vehicles_snapshot")
+    complete = True
+    for snap in snapshots:
+        originals = verified_revision_files(db, snap["document_id"], snap["revision_id"])
+        if [row.id for row in originals] != snap["file_ids"]:
+            raise ValueError("Снимок согласования указывает на иной состав редакции")
+        check_reference_version(snap["document_id"], snap["document_version"], "vehicles_snapshot")
+        saved = fields_at_version(db, "DOCUMENT", snap["document_id"], snap["document_version"],
+                                  ("parent_type", "parent_id", "current_revision_id"))
+        if saved is None:
+            complete = False
+        elif saved != {"parent_type": "VEH", "parent_id": snap["vehicle_id"], "current_revision_id": snap["revision_id"]}:
+            raise ValueError("Снимок согласования не соответствует истории родителя и редакции")
+    return complete
+
+
+def verify_approval_request(db, row):
+    verify_approval_snapshots(db, row.vehicles_snapshot)
+    for identifier in row.response_file_ids:
+        original = db.get(DocumentFile, identifier)
+        if original is None or original.process_id != row.id:
+            raise ValueError("FILE ответа принадлежит другой заявке")
 
 
 def require_letter_target(row):
@@ -503,13 +614,21 @@ def approval_attempt(row):
 
 def questionnaire_upload(row):
     result = []
-    for command, preparations in record(row.prepared).items():
+    for _, file in questionnaire_preparations(row.prepared):
+        if file["existing"]:
+            typed(result, "FILE", file["id"], "prepared.files.id")
+    return result
+
+
+def questionnaire_preparations(prepared):
+    for command, preparations in record(prepared).items():
+        if command == "cleanup_v1":
+            shape(preparations, "prepared.cleanup_v1", {"complete", "checked_at", "local", "remote"},
+                  required={"complete", "checked_at", "local", "remote"})
+            continue
         uuid_text(command)
         for file in items(preparations):
-            file = planned_file(file, "prepared.files", {"existing", "upload_id"}, required={"existing"})
-            if file["existing"]:
-                typed(result, "FILE", file["id"], "prepared.files.id")
-    return result
+            yield command, planned_file(file, "prepared.files", {"existing", "upload_id"}, required={"existing"})
 
 
 def file_acceptance(row):
@@ -535,11 +654,84 @@ def file_acceptance(row):
     return result
 
 
+def verify_file_acceptance(db, attempt):
+    file_acceptance(attempt)
+    plan = attempt.plan
+    document = db.get(Document, attempt.document_id)
+    if document is None:
+        raise ValueError("Документ команды приёмки отсутствует")
+    scope_fields = ("parent_type", "parent_id", "current_revision_id")
+    saved = fields_at_version(db, "DOCUMENT", document.id, attempt.expected_version, scope_fields)
+    if saved is None and document.version == attempt.expected_version:
+        saved = {field: getattr(document, field) for field in scope_fields}
+    members = None
+    if saved is not None:
+        revision = db.get(DocumentRevision, saved["current_revision_id"]) if saved["current_revision_id"] else None
+        members = [item.id for item in verified_revision_files(db, document.id, saved["current_revision_id"])]
+        if (plan["number"] != (revision.number + 1 if revision else 1)
+                or plan["noop"] and (plan["revision_id"] != saved["current_revision_id"]
+                                     or [f["id"] for f in plan["files"]] != members)):
+            raise ValueError("Комплект не соответствует версии, принятой к сверке")
+    if correction := plan.get("correction"):
+        original = db.get(DocumentFile, correction["file_id"])
+        if original is None or original.document_id != document.id or members is not None and original.id not in members:
+            raise ValueError("Исправляемый FILE отсутствует в сохранённом комплекте")
+    identifiers = {f["id"] for f in plan["files"]}
+    if len(identifiers) != len(plan["files"]) or not set(plan["uploaded"]) <= identifiers:
+        raise ValueError("Неизвестный FILE в протоколе передачи")
+    for item in plan["files"]:
+        if item["existing"]:
+            original = db.get(DocumentFile, item["id"])
+            if (original is None or original.document_id != document.id
+                    or any(getattr(original, key) != item[key] for key in FILE_METADATA)
+                    or not item["stage_id"] and members is not None and original.id not in members):
+                raise ValueError("Сохранённый FILE не принадлежит выбранному комплекту")
+        if item["stage_id"] is not None:
+            stage = db.get(FileStage, item["stage_id"])
+            if (stage is None or (stage.document_id, stage.principal_id, stage.session_hash) !=
+                    (document.id, attempt.principal_id, attempt.session_hash)
+                    or (stage.sha256, stage.size) != (item["sha256"], item["size"])):
+                raise ValueError("Временный FILE принадлежит другой команде или изменён")
+        if not item["existing"]:
+            if (item["stage_id"] is None or stage.file_id != item["id"]
+                    or (stage.extension, stage.media_type, stage.original_upload_name) !=
+                    (item["extension"], item["media_type"], item["original_upload_name"])):
+                raise ValueError("Реквизиты зарезервированного FILE не совпадают с временным")
+            expected_tail = [document.id, plan["revision_id"], item["id"], item["stored_name"]]
+            if saved is not None:
+                expected_tail = [saved["parent_type"], saved["parent_id"], *expected_tail]
+            if item["storage_ref"].split("/")[-len(expected_tail):] != expected_tail:
+                raise ValueError("Путь оригинала не соответствует области приёмки")
+
+
 def receipt_kind(entry, path):
     kind = entry["kind"]
     if kind not in ("CP", "CPREP", "VEH", "DOCUMENT"):
         raise ValueError(f"Неизвестный тип записи в {path}")
     return kind
+
+
+def questionnaire_receipt_bindings(row):
+    stored = record(row.result)
+    if "row_bindings_v1" not in stored:
+        return {}
+    versions = {entry["id"]: entry["version"] for entry in records(stored, "objects") if entry["kind"] == "VEH"}
+    bindings, used = {}, set()
+    keys = {"v", "row_key", "vehicle_id", "command_id", "draft_id", "version_after"}
+    for entry in records(stored, "row_bindings_v1"):
+        path = "result.row_bindings_v1"
+        shape(entry, path, keys, required=keys)
+        identifier, key, version = entry["vehicle_id"], entry["row_key"], entry["version_after"]
+        reference_id("VEH", identifier, path)
+        check_reference_version(identifier, version, path)
+        if (type(entry["v"]) is not int or entry["v"] != 1 or not string(key) or not re.fullmatch(r"v:[0-9]+", key)
+                or key in bindings or identifier in used
+                or entry["command_id"] != row.command_id or entry["draft_id"] != row.draft_id
+                or versions.get(identifier) != version):
+            raise ValueError("Не подтверждена связь строки и VEH в квитанции B5")
+        bindings[key] = identifier
+        used.add(identifier)
+    return bindings
 
 
 def questionnaire_outcome(row):
@@ -559,6 +751,7 @@ def questionnaire_outcome(row):
     for entry in records(stored, "changes"):
         typed(result, receipt_kind(entry, "result.changes"), entry["id"], "result.changes.id")
     typed(result, "CP", stored["cp_id"], "result.cp_id", nullable=True)
+    questionnaire_receipt_bindings(row)
     return result
 
 
@@ -590,6 +783,9 @@ def questionnaire_job(row):
     payload = shape(row.payload, "payload.apply", keys, required=keys)
     uuid_text(row.resource_id)
     uuid_text(payload["command_id"])
-    if type(payload["revision"]) is not int or payload["revision"] <= 0 or type(payload["without_documents"]) is not bool:
+    if (type(payload["revision"]) is not int or payload["revision"] <= 0
+            or type(payload["without_documents"]) is not bool
+            or not string(payload["preview_id"]) or not re.fullmatch(r"[0-9a-f]{64}", payload["preview_id"])
+            or not nullable_string(payload["session_hash"])):
         raise ValueError("Неизвестная форма команды приёмки анкеты")
     return ()

@@ -81,9 +81,9 @@ def test_document_lifecycle_retype_move_correction_and_reopen_preserve_originals
         # All pre-D historical fields must remain byte-for-byte equal. Only the
         # newly exposed computed download_name follows current RETYPE/MOVE data.
         assert historical_revisions(revisions) == historical_revisions([first])
-        kind_name = c.get('/api/arm2/document-kinds/' + new_kind).json()['name']
+        document_name = c.get(current_url).json()['name']
         for row, original_bytes in zip(revisions[0]['files'], data, strict=True):
-            expected = f"{current_parent_name} {kind_name}-{row['id']}.pdf"
+            expected = f"{current_parent_name} {document_name}-{row['id']}.pdf"
             assert row['download_name'] == expected
             downloaded = c.get(current_url + f"/revisions/{first['id']}/files/{row['id']}/download")
             assert downloaded.status_code == 200 and downloaded.content == original_bytes
@@ -386,7 +386,7 @@ def test_retype_validates_existing_naming_contract_before_committing_a_legacy_ty
     file = revision["files"][0]
     response = c.get(url + f"/revisions/{revision['id']}/files/{file['id']}/download")
     assert response.status_code == 200 and response.content == pdf("unchanged original")
-    assert info["name"] in unquote(response.headers["content-disposition"])
+    assert c.get(url).json()["name"] in unquote(response.headers["content-disposition"])
     after = bundle(c, url)['revisions']
     assert historical_revisions(after) == historical_revisions(before['revisions'])
     assert after[0]['files'][0]['download_name'] == unquote(response.headers['content-disposition'].split("filename*=utf-8''")[-1])

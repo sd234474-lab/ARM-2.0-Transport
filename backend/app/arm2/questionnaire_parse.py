@@ -17,7 +17,7 @@ from xml.etree import ElementTree as ET
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
-from app.arm2.ids import id_body_pattern
+from app.arm2.ids import explicit_id
 from app.config import settings
 
 MAX_COMPRESSED = 32 * 1024 * 1024
@@ -218,7 +218,7 @@ def _parse(data, filename):
                 for row, cells in enumerate(cached[sheet.title].iter_rows(min_row=start, max_row=end, min_col=first, max_col=last, values_only=True), start)
                 for col, value in enumerate(cells, first)}
 
-        def cell(sheet, coordinate):
+        def cell(sheet, coordinate, *, raw=False):
             value, formula = grids[sheet.title].get(coordinate, (None, False))
             if formula:
                 value = cached_grids[sheet.title].get(coordinate)
@@ -226,12 +226,12 @@ def _parse(data, filename):
                 return ''
             if isinstance(value, (datetime, date)):
                 return value.isoformat()
-            value = str(value).strip()
+            value = str(value)
             if len(value) > 4096 or '\x00' in value:
                 raise ValueError('Недопустимый размер/содержимое ячейки')
-            return value
+            return value if raw else value.strip()
 
-        version = cell(passport, 'B3')
+        version = cell(passport, 'B3', raw=True)
         if version not in SUPPORTED_VERSIONS:
             raise ValueError('Поддерживаются анкеты ARM_IMPORT_V2, ARM_IMPORT_V3 и ARM_IMPORT_V4')
         try:
@@ -264,7 +264,9 @@ def _parse(data, filename):
         signer = {field: cell(passport, f'B{row}') for row, field in ((20, 'name'), (21, 'position'), (22, 'authority_basis'))}
         if version == 'ARM_IMPORT_V2':
             signer.update({field: cp[field] for field in ('phone', 'email')})
-        result = {'schema': version, 'filled_date': completed, 'cp': cp, 'cp_errors': cp_errors, 'cp_hint': cell(passport, 'B6'),
+        cp_hint = cell(passport, 'B6', raw=True)
+        result = {'schema': version, 'filled_date': completed, 'cp': cp, 'cp_errors': cp_errors,
+                  'cp_hint': explicit_id(cp_hint) or cp_hint.strip(),
                   'representatives': [signer] if signer['name'] else [], 'vehicles': [], 'warnings': warnings,
                   'company_file': cell(passport, 'B28'), 'company_declared': cell(passport, 'B27'),
                   'confirmation_hint': cell(passport, 'B29'), 'comment': cell(passport, 'B30'), 'manifest': None}
@@ -272,7 +274,8 @@ def _parse(data, filename):
             if book[MANIFEST].max_row > MAX_MANIFEST_ROWS or book[MANIFEST].max_column != 1:
                 raise ValueError('Недопустимый размер служебного манифеста')
             chunks = [str(row[0]) for row in book[MANIFEST].iter_rows(values_only=True) if row and row[0]]
-            result['manifest'] = unseal(''.join(chunks))
+            manifest = unseal(''.join(chunks))
+            result['manifest'] = manifest if manifest and manifest.get('transport_version') == version else None
             if not result['manifest']:
                 warnings.append('Служебный манифест не подтверждён; обратная привязка требует выбора оператора')
         manifest = result['manifest'] or {}
@@ -287,20 +290,24 @@ def _parse(data, filename):
             if not any(values.values()):
                 continue
             selector = values['B']
-            identifier = re.search(rf'\b{id_body_pattern("VEH")}\b', selector)
+            identifier = explicit_id(cell(vehicles, f'B{row}', raw=True))
             mode = values['C'].strip().upper()
             columns = ('I', 'H', 'J', 'K') if mode == 'НОВАЯ' else ('E', 'D', 'F', 'G')
             plate, typ, name, model = (values[c] for c in columns) if mode in {'НОВАЯ', 'ИЗ СПРАВОЧНИКА', 'ВЫБЫЛО'} else ('', '', '', '')
-            vehicle_id = identifier[0] if identifier else ''
+            vehicle_id = identifier
+            type_column = columns[1]
             if plate_selector:
-                vehicle_id = ''
                 if mode in {'ИЗ СПРАВОЧНИКА', 'ВЫБЫЛО'}:
                     # The visible selection is paired only with a verified export ID.
                     # D–G can retain cached values from a previous selection.
-                    plate = selector
-                    vehicle_id = vehicle_refs.get(selector, '')
+                    if not vehicle_id:
+                        plate = selector
+                        vehicle_id = vehicle_refs.get(selector, '')
+                    type_column = 'H'
                     typ, name, model = (values['H'], values['J'], values['K']) if mode == 'ИЗ СПРАВОЧНИКА' else ('', '', '')
-                typ = type_refs.get(typ, typ)
+            if typ:
+                raw_type = cell(vehicles, f'{type_column}{row}', raw=True)
+                typ = explicit_id(raw_type) or type_refs.get(typ, typ)
             result['vehicles'].append({'key': f'v:{row}', 'row': row, 'id': vehicle_id,
                 'plate_number': plate, 'type_hint': typ,
                 'name': name, 'model': model, 'state_hint': mode,
@@ -332,7 +339,7 @@ def representative_rows(sheet, cell, passport_signer, result):
     representatives, metadata = [], []
     for row in range(5, sheet.max_row + 1):
         values = {field: cell(sheet, f'{col}{row}') for col, field in REP_COLUMNS.items()}
-        identifier = cell(sheet, f'B{row}')
+        identifier = cell(sheet, f'B{row}', raw=True)
         if not identifier and not any(values.values()):
             continue
         representatives.append(values)

@@ -9,6 +9,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, text
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.arm2 import document_file_storage as files
 from app.arm2.counterparty_models import Counterparty
@@ -21,8 +22,9 @@ from app.arm2.document_file_store import (
 )
 from app.arm2.document_kind_models import DocumentKind
 from app.arm2.document_models import Document
-from app.arm2.file_read_guard import attempt_lease
+from app.arm2.file_read_guard import attempt_lease, protected_cleanup
 from app.arm2.history_models import HistoryEvent
+from app.arm2.http_errors import rollback
 from app.arm2.ids import next_id
 from app.arm2.object_save import (
     ObjectAuthorizationError,
@@ -46,6 +48,11 @@ from app.arm2.questionnaire_parse import (
     MAX_EXPANDED,
     fingerprint,
     parse,
+)
+from app.arm2.reference_paths import (
+    questionnaire_document_key,
+    questionnaire_preparations,
+    verify_questionnaire_staging,
 )
 from app.arm2.representative_models import CounterpartyRepresentative
 from app.arm2.representative_store import create_representative
@@ -132,7 +139,8 @@ def present_receipt(db, user, receipt):
         resolved['CP', cp] = resolve_reference(db, user, 'CP', cp)
     restricted = any(state['state'] == 'RESTRICTED' for state in resolved.values())
     cp_state = resolved.get(('CP', cp))
-    return {**result, **projected, 'cp_id': cp if not cp_state or cp_state['state'] == 'LIVE' else None,
+    public = {key: value for key, value in result.items() if key != 'row_bindings_v1'}
+    return {**public, **projected, 'cp_id': cp if not cp_state or cp_state['state'] == 'LIVE' else None,
             **({'event_ids': []} if restricted else {}),
             **({'cp_current_object': cp_state} if cp_state and cp_state['state'] != 'LIVE' else {})}
 
@@ -489,7 +497,7 @@ def prepare_files(db, user, draft, comparison, docs, command_id, signature):
     for doc in docs:
         authorized(db, user, 'arm2_document_view', 'arm2_document_edit',
                    'arm2_' + doc['parent_type'].lower() + '_view', 'arm2_' + doc['parent_type'].lower() + '_edit')
-        key = doc['document_id'] or f"{doc['parent_key']}:{doc['kind_id']}"
+        key = questionnaire_document_key(doc)
         existing_document = db.get(Document, doc['document_id']) if doc['document_id'] else None
         kind = db.get(DocumentKind, doc['kind_id'])
         document_name = existing_document.name if existing_document else doc['role'] if doc['role'] != 'Непривязанный файл' else kind.name
@@ -547,12 +555,16 @@ def prepare_files(db, user, draft, comparison, docs, command_id, signature):
     return draft.staging['groups']
 
 
-def apply(db, principal, identifier, command_id, revision, preview_id, session_hash=None, *,
-          without_documents=False, operation_id=None, progress=None):
+def apply_fingerprint(identifier, command_id, revision, preview_id, without_documents):
     request = {'draft': identifier, 'command_id': command_id, 'revision': revision, 'preview_id': preview_id}
     if without_documents:
         request['without_documents'] = True
-    signature = fingerprint(request)
+    return fingerprint(request)
+
+
+def apply(db, principal, identifier, command_id, revision, preview_id, session_hash=None, *,
+          without_documents=False, operation_id=None, progress=None):
+    signature = apply_fingerprint(identifier, command_id, revision, preview_id, without_documents)
     with attempt_lease(db, 'B5:' + identifier):
         draft = owned(db, principal, identifier, open_only=False)
         old = db.get(QuestionnaireReceipt, command_id)
@@ -578,6 +590,11 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
             raise ObjectVersionConflictError('Карточки изменены; повторно откройте сверку и подтвердите решения')
         cp_fields, reps, rows, docs = selected(comparison, draft.choices, without_documents=without_documents)
         groups = [] if without_documents else prepare_files(db, principal, draft, comparison, docs, command_id, signature)
+        if groups:
+            if any(not item['storage_ref'].startswith(files.document_root() + '/')
+                   for group in groups for item in group['files']):
+                raise QuestionnaireDiskUnavailable('Оригинал находится вне защищённого корня документов')
+            verify_questionnaire_staging(db, draft, comparison)
         originals = [item for group in groups for item in group['files']]
         if progress and originals:
             progress('TRANSFERRING', 0, len(originals))
@@ -695,7 +712,7 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
                 except files.StorageUnavailable:
                     raise QuestionnaireDiskUnavailable('Яндекс.Диск не подтвердил целостность файла перед сохранением') from None
                 outcomes.append({'kind': 'DOCUMENT', **published})
-                group_key = group['document_id'] or f"{group['parent_key']}:{group['kind_id']}"
+                group_key = questionnaire_document_key(group)
                 published_documents[group_key] = published['document_id']
             if published_documents:
                 from app.arm2.approval_store import calibration_document, save_calibration_proof
@@ -706,7 +723,7 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
                     if not volume.get('selected') or not keys:
                         continue
                     planned = by_key[keys[0]]
-                    group_key = planned['document_id'] or f"{planned['parent_key']}:{planned['kind_id']}"
+                    group_key = questionnaire_document_key(planned)
                     vehicle = db.get(Vehicle, identities[row['key']])
                     document, _ = calibration_document(db, user, vehicle.id, published_documents[group_key], edit=True)
                     save_calibration_proof(db, user, vehicle, document, volume['numeric'], context)
@@ -741,6 +758,9 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
                 'filled_date': draft.filled_date.isoformat() if draft.filled_date else None,
                 'uploaded_at': draft.uploaded_at.astimezone(UTC).isoformat(), 'accepted_at': accepted.isoformat(),
                 'objects': outcomes, 'event_ids': events, 'no_op': not events, 'correlation_id': command_id,
+                'row_bindings_v1': [{'v': 1, 'row_key': row['key'], 'vehicle_id': identities[row['key']],
+                    'command_id': command_id, 'draft_id': draft.id,
+                    'version_after': by_identity['VEH', identities[row['key']]]['version']} for row in rows],
                 'changes': [{'kind': e.object_type, 'id': e.object_id, 'operation': e.operation,
                              'fields': e.changes, 'url': receipt_link(e)} for e in event_rows]}
             db.add(QuestionnaireReceipt(command_id=command_id, draft_id=draft.id, author_id=user.id,
@@ -748,9 +768,7 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
             if without_documents:
                 # Keep the original uploads and explicit bindings for later document-only acceptance.
                 # These IDs come only from this successful domain transaction, never name inference.
-                draft.payload = {**draft.payload, '_documents_pending': True,
-                    'vehicles': [{**row, 'id': identities.get(row['key'], row['id'])}
-                                 for row in draft.payload.get('vehicles', [])]}
+                draft.payload = {**draft.payload, '_documents_pending': True}
                 draft.choices = {**draft.choices, 'cp_target': cp.id if cp else draft.choices.get('cp_target'),
                     'cp_fields': [], 'cp_clears': [], 'confirm_identity': False,
                     'representatives': {k: {**v, 'target': identities.get('representative:' + k, v.get('target')),
@@ -773,66 +791,78 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
         except Exception:
             db.rollback()  # Every selected domain change rolls back; private upload ledger remains retryable.
             raise
-        if not without_documents:
-            cleanup_local(db, draft.id)
         return present_receipt(db, user, db.get(QuestionnaireReceipt, command_id))
-
-
-def cleanup_local(db, draft_id):
-    for stage in db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == draft_id)):
-        try:
-            files.private_path(stage.id).unlink(missing_ok=True)
-        except PermissionError:
-            pass  # In-use preview retains only a private file; next cleanup retries it.
 
 
 def cancel(db, user, identifier):
     with attempt_lease(db, 'B5:' + identifier):
-        draft = owned(db, user, identifier)
+        draft = owned(db, user, identifier, open_only=False)
+        if draft.status == 'CANCELLED':
+            return {'id': identifier, 'status': 'CANCELLED'}
+        if draft.status != 'OPEN':
+            raise ObjectVersionConflictError('Разбор уже принят')
         require_idle(db, identifier)
         draft.status = 'CANCELLED'
         draft.payload, draft.choices, draft.preview, draft.staging = {}, {}, {}, {}
         db.commit()
-        cleanup_local(db, identifier)
         return {'id': identifier, 'status': 'CANCELLED'}
 
 
-def cleanup(db, user, identifier):
+def cleanup(db, user, identifier, *, operation_id=None):
     """Only ledger-owned unpublished originals may be moved to provider trash; never accepted FILEs."""
-    from app.arm2.deletion_cleanup import still_referenced
+    from app.arm2.deletion_cleanup import clean_original
 
-    with attempt_lease(db, 'B5:' + identifier):
-        draft = owned(db, user, identifier, open_only=False)
-        if draft.status == 'OPEN':
-            raise ValueError('Сначала завершите или отклоните разбор')
-        require_idle(db, identifier)
-        pending = 0
-        for stage in db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == identifier)):
-            for entries in stage.prepared.values():
-                for item in entries:
-                    if item['existing'] or still_referenced(db, item['storage_ref']):
+    draft = owned(db, user, identifier, open_only=False, lock=False)
+    if draft.status == 'OPEN':
+        raise ValueError('Сначала завершите или отклоните разбор')
+    try:
+        with attempt_lease(db, 'B5:' + identifier), protected_cleanup(db.get_bind()):
+            require_idle(db, identifier, operation_id)
+            pending = 0
+            for stage in db.scalars(select(QuestionnaireUpload).where(QuestionnaireUpload.draft_id == identifier)):
+                if stage.prepared.get('cleanup_v1', {}).get('complete') is True:
+                    continue
+                local = 'CLEAN'
+                try:
+                    if files.private_path(stage.id).exists():
+                        files.verified_stage(stage)
+                        files.private_path(stage.id).unlink(missing_ok=True)
+                except (OSError, ValueError, files.StorageUnavailable):
+                    local = 'PENDING_LOCAL'
+                remote = {}
+                for command, item in questionnaire_preparations(stage.prepared):
+                    if item['existing']:
                         continue
-                    prefix = files.document_root() + '/questionnaires/' + identifier + '/'
-                    if not item['storage_ref'].startswith(prefix):
-                        raise ObjectAuthorizationError('Нельзя очищать файлы вне staging этого пакета')
+                    key = f"{command}/{item['id']}"
                     try:
-                        provider = files.storage()
-                        remote_metadata = getattr(provider, 'document_metadata', provider.metadata)
-                        if remote_metadata(item['storage_ref']) is None:
-                            continue
-                        if not files.verify_remote(type('Metadata', (), item), provider):
-                            pending += 1  # Different/unverifiable bytes are never deleted or declared clean.
-                            continue
-                        provider.trash_exchange_file(item['storage_ref'], item['sha256'])
-                        if remote_metadata(item['storage_ref']) is not None:
-                            pending += 1
-                    except Exception:
-                        pending += 1  # Keep provenance; provider recovery may retry safe garbage cleanup.
-            if stage.state != 'ACCEPTED' and not pending:
-                stage.state = 'DISCARDED'
-        db.commit()
-        cleanup_local(db, identifier)
-        return {'id': identifier, 'pending': pending}
+                        target = f"{files.document_root()}/questionnaires/{identifier}/{key}/{item['stored_name']}"
+                        if (target != item['storage_ref'] or item.get('upload_id') != stage.id
+                                or (item['sha256'], item['size']) != (stage.sha256, stage.size)):
+                            remote[key] = 'PENDING_IDENTITY'
+                        elif db.scalar(select(DocumentFile.id).where(DocumentFile.storage_ref == target)):
+                            remote[key] = 'PUBLISHED'
+                        else:
+                            try:
+                                failure = clean_original(db.get_bind(), item, lambda *_: None)
+                            except Exception:
+                                remote[key] = 'PENDING_STORAGE'
+                            else:
+                                code = failure['code'] if failure else None
+                                remote[key] = 'PENDING_RECHECK' if code == 'REFERENCED' else (
+                                    'PENDING_' + code if code else 'CLEAN')
+                    except (OSError, ValueError, files.StorageUnavailable):
+                        remote[key] = 'PENDING_STORAGE'
+                remaining = (local != 'CLEAN') + sum(state.startswith('PENDING') for state in remote.values())
+                stage.prepared = {**stage.prepared, 'cleanup_v1': {'complete': not remaining,
+                    'checked_at': datetime.now(UTC).isoformat(), 'local': local, 'remote': remote}}
+                if stage.state != 'ACCEPTED' and not remaining:
+                    stage.state = 'DISCARDED'
+                pending += remaining
+            db.commit()
+            return {'id': identifier, 'pending': pending}
+    except (ObjectVersionConflictError, SQLAlchemyError, KeyError, TypeError, ValueError):
+        rollback(db)
+        return {'id': identifier, 'pending': 1}
 
 
 def export(db, user, cp_id, *, with_files=False, incomplete_reason=None):
