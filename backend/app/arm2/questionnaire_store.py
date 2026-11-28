@@ -768,7 +768,9 @@ def apply(db, principal, identifier, command_id, revision, preview_id, session_h
             if without_documents:
                 # Keep the original uploads and explicit bindings for later document-only acceptance.
                 # These IDs come only from this successful domain transaction, never name inference.
-                draft.payload = {**draft.payload, '_documents_pending': True}
+                draft.payload = {**draft.payload, '_documents_pending': True,
+                    'vehicles': [{**row, 'input_id': row.get('input_id', row['id']), 'id': identities[row['key']]}
+                                 if row['key'] in identities else row for row in draft.payload.get('vehicles', [])]}
                 draft.choices = {**draft.choices, 'cp_target': cp.id if cp else draft.choices.get('cp_target'),
                     'cp_fields': [], 'cp_clears': [], 'confirm_identity': False,
                     'representatives': {k: {**v, 'target': identities.get('representative:' + k, v.get('target')),

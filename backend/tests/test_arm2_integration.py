@@ -137,6 +137,7 @@ def test_i05_b3_move_retype_correct_and_b2_owner_isolate_histories_and_downloads
     url = create(qa, "veh")
     checked(accept(c, url, 1, [stage(c, url, pdf("will correct")), stage(c, url, pdf("keep"))]))
     before = bundle(c, url)
+    document_name = checked(c.get(url))["name"]
     vehicle_events = history(c, "VEH", parents["veh"])
     checked(operation(c, url, "retype", 2, kind_ref=kind(c)))
     target = checked(c.post('/api/arm2/vehicles', json={"name": "Second VEH", "plate_number": "A124BC86"}), 201)
@@ -147,7 +148,7 @@ def test_i05_b3_move_retype_correct_and_b2_owner_isolate_histories_and_downloads
     checked(command(c, target, ("ORG", parents["org"])))
     after = bundle(c, moved)['revisions']
     assert historical_revisions(after) == historical_revisions(before['revisions'])
-    assert all(f['download_name'].startswith('Second VEH Другой вид ') for f in after[0]['files'])
+    assert all(f["download_name"] == f"Second VEH {document_name}-{f['id']}.pdf" for f in after[0]["files"])
     files = before["revisions"][0]["files"]
     checked(correct(c, moved, 4, files[0]["id"]))
     rev = before["revisions"][0]["id"]

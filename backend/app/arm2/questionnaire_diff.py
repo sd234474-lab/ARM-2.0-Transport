@@ -228,7 +228,7 @@ def build(db, principal, draft):
     type_view = has_permission(user, Permission.ARM2_TYPE_VIEW)
     veh_view = has_permission(user, Permission.ARM2_VEH_VIEW)
     for raw in payload.get('vehicles', []):
-        identifier = bound_rows.get(raw['key'], raw['id'])
+        identifier = bound_rows.get(raw['key'], raw.get('input_id', raw['id']))
         choice = choices.get('vehicles', {}).get(raw['key'], {})
         errors = [raw['status_error']] if raw.get('status_error') else []
         current, plate = None, None
