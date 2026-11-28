@@ -1,6 +1,7 @@
 """REL-ARCH-04 ingress, staged relation proof, receipt and protected cleanup."""
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+from hashlib import sha256
 from threading import Event
 from uuid import uuid4
 
@@ -214,19 +215,23 @@ def test_failed_remote_cleanup_keeps_terminal_receipt_and_retries_only_own_origi
     draft = choose(c, draft, documents={
         "company": {"kind_id": company, "accept": False}, "v:5:sts": {"kind_id": sts, "accept": True},
     })
-    trash = disk.trash_exchange_file
-
     def unavailable(path, digest):
         assert path == abandoned
         raise RuntimeError("Synthetic provider failure")
 
-    monkeypatch.setattr(disk, "trash_exchange_file", unavailable)
+    monkeypatch.setattr(disk, "trash_exchange_file", unavailable, raising=False)
     receipt, _ = apply(c, draft)
     assert receipt["event_ids"] and reopen(c, draft)["receipt"] == receipt
     accepted = disk.uploads[1]
     assert disk.location(accepted).read_bytes() == pdf("selected")
     assert disk.location(abandoned).read_bytes() == pdf("orphan")
     assert draft["id"] in {row["id"] for row in check(c.get("/api/arm2/questionnaires/cleanup"))}
+    def trash(path, digest):
+        assert path == abandoned
+        original = disk.location(path)
+        assert sha256(original.read_bytes()).hexdigest() == digest
+        original.unlink()
+
     monkeypatch.setattr(disk, "trash_exchange_file", trash)
     assert check(c.post(f"/api/arm2/questionnaires/{draft['id']}/cleanup"))["pending"] == 0
     assert not disk.location(abandoned).exists()

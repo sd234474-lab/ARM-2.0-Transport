@@ -464,7 +464,10 @@ def verify_questionnaire_staging(db, draft, comparison=None):
     """Prove the ordered prepared FILE set against the saved decision and upload ledger."""
     if not draft.staging:
         return
-    comparison = draft.preview if comparison is None else comparison
+    if comparison is None:
+        comparison = draft.preview
+    else:
+        questionnaire_selection(draft)
     from app.arm2.questionnaire_store import apply_fingerprint, review_hash
 
     command = draft.staging["command_id"]
